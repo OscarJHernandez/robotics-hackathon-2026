@@ -8,6 +8,8 @@
   <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast"/>
   <visual><global offwidth="1280" offheight="720"/></visual>
   <asset>
+    <!-- Sky: a soft blue-to-white gradient (looks only), so views above the horizon are not black. -->
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.55 0.70 0.86" rgb2="0.96 0.97 0.99" width="512" height="3072"/>
     <texture name="grid" type="2d" builtin="checker" width="256" height="256" rgb1="0.85 0.87 0.9" rgb2="0.75 0.78 0.82"/>
     <material name="floor" texture="grid" texrepeat="8 8" reflectance="0.05"/>
     <mesh name="coxa" file="coxa.stl" scale="0.001 0.001 0.001"/>

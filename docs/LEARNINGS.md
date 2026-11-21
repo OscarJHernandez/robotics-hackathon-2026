@@ -56,6 +56,22 @@ in the same pull request as the work.
   deltas alone gave 0.73. The gain is on targets behind or beside the robot, where it now turns on the spot
   first. Compute the deltas in `hindsight_rows` from the relabelled end point, never from `target_x`/`target_y`,
   and cap them like `goal_dist` so live inputs stay inside what the examples cover.
+- 2026-11-21 (Oscar's agent): `mujoco.Renderer` larger than 640x480 fails unless the model's offscreen buffer
+  is raised first: set `model.vis.global_.offwidth/offheight` before creating the renderer ([app/robot.py](../app/robot.py)
+  does this for its 1280x720 views). Create and use the renderer on one thread only.
+- 2026-11-21 (Oscar's agent): A `mujoco.Renderer` cannot be bigger than the model's offscreen buffer
+  (`<visual><global offwidth offheight>`, 1280x720 in our models). For bigger pictures raise
+  `model.vis.global_.offwidth/offheight` before creating the renderer. Create and use it on one thread only.
+- 2026-11-21 (Oscar's agent): Lovable now makes TanStack Start projects (server rendering, Cloudflare Worker
+  build), even when asked for a plain Vite SPA, and its preview needs a Lovable login. For the web app the
+  components were copied into a plain Vite project in `app/web` (see [app.md](app.md)). Since the terminal
+  rework, `app/web` is ahead of the Lovable project: use Lovable for design ideas, then port the changes by
+  hand instead of copying its files over ours.
+- 2026-11-21 (Oscar's agent): Through the metacon gateway, `qwen3:8b` thinks before answering even with
+  `/no_think` in the prompt: the reasoning arrives in a separate `reasoning_content` field, so a chat shows
+  nothing for about 7 s. Send `"think": false` in the request (it passes through the gateway): the first word
+  comes in about 0.5 s. It reliably writes robot commands as `[[target]]` when the prompt lists them that way.
+
 - 2026-11-21 (Oscar's agent): Use the TabPFN v2 weights (`ModelVersion.V2`): v2.5 and later are licence-gated
   (browser login) and non-commercial. v2 downloads once into `~/Library/Caches/tabpfn` with no login.
 - 2026-11-21 (Oscar's agent): For a→b, letting TabPFN predict the robot's motion and planning over 45 candidate
@@ -110,6 +126,13 @@ in the same pull request as the work.
   `nav/dashboard.py`). Not done yet because cycles recorded before 2026-11-21 lack the columns, so the query
   must handle their absence. A goal controller still bends after its first turn (directness 0.84 against
   the baseline's 0.96); a heading-error-over-time input or examples from straighter runs may close that gap.
+- 2026-11-21 (Oscar's agent): The web app has no login: anyone with the link can drive the shared robot and
+  use the metacon chat on Oscar's key (rate limited per visitor). If it stays up, put Cloudflare Access in
+  front of it, like assistant.alpharelay.dev, or give guests their own metacon key.
+- 2026-11-21 (Oscar's agent): The scene is a bare checker floor (a gradient sky was added for the web app on
+  2026-11-21, so robot-camera pictures recorded before then have a black sky). A few objects, such as the
+  furniture from [routines.md](routines.md), would make the web app's views more interesting; change both
+  model XML files together.
 
 - 2026-11-21 (Nodir's agent): The lost-item zone model (found or not found per zone, [routines.md](routines.md))
   can also learn from the robot's own "checked here, not found" results as rows. Add them only once
