@@ -5,12 +5,14 @@ pictures (outside views named in VIEWS, and the robot's own camera), only of vie
 put commands on a queue and read the latest pictures and state. MuJoCo's renderer must be created
 and used on one thread, which is why rendering happens here too.
 
-Commands (the same words the chat understands): goto X Y, forward M, turn DEG, stop, reset.
+Commands (the same words the chat understands): goto X Y, forward M, turn DEG, stop, reset, random
+(moves the red end-point pillar to a random spot; a robot walking to the pillar follows it).
 """
 
 import io
 import math
 import queue
+import random
 import sys
 import threading
 import time
@@ -32,6 +34,8 @@ MAX_STEP = 0.13  # metres per cycle at full stride
 REACHED = 0.10  # metres: close enough to a goto point
 YAW_REACHED = 0.06  # radians: close enough to a turn target
 ARENA = 2.6  # metres: goto points are kept inside this square (the floor is 3 m each way)
+RANDOM_SPAN = 2.0  # metres: random end points lie in this square, so they stay well inside the floor
+RANDOM_MIN_DIST = 0.8  # metres: a random end point is at least this far from the robot
 FALLEN = 0.5  # body_upright() below this counts as a fall
 JPEG_QUALITY = 72
 VIEW_SIZE = (1280, 720)  # width, height of the outside views
@@ -40,7 +44,7 @@ VIEWS = {"chase": 4, "orbit": 4, "overhead": 6, "eye": 6}
 WATCHED = 3.0  # seconds: a view is rendered only while someone asked for it this recently
 
 HELP = ("goto X Y (metres, floor is -{a} to {a}), forward M (metres), turn DEG (positive = left), "
-        "stop, reset").format(a=ARENA)
+        "stop, reset, random (new random end point)").format(a=ARENA)
 
 
 def wrap(angle):
@@ -65,9 +69,19 @@ def parse_command(text):
         return ("forward", numbers[0])
     if name == "turn" and len(numbers) == 1 and abs(numbers[0]) <= 360:
         return ("turn", math.radians(numbers[0]))
-    if name in ("stop", "reset") and not numbers:
+    if name in ("stop", "reset", "random") and not numbers:
         return (name,)
     raise ValueError("unknown command '{}'. Commands: {}".format(text.strip(), HELP))
+
+
+def random_point(state, rng=random):
+    """A random end point inside RANDOM_SPAN, at least RANDOM_MIN_DIST from the robot in `state`."""
+    rx, ry = state.get("x", 0.0), state.get("y", 0.0)
+    for _ in range(100):
+        x, y = rng.uniform(-RANDOM_SPAN, RANDOM_SPAN), rng.uniform(-RANDOM_SPAN, RANDOM_SPAN)
+        if math.hypot(x - rx, y - ry) >= RANDOM_MIN_DIST:
+            break
+    return (round(x, 2), round(y, 2))
 
 
 def to_jpeg(rgb):
@@ -100,7 +114,11 @@ class LiveRobot:
     def command(self, text):
         """Queue a command; returns its normal form. Raises ValueError if it is not understood."""
         parsed = parse_command(text)
+        if parsed[0] == "random":
+            parsed = ("target",) + random_point(self.state())
         self._commands.put(parsed)
+        if parsed[0] == "target":
+            return "random end point {:.2f} {:.2f}".format(parsed[1], parsed[2])
         return " ".join([parsed[0]] + ["{:.2f}".format(math.degrees(v) if parsed[0] == "turn" else v)
                                        for v in parsed[1:]])
 
@@ -154,6 +172,11 @@ class LiveRobot:
                     sim.reset()
                     sim.set_target(1.0, 0.0)
                     mode, goal = "idle", None
+                elif cmd[0] == "target":  # move the pillar; a walk to the pillar follows it
+                    sim.set_target(cmd[1], cmd[2])
+                    if mode == "goto":
+                        goal = (cmd[1], cmd[2])
+                    continue  # keep the gait clock: no jump in the legs
                 elif cmd[0] == "stop":
                     mode, goal = "idle", None
                 elif cmd[0] == "turn":

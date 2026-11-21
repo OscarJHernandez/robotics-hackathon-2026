@@ -60,7 +60,8 @@ export function App() {
           <Caption onPick={say} />
         </div>
         <div className="flex flex-col items-end gap-3">
-          <ViewList views={views} active={main} onPick={setMain} mapOpen={mapOpen} onToggleMap={() => setMapOpen((o) => !o)} />
+          <ViewList views={views} active={main} onPick={setMain} mapOpen={mapOpen} onToggleMap={() => setMapOpen((o) => !o)}
+            onRandom={() => run("random")} />
           {mapOpen && <MiniMapCard s={state} onGoto={(x, y) => run(`goto ${x} ${y}`)} />}
         </div>
       </header>

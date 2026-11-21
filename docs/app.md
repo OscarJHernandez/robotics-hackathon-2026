@@ -12,7 +12,7 @@ just app           # http://127.0.0.1:8790
 
 | Path | What it is |
 |---|---|
-| `app/robot.py` | `LiveRobot`: one thread steps MuJoCo in real time, steers the robot (goto, forward, turn, stop, reset) and renders JPEG pictures of an outside view and the robot camera |
+| `app/robot.py` | `LiveRobot`: one thread steps MuJoCo in real time, steers the robot (goto, forward, turn, stop, reset) and moves the end point (`random`, also the dice buttons) and renders JPEG pictures of an outside view and the robot camera |
 | `app/llm.py` | Chat with the metacon gateway (`http://metacon:4000/v1`, model `qwen3:8b`); the model moves the robot by writing `[[goto 1 0.5]]` in its answer |
 | `app/server.py` | Standard-library HTTP server: the API under `/api` (documented at the top of the file) and the built front end |
 | `app/web/` | The front end: React, Vite, Tailwind, built with Lovable (project "JetHexa Live Studio"). Full-screen view with switchable cameras (chase, orbit, overhead, robot eye), a chat bar and a red/green terminal. Without the API it runs a demo mode |

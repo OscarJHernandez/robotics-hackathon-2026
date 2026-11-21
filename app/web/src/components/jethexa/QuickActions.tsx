@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { ArrowUp, MoreHorizontal, RotateCcw, RotateCw, Square, RefreshCw } from "lucide-react";
+import { ArrowUp, Dices, MoreHorizontal, RotateCcw, RotateCw, Square, RefreshCw } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const actions = [
   ["Forward 0.5 m", "forward 0.5", ArrowUp], ["Turn left 90°", "turn 90", RotateCcw],
-  ["Turn right 90°", "turn -90", RotateCw], ["Stop", "stop", Square], ["Reset", "reset", RefreshCw],
+  ["Turn right 90°", "turn -90", RotateCw], ["Stop", "stop", Square], ["Random end point", "random", Dices], ["Reset", "reset", RefreshCw],
 ] as const;
 
 export function QuickActions({ onRun }: { onRun: (t: string) => void }) {

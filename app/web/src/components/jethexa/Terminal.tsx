@@ -12,7 +12,7 @@ export type Line =
 type NoId<T> = T extends unknown ? Omit<T, "id"> : never;
 
 const WELCOME = 'metacon online. Ask me to move the robot, e.g. "walk to the red pillar" or "turn around". Type /help for direct commands.';
-const HELP = "/goto X Y · /forward M · /turn DEG · /stop · /reset · /clear · /help";
+const HELP = "/goto X Y · /forward M · /turn DEG · /stop · /random · /reset · /clear · /help";
 let uid = 0;
 
 /** All metacon terminal behaviour: chat stream, slash commands, input history. */

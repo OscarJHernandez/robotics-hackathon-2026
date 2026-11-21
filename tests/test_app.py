@@ -9,7 +9,9 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import llm  # noqa: E402
-from robot import ARENA, parse_command  # noqa: E402
+import random  # noqa: E402
+
+from robot import ARENA, RANDOM_MIN_DIST, RANDOM_SPAN, parse_command, random_point  # noqa: E402
 
 
 class ParseCommandTest(unittest.TestCase):
@@ -21,9 +23,17 @@ class ParseCommandTest(unittest.TestCase):
         self.assertAlmostEqual(parse_command("turn 90")[1], math.pi / 2)
         self.assertEqual(parse_command("STOP"), ("stop",))
         self.assertEqual(parse_command("reset"), ("reset",))
+        self.assertEqual(parse_command("/random"), ("random",))
+
+    def test_random_point(self):
+        rng = random.Random(1)
+        for _ in range(200):
+            x, y = random_point({"x": 0.3, "y": -0.2}, rng)
+            self.assertLessEqual(max(abs(x), abs(y)), RANDOM_SPAN)
+            self.assertGreaterEqual(math.hypot(x - 0.3, y + 0.2), RANDOM_MIN_DIST - 0.01)
 
     def test_rejects(self):
-        for text in ("", "fly", "goto 1", "goto a b", "forward -1", "turn 720", "goto nan 0", "stop now"):
+        for text in ("", "fly", "goto 1", "goto a b", "forward -1", "turn 720", "goto nan 0", "stop now", "random 1"):
             with self.assertRaises(ValueError, msg=text):
                 parse_command(text)
 
