@@ -1,0 +1,5 @@
+<!-- The JetHexa in one furnished room. See room_furniture.xml for the layout. -->
+<mujoco model="jethexa_room_simple">
+  <include file="jethexa_simple.xml"/>
+  <include file="room_furniture.xml"/>
+</mujoco>

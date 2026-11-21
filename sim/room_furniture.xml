@@ -1,0 +1,32 @@
+<!-- One room, 3 m x 2 m (x -1.5..1.5, y -1..1), robot starts at the origin facing +x.
+     Walls with a door on the +x side and 4 obstacles: bed, couch, kitchen table, armchair.
+     All are solid (they collide with the robot). Included by room.xml and room_simple.xml. -->
+<mujoco>
+  <default>
+    <default class="wall"><geom type="box" rgba="0.92 0.9 0.86 1" group="0"/></default>
+    <default class="furniture"><geom type="box" group="0"/></default>
+  </default>
+  <worldbody>
+    <!-- Walls: 0.4 m high, 5 cm thick. Door gap on the +x wall between y = -0.75 and -0.25. -->
+    <geom name="wall_back"  class="wall" pos="-1.525 0 0.2"  size="0.025 1.05 0.2"/>
+    <geom name="wall_left"  class="wall" pos="0 1.025 0.2"   size="1.55 0.025 0.2"/>
+    <geom name="wall_right" class="wall" pos="0 -1.025 0.2"  size="1.55 0.025 0.2"/>
+    <geom name="wall_front_a" class="wall" pos="1.525 0.375 0.2"  size="0.025 0.625 0.2"/>
+    <geom name="wall_front_b" class="wall" pos="1.525 -0.875 0.2" size="0.025 0.125 0.2"/>
+
+    <!-- Obstacle 1: bed in the back-left corner. -->
+    <geom name="obs_bed" class="furniture" pos="-1.1 0.55 0.225" size="0.4 0.45 0.225" rgba="0.55 0.65 0.85 1"/>
+    <!-- Obstacle 2: couch along the right wall, back half. -->
+    <geom name="obs_couch" class="furniture" pos="-0.9 -0.8 0.2" size="0.4 0.2 0.2" rgba="0.75 0.45 0.4 1"/>
+    <!-- Obstacle 3: kitchen table, front-left. Four legs and a top at 0.75 m; the robot fits between the legs. -->
+    <body name="obs_table" pos="0.95 0.6 0">
+      <geom name="obs_table_top" class="furniture" pos="0 0 0.74" size="0.3 0.25 0.02" rgba="0.7 0.55 0.35 1"/>
+      <geom name="obs_table_leg1" class="furniture" type="cylinder" pos="0.26 0.21 0.36" size="0.02 0.36" rgba="0.5 0.38 0.25 1"/>
+      <geom name="obs_table_leg2" class="furniture" type="cylinder" pos="-0.26 0.21 0.36" size="0.02 0.36" rgba="0.5 0.38 0.25 1"/>
+      <geom name="obs_table_leg3" class="furniture" type="cylinder" pos="0.26 -0.21 0.36" size="0.02 0.36" rgba="0.5 0.38 0.25 1"/>
+      <geom name="obs_table_leg4" class="furniture" type="cylinder" pos="-0.26 -0.21 0.36" size="0.02 0.36" rgba="0.5 0.38 0.25 1"/>
+    </body>
+    <!-- Obstacle 4: armchair, front-right, next to the door. -->
+    <geom name="obs_armchair" class="furniture" pos="0.6 -0.65 0.225" size="0.25 0.25 0.225" rgba="0.45 0.6 0.45 1"/>
+  </worldbody>
+</mujoco>
