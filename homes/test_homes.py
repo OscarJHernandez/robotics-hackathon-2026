@@ -384,5 +384,33 @@ class SearchTest(unittest.TestCase):
         self.assertLess(len(steps), self.S.MAX_LOOKS)
 
 
+class SimBridgeTest(unittest.TestCase):
+    """The search as the robot's orchestrator: Search.goal() -> the simulated JetHexa walks there (nav/dagger)."""
+
+    def test_the_search_drives_the_robot_in_the_simulator_until_it_finds_her(self):
+        try:
+            import sim_bridge
+        except ImportError as error:
+            self.skipTest("needs mujoco and nav/dagger: {}".format(error))
+        flat = make_flat(0)
+        probs = {"bedroom": 0.15, "living_room": 0.40, "dining_area": 0.12, "kitchen": 0.22, "hallway": 0.06,
+                 "out": 0.05}
+        person = (F.zone(flat, "kitchen")["person_x"], F.zone(flat, "kitchen")["person_y"])
+        env = sim_bridge.FlatEnv(flat, person)
+        try:
+            self.assertEqual(F.zone_at(flat, *env.pose()[:2]), "hallway")  # the robot starts at the dock
+            search, legs = sim_bridge.search_in_sim(flat, probs, "kitchen", person, miss_rate=0.0, env=env,
+                                                    log=lambda *a: None)
+            self.assertEqual(search.status, "found")
+            self.assertEqual([leg["zone"] for leg in legs], ["living_room", "kitchen"])  # most likely first
+            self.assertTrue(all(leg["reason"] == "goal" for leg in legs))  # every walk arrived, no collision
+            self.assertEqual(F.zone_at(flat, *env.pose()[:2]), "kitchen")  # the robot really is where it looked
+            x, y, _ = env.pose()
+            goal = F.zone(flat, "kitchen")
+            self.assertLess(math.hypot(x - goal["view_x"], y - goal["view_y"]), env.goal_radius + 0.05)
+        finally:
+            env.close()
+
+
 if __name__ == "__main__":
     unittest.main()

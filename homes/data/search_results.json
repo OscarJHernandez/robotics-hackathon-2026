@@ -155,6 +155,36 @@
   "right_when_said": 0.9
  },
  "residents": 120,
+ "loop": {
+  "miss_rate": 0.2,
+  "at_home": 4101,
+  "bayes": {
+   "found": 0.989,
+   "looks": 2.22,
+   "metres": 8.46
+  },
+  "certain": {
+   "found": 0.801,
+   "looks": 1.53,
+   "metres": 6.51
+  },
+  "nearest": {
+   "found": 0.965,
+   "looks": 4.2,
+   "metres": 9.98
+  },
+  "last": {
+   "found": 0.981,
+   "looks": 3.1,
+   "metres": 10.42
+  },
+  "came_back": 0.254,
+  "out": {
+   "check_ins": 699,
+   "ended_nobody_home": 0.491,
+   "looks": 3.61
+  }
+ },
  "residents_generated": 600,
  "days": 30,
  "seed": 0,

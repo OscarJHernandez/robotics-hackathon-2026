@@ -274,6 +274,137 @@ def describe(title, r):
     return lines
 
 
+# --- the loop: proposal -> observation -> update -> next zone, until found ---
+
+LOOP_STRATEGIES = (
+    ("bayes", "Bayesian loop: look, update the belief, pick again"),
+    ("certain", "Same belief, but a miss rules the zone out (no second look)"),
+    ("nearest", "Nearest zone first, round after round"),
+    ("last", "Last heard first, then rounds"),
+)
+
+
+def sweep(flat, order, truth, rng, miss_rate):
+    """Rounds over a fixed order of zones with the same imperfect look, until she is seen or MAX_LOOKS."""
+    names, dist = S.distances(flat)
+    at, metres, looks = 0, 0.0, 0
+    while looks < S.MAX_LOOKS:
+        for zone in order:
+            i = names.index(zone)
+            metres, at, looks = metres + float(dist[at, i]), i, looks + 1
+            if S.observe(zone, truth, rng, miss_rate):
+                return looks, metres, True
+            if looks >= S.MAX_LOOKS:
+                break
+    return looks, metres, False
+
+
+def loops(rows, miss_rate, seed=0):
+    """Run every strategy's search loop on every check-in. Adds r["loop"] (the Bayesian loop's steps) and
+    r["loop_runs"] {strategy: (looks, metres, found)} to each row."""
+    for k, r in enumerate(rows):
+        flat, start, truth = r["flat"], r["beliefs"]["last_heard"], r["truth"]
+        rng = {name: np.random.default_rng([seed, k, j]) for j, (name, _) in enumerate(LOOP_STRATEGIES)}
+        steps = S.run(flat, start, truth, rng["bayes"], miss_rate)
+        certain = S.run(flat, start, truth, rng["certain"], miss_rate, update_rate=0.0)
+        last = r["last"][0] if r["last"] else None
+        r["loop"] = steps
+        r["loop_runs"] = {
+            "bayes": (len(steps), steps[-1]["metres"] if steps else 0.0, bool(steps and steps[-1]["seen"])),
+            "certain": (len(certain), certain[-1]["metres"] if certain else 0.0, bool(certain and certain[-1]["seen"])),
+            "nearest": sweep(flat, S.nearest_first(flat), truth, rng["nearest"], miss_rate),
+            "last": sweep(flat, S.nearest_first(flat, last), truth, rng["last"], miss_rate),
+        }
+    return rows
+
+
+def loop_table(rows, miss_rate):
+    home = [r for r in rows if r["truth"] != "out"]
+    away = [r for r in rows if r["truth"] == "out"]
+    lines = ["", "The search loop with an imperfect look: the robot overlooks her {:.0f}% of the times she is in the zone "
+             "it looks at.".format(100 * miss_rate),
+             "{} check-ins with her at home. Looks and metres are averages over the searches that found her.".format(
+                 len(home)),
+             "{:<62}{:>8}{:>8}{:>9}".format("Strategy (all with the same imperfect look)", "found", "looks", "metres")]
+    result = {"miss_rate": miss_rate, "at_home": len(home)}
+    for name, label in LOOP_STRATEGIES:
+        runs = [r["loop_runs"][name] for r in home]
+        found = [x for x in runs if x[2]]
+        entry = {"found": round(len(found) / len(runs), 3), "looks": round(float(np.mean([x[0] for x in found])), 2),
+                 "metres": round(float(np.mean([x[1] for x in found])), 2)}
+        result[name] = entry
+        lines.append("{:<62}{:>7.1f}%{:>8.2f}{:>9.1f}".format(label, 100 * entry["found"], entry["looks"],
+                                                             entry["metres"]))
+    back = [r for r in home if r["loop_runs"]["bayes"][2]
+            and len({s["zone"] for s in r["loop"]}) < len(r["loop"])]
+    result["came_back"] = round(len(back) / len(home), 3)
+    lines.append("In {:.0f}% of the searches the Bayesian loop went back to a zone it had already looked at, "
+                 "and then found her.".format(100 * result["came_back"]))
+    if away:
+        ended = [r for r in away if r["loop"] and r["loop"][-1]["belief_after"]["out"] >= S.STOP_OUT]
+        result["out"] = {"check_ins": len(away), "ended_nobody_home": round(len(ended) / len(away), 3),
+                         "looks": round(float(np.mean([len(r["loop"]) for r in away])), 2)}
+        lines.append("She was out in {} check-ins: the loop ended with 'nobody home' ({:.0f}% sure) in {:.0f}% of them, "
+                     "after {:.1f} looks on average.".format(len(away), 100 * S.STOP_OUT,
+                                                             100 * result["out"]["ended_nobody_home"],
+                                                             result["out"]["looks"]))
+    return lines, result
+
+
+def pick_loops(rows):
+    """Four loops that show the cycle: a direct hit, a wrong guess, a false negative, and nobody home."""
+    def zones(r):
+        return [s["zone"] for s in r["loop"]]
+
+    def found(r):
+        return r["loop"] and r["loop"][-1]["seen"]
+
+    wanted = (
+        ("Found at the first look",
+         lambda r: found(r) and len(r["loop"]) == 1 and r["loop"][0]["p_before"] > 0.45 and not r["recent"]),
+        ("Wrong guess, update, next zone",
+         lambda r: found(r) and len(r["loop"]) == 3 and len(set(zones(r))) == 3 and not r["recent"]
+         and r["loop"][0]["p_before"] > 0.35),
+        ("A missed sighting, and the robot comes back",
+         lambda r: found(r) and 3 <= len(r["loop"]) <= 5 and zones(r)[0] == r["truth"] == zones(r)[-1]
+         and zones(r).count(r["truth"]) == 2 and r["loop"][0]["p_before"] > 0.4),
+        ("Nobody home: the belief in 'out' grows with every empty zone",
+         lambda r: r["truth"] == "out" and 3 <= len(r["loop"]) <= 5 and not r["recent"]
+         and r["beliefs"]["last_heard"]["out"] < 0.8 and r["loop"][-1]["belief_after"]["out"] >= S.STOP_OUT),
+    )
+    chosen, used = [], set()
+    for title, test in wanted:
+        for r in rows:
+            if r["persona"]["name"] not in used and test(r):
+                chosen.append((title, r))
+                used.add(r["persona"]["name"])
+                break
+    return chosen
+
+
+def loop_story(r, miss_rate):
+    name, steps = r["persona"]["name"], r["loop"]
+    low = lambda z: NAMES[z].lower()  # noqa: E731
+    first = steps[0]
+    if r["truth"] == "out":
+        return ("{} is out. Every empty zone moves belief to 'out': from {:.0f}% to {:.0f}% after {} looks, "
+                "and the robot stops.".format(name, 100 * first["belief_before"]["out"],
+                                              100 * steps[-1]["belief_after"]["out"], len(steps)))
+    if len(steps) == 1:
+        return "The belief puts the {} at {:.0f}%. The robot goes there, looks, and sees {}.".format(
+            low(first["zone"]), 100 * first["p_before"], name)
+    zones = [s["zone"] for s in steps]
+    if zones.count(r["truth"]) > 1:
+        missed = steps[zones.index(r["truth"])]
+        return ("{} is in the {}, but the robot overlooks {} at look {}. The {} drops from {:.0f}% to {:.0f}%, not to 0, "
+                "so after the other zones are empty the robot returns and finds {}.".format(
+                    name, low(r["truth"]), name, zones.index(r["truth"]) + 1, low(r["truth"]),
+                    100 * missed["p_before"], 100 * missed["belief_after"][r["truth"]], name))
+    return ("The {} is the best guess ({:.0f}%) but empty. Each miss moves belief to the other zones, and look {} "
+            "finds {} in the {}.".format(low(first["zone"]), 100 * first["p_before"], len(steps), name,
+                                         low(r["truth"])))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--residents", type=int, default=600)
@@ -281,6 +412,8 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default=str(OUT))
     parser.add_argument("--tune", action="store_true", help="find the weights for search.WEIGHTS (train residents) and stop")
+    parser.add_argument("--miss-rate", type=float, default=S.MISS_RATE,
+                        help="the search loop's mock look: chance of overlooking her in the zone she is in")
     args = parser.parse_args()
     out = build(residents=args.residents, days=args.days, seed=args.seed)
     population = S.population_shares(out["diary"])
@@ -299,14 +432,34 @@ def main():
     data = Path(args.out)
     examples = data / "search_examples"
     examples.mkdir(parents=True, exist_ok=True)
-    for old in examples.glob("example_*.png"):
+    for old in list(examples.glob("example_*.png")) + list(examples.glob("loop_*.png")):
         old.unlink()
+    problems = []  # crowded or cut-off words in the pictures (search_figure.text_problems)
     for i, (title, r) in enumerate(pick(rows), start=1):
-        search_figure.figure(title, story(title, r), r, examples / "example_{}.png".format(i))
+        problems += [(i, x) for x in search_figure.figure(title, story(title, r), r,
+                                                              examples / "example_{}.png".format(i))]
         print("\n" + "=" * 100 + "\n" + story(title, r) + "\n\n" + "\n".join(describe(title, r)))
+    loops(rows, args.miss_rate, args.seed)
+    lines, result["loop"] = loop_table(rows, args.miss_rate)
+    print("\n" + "=" * 100 + "\n".join(lines))
+    for i, (title, r) in enumerate(pick_loops(rows), start=1):
+        text = loop_story(r, args.miss_rate)
+        problems += [("loop {}".format(i), x) for x in search_figure.loop_figure(
+            title, text, r, args.miss_rate, examples / "loop_{}.png".format(i))]
+        print("\n{}\n{}".format(title.upper(), text))
+        for n, step in enumerate(r["loop"], start=1):
+            print("  look {}: {:<12} {:>3.0f}%  ->  {:<12} walked {:>4.1f} m".format(
+                n, NAMES[step["zone"]], 100 * step["p_before"], "FOUND" if step["seen"] else "nobody seen",
+                step["metres"]))
     (data / "search_results.json").write_text(json.dumps(
         dict(result, residents_generated=args.residents, days=args.days, seed=args.seed, weights=S.WEIGHTS), indent=1))
     print("\nwrote", examples, "and", data / "search_results.json")
+    if problems:
+        print("\nPICTURES WITH TEXT PROBLEMS:")
+        for which, problem in problems:
+            print("  {}: {}".format(which, problem))
+        raise SystemExit(1)
+    print("every picture checked: no overlapping or cut-off text")
 
 
 if __name__ == "__main__":

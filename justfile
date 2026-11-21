@@ -114,6 +114,10 @@ app port="8790":
 search-demo *args:
     cd homes && uv run --group ml python search_demo.py {{ args }}
 
+# One search in MuJoCo: the Bayesian search picks the zone, the simulated JetHexa walks there (nav/dagger expert)
+search-sim *args:
+    cd homes && uv run --group ml python sim_bridge.py {{ args }}
+
 # Run the tests for homes/ (Knock data, arena flats, Bayesian search)
 test-homes:
     cd homes && uv run --group ml python -m unittest test_homes.py -v

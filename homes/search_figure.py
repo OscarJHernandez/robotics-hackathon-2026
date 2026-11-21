@@ -7,6 +7,7 @@ left, how far the robot walked against two simple rules.
 """
 
 import math
+import textwrap
 
 import matplotlib
 
@@ -82,9 +83,9 @@ def _box(ax, x, y, w, h, fc, ec="none", lw=0.0, r=0.012, z=2, **kw):
 def habits_card(ax, r):
     wk_now = "1" if r["weekday"] >= 5 else "0"
     _card(ax, "Stated habits", "from a form; can be wrong")
-    x0, y_top, row_h, col_w, gap = 0.20, 0.80, 0.24, 0.265, 0.012
+    x0, y_top, row_h, col_w, gap = 0.20, 0.70, 0.215, 0.265, 0.012
     for j, slot in enumerate(SLOTS):
-        ax.text(x0 + j * col_w + col_w / 2, y_top + 0.04, slot.capitalize(), transform=ax.transAxes, fontsize=9,
+        ax.text(x0 + j * col_w + col_w / 2, y_top + 0.02, slot.capitalize(), transform=ax.transAxes, fontsize=9,
                 color=MUTED, ha="center", va="bottom")
     for i, (wk, label) in enumerate((("0", "Weekdays"), ("1", "Weekends"))):
         y = y_top - (i + 1) * row_h
@@ -141,12 +142,12 @@ def last_heard_card(ax, r):
         ax.text(0.0, 0.25, "Not heard yet", transform=ax.transAxes, fontsize=11, color=INK_2)
         return
     zone, minutes = r["last"]
-    ax.plot([0.018], [0.36], "o", ms=12, color=ZONE_COLOR[zone], transform=ax.transAxes, clip_on=False)
-    ax.text(0.06, 0.36, "{}, {} ago".format(NAMES[zone], ago(minutes)), transform=ax.transAxes, fontsize=12,
+    ax.plot([0.018], [0.50], "o", ms=12, color=ZONE_COLOR[zone], transform=ax.transAxes, clip_on=False)
+    ax.text(0.06, 0.50, "{}, {} ago".format(NAMES[zone], ago(minutes)), transform=ax.transAxes, fontsize=12,
             fontweight="bold", va="center")
     note = ("this {}: {} has most likely not moved".format(SLOTS[r["slot"]], r["persona"]["name"]) if r["recent"]
             else "an earlier part of the day: says little about now")
-    ax.text(0.06, 0.02, note, transform=ax.transAxes, fontsize=9.5, color=INK_2, va="bottom")
+    ax.text(0.06, 0.0, note, transform=ax.transAxes, fontsize=9.5, color=INK_2, va="bottom")
 
 
 # --- the belief ---
@@ -209,16 +210,26 @@ def plan_card(ax, r, order):
         x0, y0 = z["x"] - z["size_x"] / 2, z["y"] - z["size_y"] / 2
         ax.add_patch(Rectangle((x0, y0), z["size_x"], z["size_y"], fc=tint(ZONE_COLOR[z["name"]], 0.16),
                                ec=SURFACE, lw=3, zorder=1))
-        tx, ty = x0 + 0.14, y0 + z["size_y"] - 0.12
         box = dict(boxstyle="round,pad=0.15", fc=tint(ZONE_COLOR[z["name"]], 0.16), ec="none")
         sep = "\n" if z["size_x"] < 1.9 else "  "  # a narrow zone gets two lines
-        ax.text(tx, ty, "{}{}{:.0f}%".format(NAMES[z["name"]], sep, 100 * probs[z["name"]]), fontsize=10.5,
-                fontweight="bold", va="top", zorder=14, bbox=box)
+        # the corner of the zone with the most room: away from its furniture, viewing poses and the dock
+        busy = [(f["x"], f["y"]) for f in flat["furniture"] if f["zone"] == z["name"]]
+        busy += [(sp["view_x"], sp["view_y"]) for sp in z["spots"]] + [(sp["person_x"], sp["person_y"]) for sp in z["spots"]]
+        if z["name"] == "hallway":
+            busy += [(flat["dock"]["x"], flat["dock"]["y"])]
+        corners = [(sx, sy) for sy in (1, -1) for sx in (-1, 1)]  # top-left first when equal
+        sx, sy = max(corners, key=lambda c: min(math.hypot(z["x"] + c[0] * z["size_x"] / 2 - bx, z["y"]
+                                                           + c[1] * z["size_y"] / 2 - by) for bx, by in busy))
+        ax.text(z["x"] + sx * (z["size_x"] / 2 - 0.14), z["y"] + sy * (z["size_y"] / 2 - 0.12),
+                "{}{}{:.0f}%".format(NAMES[z["name"]], sep, 100 * probs[z["name"]]), fontsize=10.5,
+                fontweight="bold", ha="left" if sx < 0 else "right", va="top" if sy > 0 else "bottom", zorder=14,
+                bbox=box)
     for f in flat["furniture"]:
         ax.add_patch(FancyBboxPatch((f["x"] - f["size_x"] / 2, f["y"] - f["size_y"] / 2), f["size_x"], f["size_y"],
                                     boxstyle="round,pad=0,rounding_size=0.06", fc=FURNITURE, ec="none", zorder=3))
-        if f["name"] in ("bed", "couch", "table", "cabinet", "armchair"):
-            ax.text(f["x"], f["y"], f["name"], fontsize=7, color=MUTED, ha="center", va="center", zorder=4)
+        if f["name"] in ("bed", "couch", "table", "cabinet", "armchair") and min(f["size_x"], f["size_y"]) > 0.45:
+            ax.text(f["x"], f["y"], f["name"], fontsize=7, color=MUTED, ha="center", va="center", zorder=4,
+                    rotation=90 if f["size_y"] > f["size_x"] * 1.3 else 0)
     ax.add_patch(Rectangle((-h, -h), 2 * h, 2 * h, fc="none", ec=INK_2, lw=2.5, zorder=5))
     door = flat["door"]
     half = door["width"] / 2
@@ -233,10 +244,6 @@ def plan_card(ax, r, order):
     dock = (flat["dock"]["x"], flat["dock"]["y"])
     if r["truth"] == "out":  # no path: the point is that the robot should not need to walk
         order = []
-        ax.text(0, -h + 0.45, "Nobody home. {:.0f}% not home before the robot starts;\nwalking every zone would "
-                "take {:.1f} m.".format(100 * probs["out"], r["walks"]["full"][0]), fontsize=10.5, ha="center",
-                va="bottom", zorder=15, linespacing=1.4,
-                bbox=dict(boxstyle="round,pad=0.8,rounding_size=0.3", fc=SURFACE, ec=HAIRLINE, lw=1))
     px = [dock[0]] + [zones[n]["view_x"] for n in order]
     py = [dock[1]] + [zones[n]["view_y"] for n in order]
     ax.plot(px, py, "-", color=INK, lw=2, zorder=9, solid_capstyle="round")
@@ -257,8 +264,6 @@ def plan_card(ax, r, order):
     if r["truth"] != "out":
         x, y = r["here"]
         ax.plot(x, y, marker="*", ms=20, mfc=HERE, mec=SURFACE, mew=1.5, zorder=13)
-        ax.text(x, y - 0.3, "{} was here".format(r["persona"]["name"]), fontsize=8.5, color=INK, ha="center",
-                va="top", zorder=13, bbox=dict(boxstyle="round,pad=0.2", fc=SURFACE, ec="none", alpha=0.85))
 
 
 # --- the outcome ---
@@ -286,6 +291,38 @@ def tiles(fig, rect, r):
         ax.text(0.07, 0.14, sub, transform=ax.transAxes, fontsize=8.5, color=MUTED, va="center")
 
 
+def text_problems(fig):
+    """Every pair of texts that overlap, and every text that runs off the page. Empty when the figure is clean.
+    Run on each figure before it is saved, so crowded words are caught by the code, not by the reader."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    width, height = fig.canvas.get_width_height()
+    boxes = []
+    for t in fig.findobj(matplotlib.text.Text):
+        if not t.get_visible() or not t.get_text().strip():
+            continue
+        b = t.get_window_extent(renderer)
+        if b.width < 1 or b.height < 1:
+            continue
+        boxes.append((t.get_text().replace("\n", " / ")[:40], b))
+    problems = []
+    for text, b in boxes:
+        if b.x0 < -1 or b.y0 < -1 or b.x1 > width + 1 or b.y1 > height + 1:
+            problems.append("off the page: '{}'".format(text))
+    for i, (ta, a) in enumerate(boxes):
+        for tb, b in boxes[i + 1:]:
+            if min(a.x1, b.x1) - max(a.x0, b.x0) > 2 and min(a.y1, b.y1) - max(a.y0, b.y0) > 2:
+                problems.append("overlap: '{}' and '{}'".format(ta, tb))
+    return problems
+
+
+def _save(fig, path):
+    problems = text_problems(fig)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return problems
+
+
 def figure(title, story, r, path):
     order = r["orders"]["full"]
     if r["truth"] in order:
@@ -295,12 +332,12 @@ def figure(title, story, r, path):
     when = "{} {} · {}".format(DAYS[r["weekday"]], clock(r["hour"]), SLOTS[r["slot"]])
     fig.text(0.035, 0.945, title, fontsize=21, fontweight="bold", va="center")
     fig.text(0.965, 0.945, "{} · {}".format(name, when), fontsize=13, color=INK_2, va="center", ha="right")
-    fig.text(0.035, 0.892, story, fontsize=12.5, color=INK_2, va="center")
-    fig.add_artist(plt.Line2D([0.035, 0.965], [0.858, 0.858], color=HAIRLINE, lw=1))
+    fig.text(0.035, 0.913, textwrap.fill(story, 165), fontsize=12, color=INK_2, va="top", linespacing=1.3)
+    fig.add_artist(plt.Line2D([0.035, 0.965], [0.843, 0.843], color=HAIRLINE, lw=1))
 
     habits_card(fig.add_axes((0.035, 0.605, 0.30, 0.215)), r)
     journal_card(fig.add_axes((0.035, 0.345, 0.30, 0.225)), r)
-    last_heard_card(fig.add_axes((0.035, 0.225, 0.30, 0.085)), r)
+    last_heard_card(fig.add_axes((0.035, 0.205, 0.30, 0.105)), r)
     belief_card(fig.add_axes((0.375, 0.225, 0.255, 0.595)), r)
     tiles(fig, (0.035, 0.045, 0.595, 0.13), r)
     ax = fig.add_axes((0.655, 0.2, 0.31, 0.59))
@@ -313,18 +350,171 @@ def figure(title, story, r, path):
     key.set_xlim(0, 1)
     key.set_ylim(0, 1)
     rows = (("stop", "Stop 1, 2, ... in order; the % is its chance when the robot picks it"),
-            ("star", "Where {} really was".format(name) if r["truth"] != "out" else "{} was out".format(name)),
+            ("star", "Where {} really was".format(name)),
             ("dock", "The robot's dock, where every search starts"))
+    if r["truth"] == "out":
+        rows = (("none", "{} was out: nobody home".format(name)),
+                ("none", "No path drawn: {:.0f}% not home before the robot starts".format(
+                    100 * r["beliefs"]["last_heard"]["out"])),
+                ("dock", "The robot's dock, where every search starts"))
     for i, (kind, text) in enumerate(rows):
         y = 0.78 - i * 0.3
         if kind == "stop":
             key.plot([0.025], [y], "o", ms=13, mfc=SURFACE, mec=INK, mew=2)
             key.text(0.025, y, "1", fontsize=8, fontweight="bold", ha="center", va="center")
         elif kind == "star":
-            if r["truth"] != "out":
-                key.plot([0.025], [y], "*", ms=15, mfc=HERE, mec=SURFACE)
+            key.plot([0.025], [y], "*", ms=15, mfc=HERE, mec=SURFACE)
+        elif kind == "none":
+            key.plot([0.025], [y], "_", ms=9, color=MUTED)
         else:
             key.plot([0.025], [y], "s", ms=9, color=INK)
         key.text(0.065, y, text, fontsize=9.5, color=INK_2, va="center")
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
+    return _save(fig, path)
+
+
+# --- the loop: one panel per look ---
+
+def _mini_plan(ax, r, belief, upto, steps, show_names):
+    """A small floor plan: zones shaded by `belief`, the walk so far, the zone being looked at outlined."""
+    flat = r["flat"]
+    h = flat["width"] / 2
+    ax.set_xlim(-h - 0.08, h + 0.08)
+    ax.set_ylim(-h - 0.08, h + 0.08)
+    ax.set_aspect("equal")
+    ax.set_axis_off()
+    zones = {z["name"]: z for z in flat["zones"]}
+    looked = steps[upto]["zone"] if upto is not None else None
+    for z in flat["zones"]:
+        p = belief[z["name"]]
+        x0, y0 = z["x"] - z["size_x"] / 2, z["y"] - z["size_y"] / 2
+        ax.add_patch(Rectangle((x0, y0), z["size_x"], z["size_y"], fc=tint(ZONE_COLOR[z["name"]], 0.10 + 0.75 * p),
+                               ec=SURFACE, lw=2, zorder=1))
+        label = "{:.0f}%".format(100 * p)
+        if show_names:
+            label = "{}\n{}".format(NAMES[z["name"]], label)
+        # in the corner of the zone farthest from its viewing pose, so the robot marker never covers it
+        avoid = [(z["view_x"], z["view_y"])] + ([r["here"]] if z["name"] == r["truth"] else [])
+        corners = [(sx, sy) for sx in (1, -1) for sy in (1, -1)]
+        sx, sy = max(corners, key=lambda c: min(math.hypot(z["x"] + c[0] * z["size_x"] / 2 - ax_, z["y"]
+                                                           + c[1] * z["size_y"] / 2 - ay_) for ax_, ay_ in avoid))
+        right, up = sx > 0, sy > 0
+        lx = z["x"] + sx * (z["size_x"] / 2 - 0.16)
+        ly = z["y"] + sy * (z["size_y"] / 2 - 0.16)
+        ax.text(lx, ly, label, fontsize=8.5, ha="right" if right else "left", va="top" if up else "bottom", zorder=6,
+                linespacing=1.25, fontweight="bold" if z["name"] == looked else "normal",
+                bbox=dict(boxstyle="round,pad=0.18", fc=SURFACE, ec="none", alpha=0.85))
+    ax.add_patch(Rectangle((-h, -h), 2 * h, 2 * h, fc="none", ec=INK_2, lw=1.8, zorder=5))
+    if looked is not None:
+        z = zones[looked]
+        ax.add_patch(Rectangle((z["x"] - z["size_x"] / 2 + 0.06, z["y"] - z["size_y"] / 2 + 0.06), z["size_x"] - 0.12,
+                               z["size_y"] - 0.12, fc="none", ec=INK, lw=2.2, zorder=7))
+    dock = (flat["dock"]["x"], flat["dock"]["y"])
+    pts = [dock] + [(zones[s["zone"]]["view_x"], zones[s["zone"]]["view_y"]) for s in steps[:(upto or 0) + 1]] \
+        if upto is not None else [dock]
+    if len(pts) > 2:
+        ax.plot([q[0] for q in pts[:-1]], [q[1] for q in pts[:-1]], "-", color=MUTED, lw=1.3, zorder=8)
+    if len(pts) > 1:
+        ax.plot([pts[-2][0], pts[-1][0]], [pts[-2][1], pts[-1][1]], "-", color=INK, lw=2.2, zorder=9)
+    ax.plot(dock[0], dock[1], "s", ms=6, color=INK, mec=SURFACE, mew=1, zorder=10)
+    ax.plot(pts[-1][0], pts[-1][1], "o", ms=9, mfc=SURFACE, mec=INK, mew=2, zorder=11)  # the robot
+    if r["truth"] != "out":
+        ax.plot(r["here"][0], r["here"][1], "*", ms=13, mfc=HERE, mec=SURFACE, mew=1, zorder=12)
+
+
+def _belief_bar(ax, belief, label):
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_axis_off()
+    ax.text(0.0, 0.95, label, fontsize=8.5, color=INK_2, va="top")
+    x = 0.0
+    for c in CLASSES:
+        w = belief[c]
+        if w <= 0.0005:
+            continue
+        ax.add_patch(Rectangle((x, 0.05), w, 0.5, fc=ZONE_COLOR[c], ec=SURFACE, lw=1.3))
+        if w >= 0.14:
+            ax.text(x + w / 2, 0.30, "{:.0f}%".format(100 * w), fontsize=8, ha="center", va="center")
+        x += w
+
+
+def loop_figure(title, story, r, miss_rate, path):
+    """The search loop as a strip: the starting belief, then one panel per look (walk, look, updated belief)."""
+    steps = r["loop"]
+    name = r["persona"]["name"]
+    n = len(steps) + 1
+    fig = plt.figure(figsize=(16, 9), dpi=100)
+    when = "{} {} · {}".format(DAYS[r["weekday"]], clock(r["hour"]), SLOTS[r["slot"]])
+    fig.text(0.035, 0.945, title, fontsize=21, fontweight="bold", va="center")
+    fig.text(0.965, 0.945, "{} · {}".format(name, when), fontsize=13, color=INK_2, va="center", ha="right")
+    fig.text(0.035, 0.913, textwrap.fill(story, 165), fontsize=12, color=INK_2, va="top", linespacing=1.3)
+    fig.add_artist(plt.Line2D([0.035, 0.965], [0.843, 0.843], color=HAIRLINE, lw=1))
+    x = 0.035
+    for c in CLASSES:  # legend
+        fig.patches.append(Rectangle((x, 0.802), 0.012, 0.016, transform=fig.transFigure, fc=ZONE_COLOR[c], ec="none"))
+        fig.text(x + 0.017, 0.81, NAMES[c], fontsize=9.5, color=INK_2, va="center")
+        x += 0.017 + 0.0062 * len(NAMES[c]) + 0.028
+    fig.text(0.965, 0.81, "Mock observation: a look misses {} {:.0f}% of the time, even in the right zone".format(
+        name, 100 * miss_rate), fontsize=9.5, color=MUTED, va="center", ha="right")
+
+    gap = 0.012
+    width = min(0.19, (0.93 - gap * (n - 1)) / n)
+    left = 0.035
+    for i in range(n):
+        x0 = left + i * (width + gap)
+        if i == 0:
+            head, sub, belief, upto = "START", "Belief from habits, journal\nand last heard", steps[0]["belief_before"], None
+        else:
+            s = steps[i - 1]
+            head = "LOOK {}".format(i)
+            sub = "{} ({:.0f}%), {:.1f} m walked".format(NAMES[s["zone"]], 100 * s["p_before"], s["metres"])
+            belief, upto = s["belief_before"], i - 1
+        fig.text(x0, 0.765, head, fontsize=9, fontweight="bold", color=INK_2, va="center")
+        fig.text(x0, 0.742, sub, fontsize=9.5, color=INK, va="top", linespacing=1.3)
+        top = 0.69
+        ax = fig.add_axes((x0, top - 0.37, width, 0.37))
+        ax.set_anchor("N")
+        _mini_plan(ax, r, belief, upto, steps, show_names=(i == 0))
+        y = top - width * 16 / 9 - 0.03  # just under the square plan
+        nxt = steps[i] if i < len(steps) else None
+        if i == 0:
+            result, note, after, bar_label = "Inputs give the first belief", "", belief, "Starting belief"
+        else:
+            s = steps[i - 1]
+            missed = (not s["seen"]) and s["zone"] == r["truth"]
+            result = "Observation: sees {}".format(name) if s["seen"] else "Observation: nobody seen"
+            note = "{} is here, the look missed".format(name) if missed else ""
+            after, bar_label = (None if s["seen"] else s["belief_after"]), "Update: belief after this look"
+        fig.text(x0, y, result, fontsize=10.5, fontweight="bold", va="center")
+        if note:
+            fig.text(x0, y - 0.026, note, fontsize=9.5, color=INK_2, va="center")
+        if after is not None:
+            _belief_bar(fig.add_axes((x0, y - 0.135, width, 0.085)), after, bar_label)
+            if nxt is not None:
+                fig.text(x0, y - 0.16, "Next: {} ({:.0f}%)".format(NAMES[nxt["zone"]], 100 * nxt["p_before"]),
+                         fontsize=10, va="center", color=INK)
+            elif i > 0:
+                fig.text(x0, y - 0.16, "Stop: nobody home ({:.0f}% out)".format(100 * after["out"]), fontsize=10,
+                         va="center", color=INK)
+        elif i > 0:
+            fig.text(x0, y - 0.07, "Search ends", fontsize=10, va="center", color=INK_2)
+
+    found = steps[-1]["seen"]
+    items = [("Outcome", "Found" if found else "Nobody home",
+              "in the {}".format(NAMES[steps[-1]["zone"]].lower()) if found
+              else "belief in 'out' reached {:.0f}%".format(100 * steps[-1]["belief_after"]["out"])),
+             ("Looks", str(len(steps)), "{} zone{} visited".format(len({s["zone"] for s in steps}),
+                                                                 "" if len({s["zone"] for s in steps}) == 1 else "s")),
+             ("Walked", "{:.1f} m".format(steps[-1]["metres"]), "from the dock")]
+    for i, (label, value, sub) in enumerate(items):
+        ax = fig.add_axes((0.035 + i * 0.165, 0.04, 0.155, 0.11))
+        ax.set_axis_off()
+        _box(ax, 0, 0, 1, 1, tint("#2a78d6", 0.12) if i == 0 else "#f1f0ec", r=0.06, z=1)
+        ax.text(0.07, 0.78, label, transform=ax.transAxes, fontsize=9.5, color=INK_2, va="center")
+        ax.text(0.07, 0.44, value, transform=ax.transAxes, fontsize=18, fontweight="bold" if i == 0 else "normal",
+                va="center", color=INK if i == 0 else INK_2)
+        ax.text(0.07, 0.14, sub, transform=ax.transAxes, fontsize=8.5, color=MUTED, va="center")
+    fig.text(0.965, 0.105, "Each panel: zones shaded by the belief before that look (darker = more likely),\n"
+             "the looked-at zone outlined, the robot (circle) and its walk from the dock (square),\n"
+             "and where {} really is (star).".format(name), fontsize=9.5, color=MUTED, ha="right", va="center",
+             linespacing=1.5)
+    return _save(fig, path)

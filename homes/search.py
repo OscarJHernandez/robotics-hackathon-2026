@@ -196,6 +196,8 @@ def after_miss(probs, checked, miss_rate=0.0):
     factor 1 / (1 - P(zone) * (1 - miss_rate)). So a zone can become the most likely one again later."""
     seen_chance = probs.get(checked, 0.0) * (1.0 - miss_rate)  # P(she is there and the robot sees her)
     rest = 1.0 - seen_chance
+    if rest < 1e-12:  # the belief was sure she is there and the look cannot miss: nothing is left
+        return {k: 0.0 for k in probs}
     out = {k: v / rest for k, v in probs.items()}
     out[checked] = probs.get(checked, 0.0) * miss_rate / rest
     return out
@@ -209,29 +211,66 @@ def observe(zone, truth, rng, miss_rate=MISS_RATE):
     return zone == truth and rng.random() >= miss_rate
 
 
+class Search:
+    """The search loop as an object, so that anything can drive it: the mock in run(), or later the simulator
+    (walk the robot to the goal with the navigation controller, run the person detector, report the result).
+
+        search = Search(flat, beliefs(...)["last_heard"])
+        while (goal := search.goal()) is not None:      # {"zone", "x", "y", "heading_deg", "p"}: where to go and look
+            seen = ...walk to (goal x, y), face heading_deg, look...
+            search.report(seen)
+        search.status                                   # "found", "nobody_home" or "gave_up"
+
+    `miss_rate` is what the update assumes about the look (how often it overlooks her). `steps` keeps one dict per
+    look: zone, p_before, belief_before, seen, belief_after, metres (straight-line metres walked so far)."""
+
+    def __init__(self, flat, probs, miss_rate=MISS_RATE, max_looks=MAX_LOOKS, stop_out=STOP_OUT):
+        self.flat, self.belief, self.miss_rate = flat, dict(probs), miss_rate
+        self.max_looks, self.stop_out = max_looks, stop_out
+        self.names, self.dist = distances(flat)
+        self.at, self.metres, self.steps, self.status = "dock", 0.0, [], "searching"
+        self._goal = None
+
+    def goal(self):
+        """The next place to look: the most likely zone's viewing pose. None when the search is over."""
+        if self.status != "searching":
+            return None
+        open_zones = [n for n in self.names[1:] if self.belief.get(n, 0.0) > 1e-9]
+        if self.belief.get("out", 0.0) >= self.stop_out or not open_zones:
+            self.status = "nobody_home"
+            return None
+        if len(self.steps) >= self.max_looks:
+            self.status = "gave_up"
+            return None
+        name = next_zone(self.flat, self.belief, self.at, among=open_zones)
+        z = next(z for z in self.flat["zones"] if z["name"] == name)
+        self._goal = {"zone": name, "x": z["view_x"], "y": z["view_y"], "heading_deg": z["heading_deg"],
+                      "p": self.belief[name]}
+        return self._goal
+
+    def report(self, seen):
+        """What the robot saw at the goal: True (she is there) or False (nobody seen). Updates the belief."""
+        zone = self._goal["zone"]
+        self.metres += float(self.dist[self.names.index(self.at), self.names.index(zone)])
+        if seen:
+            after = {c: (1.0 if c == zone else 0.0) for c in self.belief}
+            self.status = "found"
+        else:
+            after = after_miss(self.belief, zone, self.miss_rate)
+        self.steps.append({"zone": zone, "p_before": self.belief[zone], "belief_before": self.belief,
+                           "seen": bool(seen), "belief_after": after, "metres": self.metres})
+        self.belief, self.at = after, zone
+
+
 def run(flat, probs, truth, rng, miss_rate=MISS_RATE, max_looks=MAX_LOOKS, stop_out=STOP_OUT, update_rate=None):
-    """The whole search: pick the most likely zone, walk there, look, update the belief, repeat.
+    """The whole search with the mock observation: pick the most likely zone, walk there, look, update, repeat.
 
     probs: the starting belief (the final step of beliefs()). truth: the zone she is in, or "out".
     Ends when she is seen, when the belief in `out` reaches `stop_out` (nobody home), or after `max_looks` looks.
     `update_rate` is the miss rate the robot assumes in its update (default: the true `miss_rate`); 0 makes it
     treat every miss as certain, which is the mistake the loop is there to avoid.
-    Returns one dict per look: zone, p_before (the zone's probability when it was picked), belief_before, seen,
-    belief_after, metres (walked so far)."""
-    assumed = miss_rate if update_rate is None else update_rate
-    names, dist = distances(flat)
-    belief, at, metres, steps = dict(probs), "dock", 0.0, []
-    while len(steps) < max_looks and belief.get("out", 0.0) < stop_out:
-        open_zones = [n for n in names[1:] if belief.get(n, 0.0) > 1e-9]
-        if not open_zones:  # every zone ruled out: nobody home
-            break
-        zone = next_zone(flat, belief, at, among=open_zones)
-        metres += float(dist[names.index(at), names.index(zone)])
-        seen = bool(observe(zone, truth, rng, miss_rate))
-        after = {c: (1.0 if c == zone else 0.0) for c in belief} if seen else after_miss(belief, zone, assumed)
-        steps.append({"zone": zone, "p_before": belief[zone], "belief_before": belief, "seen": seen,
-                      "belief_after": after, "metres": metres})
-        belief, at = after, zone
-        if seen:
-            break
-    return steps
+    Returns Search.steps: one dict per look."""
+    search = Search(flat, probs, miss_rate if update_rate is None else update_rate, max_looks, stop_out)
+    while (goal := search.goal()) is not None:
+        search.report(observe(goal["zone"], truth, rng, miss_rate))
+    return search.steps

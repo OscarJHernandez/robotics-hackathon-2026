@@ -44,11 +44,19 @@ in the same pull request as the work.
 ## Code and tooling
 
 - 2026-11-22 (Oscar's agent): `homes/search.py` is a counting Bayesian search (population share + stated habits + her
-  journal + last heard, then the order of zones with the fewest expected metres): on 120 test residents it walks 5.6 m
-  until she is found against 7.2 m for "nearest first" and 7.4 m for "last heard first", and before she is heard its
-  belief is within 1 point of her true routine. It is the baseline a TabPFN belief has to beat; `homes/search_demo.py`
-  prints the table and six worked examples. Planning on the floor plan matters: the same belief searched likeliest-first
-  walks 6.6 m.
+  journal + last heard) that checks zones from the most to the least likely: Oscar wants the order by probability,
+  not by distance. On 120 test residents it finds her after 1.54 zones against 3.30 for "nearest first" and 2.12 for
+  "last heard first", and before she is heard its belief is within 1 point of her true routine. It is the baseline a
+  TabPFN belief has to beat (the TabPFN smoke test still loses to "last heard": 0.33 against 0.60).
+- 2026-11-22 (Oscar's agent): In the search loop a zone the robot looked at must not go to 0: with a look that misses
+  her 20% of the time, ruling zones out finds her in 80% of searches, the Bayes update (`after_miss` with a miss rate)
+  in 99%, because it returns to a zone when the others are empty (25% of searches).
+- 2026-11-22 (Oscar's agent): The search can drive the simulated robot today: `homes/sim_bridge.py` subclasses
+  `nav.dagger.env.SimEnv` (`FlatEnv`), loads a flat with `arena.apply(flats.arena_layout(flat))`, and walks to each
+  `Search.goal()` with the DAgger `Expert`; 330 of 330 walks arrived. `SimEnv` has no method to change the goal
+  mid-episode, so `FlatEnv.set_goal` sets `goal`, `steps` and `done` itself, and it skips rendering unless `render=True`.
+- 2026-11-22 (Oscar's agent): Check plot text with code, not by eye: `search_figure.text_problems()` measures every text
+  box and found 18 overlaps in pictures that looked fine at a glance. Oscar had to point out the mushed words twice.
 - 2026-11-22 (Oscar's agent): Two traps when making "where is she" data look good: stated habits copied from her true
   routine make the journal useless (it can only repeat the form), and one week of journal (3 records a day) adds only
   1-2 points. `stated_habits()` now names a wrong zone in 30% of the parts of the day, and the demo uses 4 weeks.
@@ -212,7 +220,8 @@ in the same pull request as the work.
 ## Suggestions (open)
 
 - 2026-11-22 (Oscar's agent): Knock: switch `app/knock.py` and the phone UI to the five arena zones and use
-  `homes/search.py` for `probs` and the order (it already has `after_miss`). Add a bathroom to the arena (a piece or a
+  `homes/search.Search` for `probs` and the next zone. In `homes/sim_bridge.py`, turn the robot to `heading_deg` at the
+  goal and replace the mock look with the vision probe's "target" class (the pillar already stands where she is). Add a bathroom to the arena (a piece or a
   marked floor area in both arena XML files) so falls in the bathroom can be part of the story.
 
 - 2026-11-21 (Oscar's agent): DAgger: try a label-balanced context (`max_context_rows: 20000`) from round 2 on,
