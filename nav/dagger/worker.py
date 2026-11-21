@@ -128,8 +128,19 @@ def run_plan(run, round_, plan, beta, procs=1, n_envs=16, threads=None, context=
              "heartbeat": heartbeat} for k in range(procs)]
     if procs == 1:
         return [run_shard(jobs[0])]
-    with mp.get_context("spawn").Pool(procs) as pool:
-        return pool.map(run_shard, jobs)
+    return run_jobs(run_shard, jobs)
+
+
+def run_jobs(fn, jobs):
+    """Run fn(job) for every job in its own process and return the results in order.
+
+    A process that dies (killed by the out-of-memory guard, for example) raises BrokenProcessPool here
+    instead of hanging forever like multiprocessing.Pool.map. Parts already written stay on disk, and
+    merge.py lists the missing episodes.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+    with ProcessPoolExecutor(len(jobs), mp_context=mp.get_context("spawn")) as executor:
+        return list(executor.map(fn, jobs))
 
 
 def main():

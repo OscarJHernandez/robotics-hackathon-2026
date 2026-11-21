@@ -242,6 +242,25 @@ class StudentTest(unittest.TestCase):
         self.assertGreater(capped["y_turn"].std(), 0.1)  # still spread over the turn range
 
 
+def _job(value):
+    """For WorkerPoolTest: value 0 kills its own process, as the out-of-memory guard would."""
+    import os
+    if value == 0:
+        os._exit(9)
+    return value * 2
+
+
+@unittest.skipUnless(HAVE_ML, "needs the ml packages")
+class WorkerPoolTest(unittest.TestCase):
+    def test_a_killed_process_raises_instead_of_hanging(self):
+        from concurrent.futures.process import BrokenProcessPool
+
+        from nav.dagger.worker import run_jobs
+        self.assertEqual(run_jobs(_job, [1, 2, 3]), [2, 4, 6])
+        with self.assertRaises(BrokenProcessPool):
+            run_jobs(_job, [1, 0, 3])
+
+
 @unittest.skipUnless(HAVE_ML, "needs the ml packages")
 class ArenaStepTest(unittest.TestCase):
     def test_one_real_step(self):

@@ -64,7 +64,7 @@ def _rollout_job(job):
 
 
 def bench_rollouts(procs, seconds, n_envs, perception, config, dino_device, log):
-    import multiprocessing as mp
+    from .worker import run_jobs
     threads = max(1, (os.cpu_count() or 1) // procs)
     jobs = [{"proc": k, "threads": threads, "seconds": seconds, "n_envs": n_envs, "perception": perception,
              "config": config, "dino_device": dino_device} for k in range(procs)]
@@ -74,8 +74,7 @@ def bench_rollouts(procs, seconds, n_envs, perception, config, dino_device, log)
     if procs == 1:
         results = [_rollout_job(jobs[0])]
     else:
-        with mp.get_context("spawn").Pool(procs) as pool:
-            results = pool.map(_rollout_job, jobs)
+        results = run_jobs(_rollout_job, jobs)
     wall = time.time() - started
     steps = sum(r["steps"] for r in results)
     rollout = max(r["seconds"] for r in results)
