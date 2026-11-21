@@ -24,7 +24,6 @@ from flats import CLASSES, signature, zone_names
 from residents import slot_of
 
 DATA = Path(__file__).resolve().parent / "data"
-SLOTS = 3  # morning, afternoon, evening
 ALPHA = 5.0  # pseudo-count that pulls a thin table towards the population share
 NIGHT_DEFAULT = {"bed": 0.85, "bathroom": 0.15}
 
@@ -50,10 +49,11 @@ class ColdStartPrior:
         wk = train["is_weekend"].to_numpy().astype(int)
         z = train["zone"].map(code).to_numpy()
         sig = train["flat_id"].map(flat_zones).to_numpy()
+        n_slots = int(train["slot"].max()) + 1
         counts = {}
         for s in sorted(set(flat_zones.values())):
             m = sig == s
-            c = np.zeros((2, SLOTS, len(CLASSES)))
+            c = np.zeros((2, n_slots, len(CLASSES)))
             np.add.at(c, (wk[m], slot[m], z[m]), 1.0)
             counts[s] = c
         pooled = sum(counts.values())
@@ -75,7 +75,7 @@ class ColdStartPrior:
     def probs(self, flat, hour, weekday):
         """(zone_probs, p_out) for this flat at this hour of day (0-24) and weekday (0 = Monday)."""
         names = zone_names(flat)
-        wk, slot = _wk(weekday), slot_of(int(hour * 60))
+        wk, slot = _wk(weekday), slot_of(int(hour * 60), self.pooled.shape[1])
         if slot is None:  # night: no diary rows, use the stated default
             zone_probs = {n: NIGHT_DEFAULT.get(n, 0.0) for n in names}
             total = sum(zone_probs.values())

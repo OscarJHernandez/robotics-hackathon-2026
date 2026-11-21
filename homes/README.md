@@ -111,6 +111,25 @@ A context of a few hundred to a few thousand rows works best, chosen per query: 
 zones, her own rows, and the `out` rows. Drop the voice columns (`train_columns.json` → `voice_features`) for check-ins, keep them
 for `help` calls with `heard` rows as context.
 
+## Variant: more records a day (`data_r12/`)
+
+`generate.py --records-per-day 12` cuts the day into 12 slots (about one record every 80 minutes), each with its own zone draw
+around the morning, afternoon or evening mix, so she moves around inside the day. `data_r12/` is that run: 2,125 residents × 60
+records, **102,000 training rows** (the same size as the 3-a-day set), 15% `out`. The default (3 a day) data is unchanged.
+Smoke test (10 held-out residents, 1,000-row context, `data_r12/check_results.json`), top-1:
+
+| | TabPFN (0 / 1 / 3 own days) | last heard | cold-start prior | usual place |
+|---|---|---|---|---|
+| Check-ins | 0.485 / 0.480 / 0.475 | **0.665** | 0.453 | 0.453 / 0.392 / 0.402 |
+| Help calls | 0.570 / 0.590 / 0.590 | 0.560 | **0.700** | 0.700 / 0.400 / 0.380 |
+
+More records per day did **not** make TabPFN beat the simple rules in this test: "last heard" is stronger when records are closer
+together, and TabPFN is below the cold-start prior on help calls. TabPFN's log loss is better than the cold-start prior's on
+check-ins (1.22 against 1.40) but worse on help calls (1.00 against 0.86). Possible causes to check before drawing conclusions:
+a 1,000-row context drawn from other residents, a context that does not include her own rows beyond 3 days, and a routine
+where each slot is an independent draw (there is no persistence from one slot to the next, so "last heard" tells TabPFN less
+than it would for a real person).
+
 ## Limits (read before judging a model)
 
 - **With 3 records a day the model learns little about one person.** After 3 diary days she has 9 records, too few to see

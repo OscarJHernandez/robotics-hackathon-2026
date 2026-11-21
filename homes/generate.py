@@ -23,12 +23,12 @@ import numpy as np
 import pandas as pd
 
 from flats import CLASSES, ZONE_NAMES, bearing_from_dock, random_flat, zone_names
-from residents import CODE, OUT, SLOT_WINDOWS, draw_day, sample_persona, slot_of
+from residents import CODE, OUT, draw_day, sample_persona, slot_of, windows
 
 DATA = Path(__file__).resolve().parent / "data"
 HEARD_MISPLACED = 0.1  # share of heard records logged in a neighbouring zone
 HIST_ALPHA = 0.1
-NIGHT = 3  # the `slot` value of a help call at night
+# the `slot` value of a help call at night is n (the number of slots)
 CLASS_ARR = np.array(CLASSES, dtype=object)
 HIST = ["hist_" + c for c in CLASSES]
 SPEC_COLUMNS = ["day", "resident", "source", "hour", "weekday", "last_heard_zone", "min_since_heard",
@@ -116,10 +116,10 @@ def _frame(flat, p, a, share, hist_n, last_zone, min_since, target):
 
 def build_resident(task):
     """Flat, persona, diary rows (days before the test days) and test check-ins of one resident."""
-    idx, seed_seq, days, test_days = task
+    idx, seed_seq, days, test_days, n = task
     s_flat, s_persona, s_sim, s_query = seed_seq.spawn(4)
     flat = random_flat(np.random.default_rng(s_flat), idx + 1)
-    p = sample_persona(np.random.default_rng(s_persona), idx, flat)
+    p = sample_persona(np.random.default_rng(s_persona), idx, flat, n)
     rng = np.random.default_rng(s_sim)
     first_test = days - test_days
     neighbours = {z["name"]: z["neighbours"] for z in flat["zones"]}
@@ -131,7 +131,7 @@ def build_resident(task):
         codes = draw_day(p, day, rng)
         day_codes.append(codes)
         weekday = (p["start_weekday"] + day) % 7
-        for slot, (a, b) in enumerate(SLOT_WINDOWS):
+        for slot, (a, b) in enumerate(windows(n)):
             t = float(rng.uniform(a, b))
             true = codes[slot]
             logged, vb, vl, source = true, np.nan, np.nan, "checkin"  # out: the robot finds nobody
@@ -169,12 +169,12 @@ def build_resident(task):
             vb = vl = np.nan
             if kind == "checkin":
                 t = float(rq.uniform(420, 1350))
-                slot = slot_of(int(t))
+                slot = slot_of(int(t), n)
                 true = day_codes[day][slot]
             else:
                 for _ in range(20):
                     t = float(rq.uniform(0, 1440))
-                    slot = slot_of(int(t))
+                    slot = slot_of(int(t), n)
                     true = CODE["bed"] if slot is None else day_codes[day][slot]  # night: asleep at home
                     if true != OUT:
                         break
@@ -185,7 +185,7 @@ def build_resident(task):
                 x, y = _person_xy(flat, CLASSES[true], rq)
             if kind == "help":
                 vb, vl = _voice(flat, x, y, rq)
-            for key, val in (("abs", day * 1440 + t), ("day", day), ("slot", NIGHT if slot is None else slot),
+            for key, val in (("abs", day * 1440 + t), ("day", day), ("slot", n if slot is None else slot),
                              ("hour", t / 60.0), ("weekday", weekday), ("true", true), ("kind", kind), ("x", x),
                              ("y", y), ("vb", vb), ("vl", vl)):
                 q[key].append(val)
@@ -203,9 +203,9 @@ def build_resident(task):
 
 # --- the whole population ---
 
-def build(residents=6, days=7, seed=0, test_days=2, workers=1):
+def build(residents=6, days=7, seed=0, test_days=2, workers=1, records_per_day=3):
     seeds = np.random.SeedSequence(seed).spawn(residents)
-    tasks = [(i, seeds[i], days, test_days) for i in range(residents)]
+    tasks = [(i, seeds[i], days, test_days, records_per_day) for i in range(residents)]
     if workers > 1:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             results = list(pool.map(build_resident, tasks, chunksize=32))
@@ -216,9 +216,9 @@ def build(residents=6, days=7, seed=0, test_days=2, workers=1):
             "checkins": pd.concat([r["checkins"] for r in results], ignore_index=True)}
 
 
-def generate(residents=6, days=7, seed=0, test_days=2, workers=1):
+def generate(residents=6, days=7, seed=0, test_days=2, workers=1, records_per_day=3):
     """Returns (diary_rows, test_checkins). diary_rows are the days before the test days, 3 a day per resident."""
-    out = build(residents, days, seed, test_days, workers)
+    out = build(residents, days, seed, test_days, workers, records_per_day)
     return out["diary"][DIARY_COLUMNS], out["checkins"][CHECKIN_COLUMNS]
 
 
@@ -319,7 +319,10 @@ def write(out, data_dir, csv=False, started=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--residents", type=int, default=8500)
+    parser.add_argument("--residents", type=int, default=None,
+                        help="default: enough for about 102,000 training rows (8500 at 3 records a day)")
+    parser.add_argument("--records-per-day", type=int, default=3,
+                        help="records a day, one per slot at a random time (3: morning, afternoon, evening; more: finer slots)")
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--test-days", type=int, default=2)
     parser.add_argument("--seed", type=int, default=0)
@@ -328,7 +331,9 @@ def main():
     parser.add_argument("--csv", action="store_true", help="also write CSV copies")
     args = parser.parse_args()
     started = time.time()
-    out = build(args.residents, args.days, args.seed, args.test_days, args.workers)
+    if args.residents is None:
+        args.residents = int(np.ceil(102000 / (0.8 * (args.days - args.test_days) * args.records_per_day)))
+    out = build(args.residents, args.days, args.seed, args.test_days, args.workers, args.records_per_day)
     summary = write(out, args.out, csv=args.csv, started=started)
     print(json.dumps({k: v for k, v in summary.items() if k not in ("by_archetype", "by_slot")}, indent=1))
     print("wrote", args.out)
