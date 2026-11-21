@@ -94,7 +94,7 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 | `sim/demo.py` | What `just sim`, `just view` and `just snapshot` run |
 | `sim/fetch_meshes.py` | Mesh download, pinned to one Hiwonder commit and checked by SHA-256 |
 | `nav/` | Walking from a to b with TabPFN: `common.py` (walker, geometry), `db.py` (DuckDB recorder), `collect.py`, `hindsight.py` (goal examples), `dynamics.py` (motion examples and planner), `policy.py` (`fit()`-only TabPFN policies), `controller.py` (build and test a controller), `evaluate.py`, `run.py` (demo video), `dashboard.py`, `live_dashboard.py`. Guide: [docs/navigation.md](docs/navigation.md) |
-| `app/` | The web app: `robot.py` (live sim thread), `llm.py` (metacon chat), `server.py` (API + page), `web/` (front end from Lovable). Guide: [docs/app.md](docs/app.md) |
+| `app/` | The web app: `robot.py` (live sim thread), `llm.py` (metacon chat), `voice.py` (speech via Voice Control), `call.py` (voice calls shown live to every viewer), `server.py` (API + page), `web/` (front end from Lovable; phone layout in `PhoneApp.tsx`). Guide: [docs/app.md](docs/app.md) |
 | `data/nav/` | Recorded runs, the database `nav.duckdb`, model checkpoints (gitignored, never commit) |
 | `tests/` | Tests (`just test`; navigation tests: `just test-nav`) |
 

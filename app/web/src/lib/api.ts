@@ -3,7 +3,7 @@ export const API: string = import.meta.env["VITE_API_BASE"] ?? "";
 export type Mode = "idle" | "goto" | "turn" | "fallen";
 export type View = "chase" | "orbit" | "overhead" | "eye";
 export const VIEWS: View[] = ["chase", "orbit", "overhead", "eye"];
-export interface Health { ok: boolean; model: string; llm: boolean; commands: string; views?: View[] }
+export interface Health { ok: boolean; model: string; llm: boolean; commands: string; views?: View[]; voice?: boolean }
 export interface RobotState {
   mode: Mode; x: number; y: number; height: number; yaw_deg: number;
   target_x: number; target_y: number; sim_time: number; turn_to_deg?: number;
@@ -49,11 +49,11 @@ export async function sendCommand(text: string): Promise<CommandResult> {
 }
 
 export async function streamChat(
-  messages: ChatMessage[], onEvent: (e: ChatEvent) => void, signal?: AbortSignal | undefined,
+  messages: ChatMessage[], onEvent: (e: ChatEvent) => void, signal?: AbortSignal | undefined, call?: string | undefined,
 ): Promise<void> {
   const r = await fetch(`${API}/api/chat`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }), signal: signal ?? null,
+    body: JSON.stringify(call ? { messages, call } : { messages }), signal: signal ?? null,
   });
   if (!r.ok || !r.body) {
     const j = (await r.json().catch(() => ({}))) as { error?: string };
@@ -89,3 +89,63 @@ export async function streamChat(
 /** Hide [[command]] markers from displayed assistant text. */
 export const stripMarkers = (s: string) =>
   s.replace(/\[\[[^\]]*\]\]/g, "").replace(/\[\[[^\]]*$/, "").replace(/[ \t]{2,}/g, " ").replace(/ ([.,!?;:])/g, "$1");
+
+// ---- voice calls (see app/call.py) ----
+
+/** What every page hears on /api/live while someone is on a voice call. */
+export type LiveEvent =
+  | { type: "call"; call: string; state: "start" | "end"; seq: number }
+  | { type: "heard"; call: string; text: string; final: boolean; seq: number }
+  | { type: "token"; call: string; text: string; seq: number }
+  | { type: "command"; call: string; text: string; ok: boolean; seq: number }
+  | { type: "error"; call: string; text: string; seq: number }
+  | { type: "speaking"; call: string; text: string; seq: number };
+
+async function postJson(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
+  try {
+    const r = await fetch(`${API}${path}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    return { status: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
+  } catch {
+    return { status: 0, json: { error: "network error" } };
+  }
+}
+
+export async function startCall(): Promise<{ call?: string; error?: string; busy?: boolean }> {
+  const { status, json } = await postJson("/api/call/start", {});
+  if (status === 200 && typeof json["call"] === "string") return { call: json["call"] };
+  return { error: String(json["error"] ?? `HTTP ${status}`), busy: status === 409 };
+}
+
+export function endCall(call: string) {
+  void postJson("/api/call/end", { call });
+}
+
+/** Words in a recording. final=false is a live caption: null when the server skipped it. */
+export async function transcribe(audio: Blob, call: string, final: boolean): Promise<{ text: string | null; error?: string }> {
+  try {
+    const r = await fetch(`${API}/api/transcribe?call=${encodeURIComponent(call)}&final=${final ? 1 : 0}`, {
+      method: "POST", headers: { "Content-Type": audio.type || "audio/webm" }, body: audio,
+    });
+    const j = (await r.json().catch(() => ({}))) as { text?: string | null; error?: string };
+    if (!r.ok) return { text: null, error: j.error ?? `HTTP ${r.status}` };
+    return { text: j.text ?? null };
+  } catch {
+    return { text: null, error: "network error" };
+  }
+}
+
+/** The reply in the robot's voice (MP3), or null. */
+export async function speak(text: string, call: string): Promise<Blob | null> {
+  try {
+    const r = await fetch(`${API}/api/speak`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, call }),
+    });
+    return r.ok ? await r.blob() : null;
+  } catch {
+    return null;
+  }
+}
+
+export const liveUrl = () => `${API}/api/live`;

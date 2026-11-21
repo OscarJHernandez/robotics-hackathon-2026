@@ -38,8 +38,14 @@ then the command on its own line. The red pillar is the target (end point) at ta
 target_bearing_deg say how far it is and where it is seen from the robot (positive bearing = to its left). \
 "Turn around" means [[turn 180]]. The robot walks about 0.13 m per second.
 
-Current robot state: {state}
+Current robot state: {state}{voice}
 /no_think"""
+
+VOICE_NOTE = """
+
+The user is talking to you by voice on a call and hears your answer spoken aloud in a calm, slow voice. Answer \
+in one short spoken sentence of plain words: no lists, no symbols, round numbers ("about one metre"), then the \
+command on its own line. The words came from speech recognition, so read past small mistakes."""
 
 
 def api_key():
@@ -65,11 +71,18 @@ def clean_history(messages):
     return out[-MAX_TURNS:]
 
 
-def stream_chat(messages, state, key):
-    """Yield the answer's text in pieces as the model writes it, with <think> blocks removed."""
+def system_prompt(state, voice=False):
+    return SYSTEM.format(state=json.dumps(state), voice=VOICE_NOTE if voice else "")
+
+
+def stream_chat(messages, state, key, voice=False):
+    """Yield the answer's text in pieces as the model writes it, with <think> blocks removed.
+
+    voice=True: the user speaks on a call and hears the answer, so the model is asked for one short sentence.
+    """
     # "think": false: qwen3 otherwise reasons for ~7 s in a hidden field before the first visible word.
     body = json.dumps({"model": MODEL, "stream": True, "temperature": 0.4, "think": False,
-                       "messages": [{"role": "system", "content": SYSTEM.format(state=json.dumps(state))}]
+                       "messages": [{"role": "system", "content": system_prompt(state, voice)}]
                        + messages}).encode()
     request = urllib.request.Request(GATEWAY + "/chat/completions", data=body, method="POST", headers={
         "Authorization": "Bearer " + key, "Content-Type": "application/json"})
@@ -115,6 +128,14 @@ def stream_chat(messages, state, key):
                     break
     if pending and not thinking:
         yield pending
+
+
+def spoken(text):
+    """The answer as it should be said aloud: no [[command]] markers, no markdown symbols, one line."""
+    text = COMMAND.sub(" ", text)
+    text = re.sub(r"[*_#`>|]+", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return re.sub(r" ([.,!?;:])", r"\1", text).strip()
 
 
 class CommandScanner:

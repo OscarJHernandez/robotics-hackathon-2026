@@ -1,9 +1,9 @@
 import { ArrowUp, SquareTerminal } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
-export function ChatBar({ onSend, onHistory, busy, termOpen, onToggleTerm }: {
+export function ChatBar({ onSend, onHistory, busy, termOpen, onToggleTerm, mic, placeholder }: {
   onSend: (t: string) => void; onHistory: (dir: -1 | 1, current: string) => string | null;
-  busy: boolean; termOpen: boolean; onToggleTerm: () => void;
+  busy: boolean; termOpen: boolean; onToggleTerm: () => void; mic?: ReactNode; placeholder?: string | undefined;
 }) {
   const [v, setV] = useState("");
   const ref = useRef<HTMLInputElement>(null);
@@ -15,7 +15,7 @@ export function ChatBar({ onSend, onHistory, busy, termOpen, onToggleTerm }: {
         <SquareTerminal className="h-4 w-4" /><span className="max-sm:hidden">Terminal</span>
       </button>
       <div className="chat-pill flex h-14 flex-1 items-center pl-5 pr-2">
-        <input ref={ref} value={v} onChange={(e) => setV(e.target.value)} placeholder="Tell metacon what to do…"
+        <input ref={ref} value={v} onChange={(e) => setV(e.target.value)} placeholder={placeholder ?? "Tell metacon what to do…"}
           aria-label="Message metacon" spellCheck={false}
           onKeyDown={(e) => {
             if (e.key === "Enter") { e.preventDefault(); send(); }
@@ -25,6 +25,7 @@ export function ChatBar({ onSend, onHistory, busy, termOpen, onToggleTerm }: {
             }
           }}
           className="h-full flex-1 bg-transparent text-[15px] text-card-foreground outline-none placeholder:text-muted-foreground" />
+        {mic && <div className="mr-2 flex items-center gap-1.5">{mic}</div>}
         <button onClick={send} disabled={busy || !v.trim()} aria-label="Send"
           className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-200 hover:brightness-110 disabled:opacity-40">
           <ArrowUp className="h-4 w-4" />

@@ -14,6 +14,8 @@ just app           # http://127.0.0.1:8790
 |---|---|
 | `app/robot.py` | `LiveRobot`: one thread steps MuJoCo in real time, steers the robot (goto, forward, turn, stop, reset) and moves the end point (`random`, also the dice buttons) and renders JPEG pictures of an outside view and the robot camera |
 | `app/llm.py` | Chat with the metacon gateway (`http://metacon:4000/v1`, model `qwen3:8b`); the model moves the robot by writing `[[goto 1 0.5]]` in its answer |
+| `app/voice.py` | Speech through Oscar's Voice Control service: transcription of the caller and the robot's spoken replies (voice `Glados-portal`) |
+| `app/call.py` | Voice calls: one caller at a time holds the line; every event of the call goes to all viewers |
 | `app/server.py` | Standard-library HTTP server: the API under `/api` (documented at the top of the file) and the built front end |
 | `app/web/` | The front end: React, Vite, Tailwind, built with Lovable (project "JetHexa Live Studio"). Full-screen view with switchable cameras (chase, orbit, overhead, robot eye), a chat bar and a red/green terminal. Without the API it runs a demo mode |
 
@@ -27,6 +29,42 @@ closed). Plain text goes to metacon; `/target`, `/goto X Y`, `/forward M`, `/tur
 `/reset` go straight to the robot; `/help` and `/clear` work locally. The title bar shows the robot's status, and
 the terminal prints a line when the robot arrives, finishes a turn or falls over.
 
+## Voice calls
+
+People can talk to the robot. On a phone the page is a call screen (`PhoneApp.tsx`): the robot's camera on top,
+the conversation in the middle and a big **hold-to-talk** button at the bottom; the keyboard button switches to
+typing. On a computer the mic button sits in the chat bar and the terminal prompt (hold it with the mouse, or hold
+Space or Enter on it). Sliding up while holding cancels.
+
+```
+hold:     POST /api/call/start  -> call id (409 while someone else is on the line)
+          recording in the browser (WebM/Opus, or MP4/AAC on Safari); every 1.5 s the recording so far goes to
+          POST /api/transcribe?final=0 -> live caption for everyone
+release:  POST /api/transcribe?final=1 -> the words, shown in the conversation
+          POST /api/chat with the call id -> metacon answers in one short spoken sentence and moves the robot
+          POST /api/speak -> MP3 in the Glados-portal voice, played on the caller's phone
+          POST /api/call/end
+```
+
+Everyone else on the page follows the call live through `GET /api/live` (server-sent events): a "Live call" card
+shows the caller's words as they are recognised, metacon's answer as it is written, and the robot commands. Only
+one person can talk at a time; the line is freed when the call ends, after 30 s without activity, or after 2 minutes.
+
+Speech comes from Oscar's **Voice Control** service (see the `use-voice-service` skill), which keeps audio in the
+homelab. The server calls it; the browser never does, so its key stays on the server. Measured 2026-11-21 over
+Tailscale: transcribing a 3.6 s command takes about 0.3 s, metacon answers in about 1.5 s, and speaking one sentence
+in the Glados-portal voice takes about 2 s (the Hal9000 voice about 4.5 s, a built-in voice about 2.5 s). The service does one job at a time.
+
+- Settings: `VOICE_CONTROL_URL` (default `http://127.0.0.1:8765`; on the laptop use vendetta's Tailscale address),
+  `VOICE_CONTROL_API_KEY`, `JETHEXA_VOICE` (voice name or id, default `Glados-portal`; empty = the service default),
+  `JETHEXA_LANGUAGE` (default `en`; `auto` detects the language but is slower).
+- Without the voice service the mic buttons are hidden and the rest of the page works as before.
+- Limits per visitor: 20 calls and 30 spoken replies per 10 minutes, 15 live captions per call, recordings up to
+  15 s (1.5 MB).
+- Browsers only allow the microphone on HTTPS or `localhost`, so a phone needs the published address. Phones only
+  play sound a touch started: the page plays a moment of silence on the press so the reply can play later.
+- To try it without a microphone, `?phone=1` forces the phone layout on a computer (`?phone=0` the desktop one).
+
 ## The metacon key
 
 The server reads the gateway key from `$METACON_LLM_KEY`, else from the macOS Keychain (service `metacon-llm`, see
@@ -39,7 +77,7 @@ The app runs on Oscar's Mac and is published through its Cloudflare tunnel with 
 `relay deploy jethexa 8790` (live at https://jethexa.alpharelay.dev since 2026-11-21). The server must be running on
 the Mac; it does not restart after a reboot. It is then public without a login, and every chat uses Oscar's metacon key, so the
 server limits each visitor (by Cloudflare's `Cf-Connecting-Ip`) to 20 chats per 10 minutes and 60 commands per
-minute, and runs at most 2 chats at once.
+minute, and runs at most 2 chats at once. The server must have the voice settings above in its environment for voice calls.
 
 ## Settings
 
