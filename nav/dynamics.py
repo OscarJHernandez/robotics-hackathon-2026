@@ -28,8 +28,12 @@ CANDIDATES = [(s, t) for s in np.linspace(*STRIDE_RANGE, 5) for t in np.linspace
 FACING_COST = 0.08  # metres of distance one radian of bearing error is worth
 # Score "delta": b's offset from the predicted end pose, ahead (delta_x) and to the left (delta_y), with no
 # distance or bearing term; a metre sideways costs SIDE_WEIGHT metres ahead.
-SCORES = ("polar", "delta")
+# Score "hybrid": the delta score plus a cost for not facing b, scaled by the distance to b. Turning toward
+# a b that is behind first makes delta_y larger; with SIDE_WEIGHT 2 the facing cost must be at least about
+# 1 m per radian per metre of distance for the turn to pay off within one cycle.
+SCORES = ("polar", "delta", "hybrid")
 SIDE_WEIGHT = 2.0
+HYBRID_FACING = 1.5
 
 
 def motion_rows(cycles):
@@ -82,6 +86,8 @@ class DynamicsPlanner:
             ef, el = c * rf + s * rl, -s * rf + c * rl
             if self.score == "delta":  # ef, el are delta_x, delta_y seen from the predicted end pose
                 cost = np.hypot(ef, SIDE_WEIGHT * el)
+            elif self.score == "hybrid":
+                cost = np.hypot(ef, SIDE_WEIGHT * el) + HYBRID_FACING * np.hypot(ef, el) * np.abs(np.arctan2(el, ef))
             else:
                 cost = np.hypot(ef, el) + FACING_COST * np.abs(np.arctan2(el, ef))
             best = cands[int(np.argmin(cost))]

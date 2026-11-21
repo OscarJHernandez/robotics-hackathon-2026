@@ -162,7 +162,7 @@ def main():
     parser.add_argument("--groups", default=",".join(DEFAULT_GROUPS), help="feature groups (kind goal only)")
     parser.add_argument("--score", choices=SCORES, default="polar",
                         help="how the planner scores candidates (kind planner only): polar = distance + bearing, "
-                             "delta = b's offset ahead and sideways")
+                             "delta = b's offset ahead and sideways, hybrid = delta + facing b")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()

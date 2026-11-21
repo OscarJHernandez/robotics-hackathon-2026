@@ -100,16 +100,22 @@ ahead did not change; the path still bends a little after the turn.
 **Planner score** (`--score`, kind `planner` only): the planner's TabPFN model never sees b (it predicts
 motion), so b enters only where candidate commands are scored. `polar` (default) scores distance to b plus a
 cost for not facing it. `delta` scores b's offset from the predicted end pose, ahead and sideways (a metre
-sideways counts double), with no bearing term. Results with 300 examples:
+sideways counts double), with no bearing term. `hybrid` is `delta` plus a cost for not facing b, scaled by
+the distance to b (`HYBRID_FACING` in `nav/dynamics.py`). Results with 300 examples:
 
-| Score | Reached b | Directness |
-|---|---|---|
-| `polar` (default) | 20 of 20 | 0.89 |
-| `delta` | 10 of 20 | 0.48 |
+| Score | Reached b | Directness | Mean cycles |
+|---|---|---|---|
+| `hybrid` | 20 of 20 | **0.96** | 9.8 |
+| `polar` (default) | 20 of 20 | 0.89 | 9.1 |
+| `delta` | 10 of 20 | 0.48 | n/a |
+| hand-written baseline | 20 of 20 | 0.96 | 9.8 |
 
-`delta` reaches every target within 72 degrees of straight ahead, slightly straighter than `polar` on those
-(0.96 against 0.94), and none more than 90 degrees away: with b behind, a turn on the spot does not bring
-b closer, so the one-cycle planner never starts turning. Keep `polar` unless the score gets a facing term.
+`hybrid` turns on the spot until it faces b, then walks almost straight: 15 of 20 tasks straighter than
+`polar`, none worse, at the cost of 0.7 cycles on average for the turn. `delta` alone reaches every target
+within 72 degrees of straight ahead and none more than 90 degrees away: with b behind, a turn on the spot
+does not bring b closer, so the one-cycle planner never starts turning. The facing cost has to scale with
+distance and be large (1.5, not `polar`'s fixed 0.08 m per radian), or turning toward b loses to the
+growing sideways offset and `hybrid` stalls the same way.
 
 ## Where the data is
 

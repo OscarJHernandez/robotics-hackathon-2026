@@ -47,6 +47,9 @@ in the same pull request as the work.
   term) fails every target more than 90 degrees off the heading (10 of 20 reached): it looks one cycle ahead,
   and a turn on the spot does not bring b closer, so it never turns around. The bearing term in the `polar`
   score is what makes it turn. On targets ahead, `delta` was slightly straighter (0.96 against 0.94).
+  Adding a distance-scaled facing cost (`--score hybrid`) fixes it: 20 of 20, directness 0.96 (`polar` 0.89),
+  matching the hand-written baseline. The facing weight must beat the sideways weight while turning, so it is
+  1.5 per metre of distance, not 0.08.
 - 2026-11-21 (Oscar's agent): Giving the `goal` controller b's body-frame offset (`delta_x` ahead, `delta_y`
   left) next to distance and bearing raised directness from 0.77 to 0.84 (`fit()` only, same 150 rows); the
   deltas alone gave 0.73. The gain is on targets behind or beside the robot, where it now turns on the spot

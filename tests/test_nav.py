@@ -148,6 +148,12 @@ class NavTest(unittest.TestCase):
         self.assertGreater(ahead[0], 0.2)
         self.assertLess(abs(ahead[1]), 0.1)
         self.assertGreater(left[1], 0.0)  # b ahead-left: steer left
+        planner.score = "hybrid"  # delta + facing b: must also turn toward a b that is behind
+        ahead, behind = planner.act([dict(state, target_dist=1.0, target_sin=0.0, target_cos=1.0),
+                                     dict(state, target_dist=1.0, target_sin=0.3, target_cos=-math.sqrt(0.91))])
+        self.assertGreater(ahead[0], 0.2)
+        self.assertLess(abs(ahead[1]), 0.1)
+        self.assertGreater(behind[1], 0.1)  # b behind, slightly left: turn left
 
 
 class FitOnlyRuleTest(unittest.TestCase):
