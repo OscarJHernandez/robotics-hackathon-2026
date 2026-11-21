@@ -1,0 +1,134 @@
+<!-- Hiwonder JetHexa hexapod for MuJoCo: 18 position-controlled leg joints on a free base,
+     plus one body camera ("eye"). Fallback model with simple capsules and boxes, used when the
+     meshes have not been downloaded. Same joints and physics as jethexa.xml. Masses, servo gains, damping and friction are placeholders, not measured.
+     See docs/simulation.md. -->
+<mujoco model="jethexa">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast"/>
+  <visual><global offwidth="1280" offheight="720"/></visual>
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="256" height="256" rgb1="0.85 0.87 0.9" rgb2="0.75 0.78 0.82"/>
+    <material name="floor" texture="grid" texrepeat="8 8" reflectance="0.05"/>
+  </asset>
+  <worldbody>
+    <light pos="0.5 -0.5 1.5" dir="-0.3 0.3 -1" diffuse="0.9 0.9 0.9"/>
+    <geom name="floor" type="plane" size="3 3 0.1" material="floor" friction="1 0.005 0.0001"/>
+    <body name="body" pos="0 0 0.078">
+      <freejoint name="root"/>
+      <geom name="body_geom" type="box" size="0.075 0.055 0.03" mass="1.6" rgba="0.4 0.9 0.4 1" group="0"/>
+      <geom name="lidar_geom" type="cylinder" size="0.03 0.025" pos="-0.023 0 0.07" mass="0.15" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0"/>
+      <site name="body_site" pos="0 0 0" size="0.004"/>
+      <camera name="eye" pos="0.0625 0 0.07" xyaxes="0 -1 0 0 0 1" fovy="37.348871"/>
+      <body name="coxa_LF" pos="0.093205 0.05098 0" euler="0 0 0.78539816">
+        <joint name="coxa_joint_LF" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+        <geom name="coxa_geom_LF" type="capsule" fromto="0 0 0 0.04505032 0 0" size="0.012" mass="0.06" rgba="0.3 0.3 0.3 1" group="0"/>
+        <body name="femur_LF" pos="0.04505032 0 0" euler="-1.5707963 0 0">
+          <joint name="femur_joint_LF" type="hinge" axis="0 0 -1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+          <geom name="femur_geom_LF" type="capsule" fromto="0 0 0 0.07703 0 0" size="0.012" mass="0.08" rgba="0.3 0.3 0.3 1" group="0"/>
+          <body name="tibia_LF" pos="0.07703 0 0" euler="0 0 1.4835299">
+            <joint name="tibia_joint_LF" type="hinge" axis="0 0 -1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+            <geom name="tibia_geom_LF" type="capsule" fromto="0 0 0 0.123 0 0" size="0.010" mass="0.1" rgba="0.3 0.3 0.3 1" group="0" contype="4" conaffinity="0"/>
+            <geom name="foot_LF" type="sphere" pos="0.123 0 0" size="0.011" mass="0.005" friction="1 0.01 0.001" rgba="0.9 0.5 0.1 1" group="0"/>
+            <site name="end_LF" pos="0.123 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+      <body name="coxa_LM" pos="0 0.07353 0" euler="0 0 1.5707963">
+        <joint name="coxa_joint_LM" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+        <geom name="coxa_geom_LM" type="capsule" fromto="0 0 0 0.04505032 0 0" size="0.012" mass="0.06" rgba="0.3 0.3 0.3 1" group="0"/>
+        <body name="femur_LM" pos="0.04505032 0 0" euler="-1.5707963 0 0">
+          <joint name="femur_joint_LM" type="hinge" axis="0 0 -1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+          <geom name="femur_geom_LM" type="capsule" fromto="0 0 0 0.07703 0 0" size="0.012" mass="0.08" rgba="0.3 0.3 0.3 1" group="0"/>
+          <body name="tibia_LM" pos="0.07703 0 0" euler="0 0 1.4835299">
+            <joint name="tibia_joint_LM" type="hinge" axis="0 0 -1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+            <geom name="tibia_geom_LM" type="capsule" fromto="0 0 0 0.123 0 0" size="0.010" mass="0.1" rgba="0.3 0.3 0.3 1" group="0" contype="4" conaffinity="0"/>
+            <geom name="foot_LM" type="sphere" pos="0.123 0 0" size="0.011" mass="0.005" friction="1 0.01 0.001" rgba="0.9 0.5 0.1 1" group="0"/>
+            <site name="end_LM" pos="0.123 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+      <body name="coxa_LR" pos="-0.093205 0.05098 0" euler="0 0 2.3561945">
+        <joint name="coxa_joint_LR" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+        <geom name="coxa_geom_LR" type="capsule" fromto="0 0 0 0.04505032 0 0" size="0.012" mass="0.06" rgba="0.3 0.3 0.3 1" group="0"/>
+        <body name="femur_LR" pos="0.04505032 0 0" euler="-1.5707963 0 0">
+          <joint name="femur_joint_LR" type="hinge" axis="0 0 -1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+          <geom name="femur_geom_LR" type="capsule" fromto="0 0 0 0.07703 0 0" size="0.012" mass="0.08" rgba="0.3 0.3 0.3 1" group="0"/>
+          <body name="tibia_LR" pos="0.07703 0 0" euler="0 0 1.4835299">
+            <joint name="tibia_joint_LR" type="hinge" axis="0 0 -1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+            <geom name="tibia_geom_LR" type="capsule" fromto="0 0 0 0.123 0 0" size="0.010" mass="0.1" rgba="0.3 0.3 0.3 1" group="0" contype="4" conaffinity="0"/>
+            <geom name="foot_LR" type="sphere" pos="0.123 0 0" size="0.011" mass="0.005" friction="1 0.01 0.001" rgba="0.9 0.5 0.1 1" group="0"/>
+            <site name="end_LR" pos="0.123 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+      <body name="coxa_RF" pos="0.093205 -0.05098 0" euler="0 0 -0.78539816">
+        <joint name="coxa_joint_RF" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+        <geom name="coxa_geom_RF" type="capsule" fromto="0 0 0 0.04505032 0 0" size="0.012" mass="0.06" rgba="0.3 0.3 0.3 1" group="0"/>
+        <body name="femur_RF" pos="0.04505032 0 0" euler="1.5707963 0 0">
+          <joint name="femur_joint_RF" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+          <geom name="femur_geom_RF" type="capsule" fromto="0 0 0 0.07703 0 0" size="0.012" mass="0.08" rgba="0.3 0.3 0.3 1" group="0"/>
+          <body name="tibia_RF" pos="0.07703 0 0" euler="0 0 -1.4835299">
+            <joint name="tibia_joint_RF" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+            <geom name="tibia_geom_RF" type="capsule" fromto="0 0 0 0.123 0 0" size="0.010" mass="0.1" rgba="0.3 0.3 0.3 1" group="0" contype="4" conaffinity="0"/>
+            <geom name="foot_RF" type="sphere" pos="0.123 0 0" size="0.011" mass="0.005" friction="1 0.01 0.001" rgba="0.9 0.5 0.1 1" group="0"/>
+            <site name="end_RF" pos="0.123 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+      <body name="coxa_RM" pos="0 -0.073535 0" euler="0 0 -1.5707963">
+        <joint name="coxa_joint_RM" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+        <geom name="coxa_geom_RM" type="capsule" fromto="0 0 0 0.04505032 0 0" size="0.012" mass="0.06" rgba="0.3 0.3 0.3 1" group="0"/>
+        <body name="femur_RM" pos="0.04505032 0 0" euler="1.5707963 0 0">
+          <joint name="femur_joint_RM" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+          <geom name="femur_geom_RM" type="capsule" fromto="0 0 0 0.07703 0 0" size="0.012" mass="0.08" rgba="0.3 0.3 0.3 1" group="0"/>
+          <body name="tibia_RM" pos="0.07703 0 0" euler="0 0 -1.4835299">
+            <joint name="tibia_joint_RM" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+            <geom name="tibia_geom_RM" type="capsule" fromto="0 0 0 0.123 0 0" size="0.010" mass="0.1" rgba="0.3 0.3 0.3 1" group="0" contype="4" conaffinity="0"/>
+            <geom name="foot_RM" type="sphere" pos="0.123 0 0" size="0.011" mass="0.005" friction="1 0.01 0.001" rgba="0.9 0.5 0.1 1" group="0"/>
+            <site name="end_RM" pos="0.123 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+      <body name="coxa_RR" pos="-0.093205 -0.05098 0" euler="0 0 -2.3561945">
+        <joint name="coxa_joint_RR" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+        <geom name="coxa_geom_RR" type="capsule" fromto="0 0 0 0.04505032 0 0" size="0.012" mass="0.06" rgba="0.3 0.3 0.3 1" group="0"/>
+        <body name="femur_RR" pos="0.04505032 0 0" euler="1.5707963 0 0">
+          <joint name="femur_joint_RR" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+          <geom name="femur_geom_RR" type="capsule" fromto="0 0 0 0.07703 0 0" size="0.012" mass="0.08" rgba="0.3 0.3 0.3 1" group="0"/>
+          <body name="tibia_RR" pos="0.07703 0 0" euler="0 0 -1.4835299">
+            <joint name="tibia_joint_RR" type="hinge" axis="0 0 1" range="-2.0943951 2.0943951" damping="0.05" armature="0.002" frictionloss="0.02"/>
+            <geom name="tibia_geom_RR" type="capsule" fromto="0 0 0 0.123 0 0" size="0.010" mass="0.1" rgba="0.3 0.3 0.3 1" group="0" contype="4" conaffinity="0"/>
+            <geom name="foot_RR" type="sphere" pos="0.123 0 0" size="0.011" mass="0.005" friction="1 0.01 0.001" rgba="0.9 0.5 0.1 1" group="0"/>
+            <site name="end_RR" pos="0.123 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="act_coxa_joint_LF" joint="coxa_joint_LF" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_femur_joint_LF" joint="femur_joint_LF" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_tibia_joint_LF" joint="tibia_joint_LF" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_coxa_joint_LM" joint="coxa_joint_LM" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_femur_joint_LM" joint="femur_joint_LM" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_tibia_joint_LM" joint="tibia_joint_LM" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_coxa_joint_LR" joint="coxa_joint_LR" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_femur_joint_LR" joint="femur_joint_LR" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_tibia_joint_LR" joint="tibia_joint_LR" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_coxa_joint_RF" joint="coxa_joint_RF" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_femur_joint_RF" joint="femur_joint_RF" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_tibia_joint_RF" joint="tibia_joint_RF" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_coxa_joint_RM" joint="coxa_joint_RM" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_femur_joint_RM" joint="femur_joint_RM" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_tibia_joint_RM" joint="tibia_joint_RM" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_coxa_joint_RR" joint="coxa_joint_RR" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_femur_joint_RR" joint="femur_joint_RR" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+    <position name="act_tibia_joint_RR" joint="tibia_joint_RR" kp="80" kv="1.5" forcerange="-3 3" ctrlrange="-2.0943951 2.0943951"/>
+  </actuator>
+  <keyframe>
+    <!-- Reference standing pose: feet on the floor, body about 70 mm up. -->
+    <key name="stand"
+         qpos="0 0 0.078 1 0 0 0 0.17174 0.728849 -0.65764 0 0.737227 -0.678584 -0.17174 0.728849 -0.65764 -0.17174 0.728849 -0.65764 0 0.737227 -0.678584 0.17174 0.728849 -0.65764"
+         ctrl="0.17174 0.728849 -0.65764 0 0.737227 -0.678584 -0.17174 0.728849 -0.65764 -0.17174 0.728849 -0.65764 0 0.737227 -0.678584 0.17174 0.728849 -0.65764"/>
+  </keyframe>
+</mujoco>
