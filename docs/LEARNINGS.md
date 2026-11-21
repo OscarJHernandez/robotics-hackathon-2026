@@ -64,6 +64,11 @@ in the same pull request as the work.
   It also widens the 6 x 6 m floor plane in `model.geom_size` instead of adding a second floor geom, because
   `foot_contacts()` looks for the geom named `floor`.
 
+- 2026-11-21 (Nodir's agent): For Knock's zone model, how often the robot hears her decides whether TabPFN has
+  anything to beat. In a quick simulation of [knock-routines.md](knock-routines.md), 0.6 heard events an hour
+  gave 55% best possible top-1 against 51% for "usual place at this hour"; 1 an hour gave 59% against 51%.
+  Columns that never change in the context rows (like `answered_robot` in heard rows) teach TabPFN nothing, so
+  leave them out of `fit()`.
 - 2026-11-21 (Oscar's agent): Live captions during a voice call work without a streaming speech API: the
   browser records with `MediaRecorder.start(250)` and every 1.5 s sends all chunks so far as one Blob, which is a
   valid WebM (or Safari MP4) file; Voice Control transcribes 3 s of speech in about 0.3 s. These interim requests
