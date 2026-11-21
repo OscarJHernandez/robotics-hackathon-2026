@@ -127,6 +127,21 @@ rgb = sim.render()                       # robot camera, uint8 array (360, 640, 
 depth = sim.render(depth=True)           # metres, float array (360, 640)
 ```
 
+To steer, pass `turn` to the gait: `tripod_targets(sim.stand, t, turn=0.1)` turns left, a negative value
+turns right, and `swing=0.0` with a `turn` turns on the spot. `walk(sim, seconds, turn=0.1)` does the same.
+
+More readings, all taken at the current simulation time:
+
+```python
+sim.body_yaw()          # heading in radians; 0 faces +x, grows when turning left
+sim.imu()               # {"gyro": (x, y, z) rad/s, "accel": (x, y, z) m/s^2, "roll": rad, "pitch": rad}
+sim.foot_contacts()     # {leg: force of the floor on the foot in newtons}, 0 in the air
+sim.joint_velocities()  # {joint: rad/s}   (the real servos do not report this)
+sim.actuator_forces()   # {joint: N m}     (the real servos do not report this)
+sim.set_target(1.0, 0.5)  # move the red target pillar to x=1.0 m, y=0.5 m
+sim.target()            # (x, y) of the pillar
+```
+
 `sim.model` and `sim.data` are the plain MuJoCo `MjModel` and `MjData`, for anything else.
 
 ## What is in the model
@@ -139,6 +154,8 @@ depth = sim.render(depth=True)           # metres, float array (360, 640)
 | Actuators | 18 position servos named `act_<joint>`; the control value is the target angle in radians |
 | Base | Free: the robot can walk and fall over |
 | Camera | `eye` on the body, looking forward, 640 x 360 |
+| IMU | Sensors `imu_gyro`, `imu_accel`, `imu_quat` at the body centre (`body_site`) |
+| Target marker | Body `target`: a red pillar, 0.3 m tall, that the camera sees. No mass, no collisions; the robot walks through it. Starts at x=1 m |
 | Timestep | 2 ms (500 Hz); the demo sends new targets every 20 ms (50 Hz) |
 | Start pose | Keyframe `stand` |
 | Looks | Meshes in geom groups 1 and 2, no mass and no collisions |
@@ -152,8 +169,8 @@ depth = sim.render(depth=True)           # metres, float array (360, 640)
   slightly through something that only its mesh touches. To see the collision shapes in the viewer, turn on
   geom group 3 under "Group enable".
 - **The walking gait in `jethexa_sim.py` is a simple demo gait**, not the real robot's.
-- **Not simulated yet:** lidar scan (the lidar on top is only a shape), microphones, IMU, servo temperature
-  and voltage. The camera's 62° horizontal field of view is an assumption.
+- **Not simulated yet:** lidar scan (the lidar on top is only a shape), microphones, servo temperature
+  and voltage. The IMU has no noise or drift. The camera's 62° horizontal field of view is an assumption.
 - **Both model files are generated** by the model generator in Oscar's private `sophy_jethexa` repo. Small edits
   here are fine (make them in both files), but a change to the robot's geometry should be made there and
   the files generated again.

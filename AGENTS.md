@@ -73,7 +73,7 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 |---|---|
 | `sim/jethexa.xml` | The robot with Hiwonder's meshes (needs `just meshes`) |
 | `sim/jethexa_simple.xml` | The same robot with simple shapes; used automatically when the meshes are missing |
-| `sim/jethexa_sim.py` | `JetHexaSim`: load, set joint targets, step, read joints and body, render camera; demo tripod gait |
+| `sim/jethexa_sim.py` | `JetHexaSim`: load, set joint targets, step, read joints, body, IMU and foot contacts, move the target marker, render camera; demo tripod gait with steering |
 | `sim/demo.py` | What `just sim`, `just view` and `just snapshot` run |
 | `sim/fetch_meshes.py` | Mesh download, pinned to one Hiwonder commit and checked by SHA-256 |
 | `tests/` | Tests |
