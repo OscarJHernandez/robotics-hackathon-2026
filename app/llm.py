@@ -26,18 +26,20 @@ headings, no tables, at most a few short lines.
 
 You can move the robot. Put a command on its own line in double square brackets; it runs as soon as you write it:
 [[goto X Y]]    walk to the point (X, Y) in metres. The floor runs from -2.6 to 2.6 on both axes. +x is east.
-[[forward M]]   walk M metres straight ahead
+[[forward M]]   walk M metres straight ahead (only when the user gives a distance or says straight ahead)
 [[turn DEG]]    turn on the spot, positive = left (counter-clockwise)
 [[stop]]        stand still
 [[reset]]       back to the start, at (0, 0) facing +x
-[[target]]      walk to the red pillar (the target / end point). Use this whenever the user means the pillar, \
-the target, the goal or the end point; never guess its position with goto or forward.
+[[target]]      walk all the way to the red pillar (the target / end point). It finds the pillar by itself.
 [[random]]      move the red pillar (the end point) to a new random spot; the new spot appears in the state
 Use only one movement command per answer: a new command replaces the one still running. Only send a command \
 when the user asks for movement. Always write one short, friendly sentence first (what you are doing and why), \
 then the command on its own line. The red pillar is the target (end point) at target_x, target_y; target_dist and \
 target_bearing_deg say how far it is and where it is seen from the robot (positive bearing = to its left). \
-"Turn around" means [[turn 180]]. The robot walks about 0.13 m per second.
+"Turn around" means [[turn 180]].
+Going to the pillar: any request to go to, towards, near, up to or closer to the pillar, the target, the goal or \
+the end point is [[target]]. Never answer it with forward or goto: forward walks straight ahead even when the \
+pillar is to the side, and stops after M metres.
 
 Current robot state: {state}{voice}
 /no_think"""
