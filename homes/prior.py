@@ -4,14 +4,14 @@
 
 P(zone | flat's zone set, weekday type, slot: morning / afternoon / evening), counted from the diary rows of TRAIN residents only
 (so test residents are never in it), smoothed towards the population share. Residents with the same set of zones
-(for example bed, bathroom, kitchen, couch) share one table, because "couch" means nothing in a flat that has none.
+share one table; every flat from flats.py has the same five zones, so today there is one table.
 
 `probs(flat, hour, weekday)` returns `(zone_probs, p_out)`:
 - `zone_probs`: {zone name: p} over the flat's zones, summing to 1, the same shape as PRIORS in app/knock.py;
 - `p_out`: the separate probability that she is not home.
 
 There are no diary rows between 22:30 and 07:00 (the robot only records in the day), so night uses a stated default:
-bed 0.85, bathroom 0.15, nobody out (used by help calls at night). The saved file is small JSON; loading it needs only numpy.
+bedroom 0.85, kitchen 0.15, nobody out (used by help calls at night). The saved file is small JSON; loading it needs only numpy.
 """
 
 import argparse
@@ -25,7 +25,7 @@ from residents import slot_of
 
 DATA = Path(__file__).resolve().parent / "data"
 ALPHA = 5.0  # pseudo-count that pulls a thin table towards the population share
-NIGHT_DEFAULT = {"bed": 0.85, "bathroom": 0.15}
+NIGHT_DEFAULT = {"bedroom": 0.85, "kitchen": 0.15}
 
 
 def _wk(weekday):
@@ -103,7 +103,7 @@ def main():
     flats = json.loads((data / "flats.json").read_text())
     prior = ColdStartPrior.fit(diary, {f["flat_id"]: signature(f) for f in flats})
     prior.save(data / "cold_prior.json")
-    flat = next(f for f in flats if len(f["zones"]) == 4)
+    flat = flats[0]
     for hour, wd in ((9.5, 1), (15.0, 2), (20.0, 4), (3.0, 1)):
         zone_probs, p_out = prior.probs(flat, hour, wd)
         print("flat {} hour {:>4} weekday {}: {}  out {:.2f}".format(

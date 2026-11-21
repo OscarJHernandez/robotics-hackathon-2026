@@ -5,6 +5,7 @@
 The flat tests need only numpy. The table tests need pandas and skip without it. Nothing here needs TabPFN.
 """
 
+import math
 import re
 import sys
 import unittest
@@ -24,10 +25,10 @@ try:
 except ImportError:
     HAVE_PANDAS = False
 
-# The app's six zone names (KnockZone in app/web/src/lib/api.ts, ZONES in app/knock.py).
-APP_ZONES = {"bed", "bathroom", "kitchen", "couch", "armchair", "entrance"}
+ZONES = {"bedroom", "living_room", "dining_area", "kitchen", "hallway"}
 SPEC_COLUMNS = ["day", "resident", "source", "hour", "weekday", "last_heard_zone",
                 "min_since_heard", "voice_bearing_deg", "voice_loudness_db", "zone"]
+REPO = HOMES.parent
 
 
 def make_flat(i):
@@ -35,33 +36,51 @@ def make_flat(i):
 
 
 class FlatsTest(unittest.TestCase):
-    def test_zone_counts_names_and_geometry(self):
-        counts = set()
+    def test_zones_cover_the_room_and_furniture_and_poses_fit(self):
+        tol = 2e-3  # the flat stores centres and sizes rounded to 1 mm
         for i in range(300):
             flat = make_flat(i)
-            names = F.zone_names(flat)
-            counts.add(len(names))
-            self.assertTrue(3 <= len(names) <= 5)
-            self.assertEqual(len(names), len(set(names)))
-            self.assertTrue({"bed", "kitchen", "bathroom"} <= set(names))
-            self.assertTrue(set(names) <= APP_ZONES)
-            w, d = flat["width"] / 2, flat["depth"] / 2
-            rects = []
+            self.assertEqual(F.zone_names(flat), list(F.ZONE_NAMES))
+            self.assertEqual(set(F.zone_names(flat)), ZONES)
+            self.assertAlmostEqual(flat["width"] * flat["depth"], 50.0, places=1)
+            self.assertAlmostEqual(sum(z["size_x"] * z["size_y"] for z in flat["zones"]), 50.0, delta=0.05)
+            rects = {z["name"]: F.zone_rect(z) for z in flat["zones"]}
+            names = list(rects)
+            for a in range(len(names)):  # the zones do not overlap, so with the full area they tile the floor
+                for b in range(a + 1, len(names)):
+                    self.assertFalse(F._overlap(rects[names[a]], rects[names[b]], -tol))
+            self.assertEqual({f["name"] for f in flat["furniture"]}, set(F.PIECES))
+            solid = [F.furniture_rect(f) for f in flat["furniture"]]
+            for a in range(len(solid)):
+                for b in range(a + 1, len(solid)):
+                    self.assertFalse(F._overlap(solid[a], solid[b], -tol), "furniture overlaps in flat {}".format(i))
+            for f, r in zip(flat["furniture"], solid):
+                self.assertTrue(F._rect_inside(r, rects[f["zone"]], tol), "{} outside its zone".format(f["name"]))
+                self.assertIn(f["name"], F.zone(flat, f["zone"])["furniture"])
             for z in flat["zones"]:
-                r = (z["x"] - z["size_x"] / 2, z["y"] - z["size_y"] / 2, z["x"] + z["size_x"] / 2, z["y"] + z["size_y"] / 2)
-                tol = 2e-3  # the flat stores centre and size rounded to 1 mm, so a rectangle can differ by under 1 mm
-                self.assertTrue(-w - tol <= r[0] and r[2] <= w + tol and -d - tol <= r[1] and r[3] <= d + tol)
-                for other in rects:
-                    self.assertFalse(F._overlap(r, other), "furniture overlaps in flat {}".format(i))
-                rects.append(r)
-                self.assertTrue(-w + F.CLEARANCE - 1e-6 <= z["view_x"] <= w - F.CLEARANCE + 1e-6)
-                self.assertTrue(-d + F.CLEARANCE - 1e-6 <= z["view_y"] <= d - F.CLEARANCE + 1e-6)
-                for o in flat["zones"]:
-                    if o["solid"]:
-                        orect = (o["x"] - o["size_x"] / 2, o["y"] - o["size_y"] / 2, o["x"] + o["size_x"] / 2,
-                                 o["y"] + o["size_y"] / 2)
-                        self.assertGreaterEqual(F._point_rect_dist(z["view_x"], z["view_y"], orect), F.CLEARANCE - 1e-6)
-        self.assertEqual(counts, {3, 4, 5})
+                self.assertTrue(z["neighbours"] and set(z["neighbours"]) <= ZONES - {z["name"]})
+                for spot in z["spots"]:
+                    self.assertEqual(F.zone_at(flat, spot["person_x"], spot["person_y"]), z["name"])
+                    self.assertEqual(F.zone_at(flat, spot["view_x"], spot["view_y"]), z["name"])
+                    self.assertLessEqual(max(abs(spot["view_x"]), abs(spot["view_y"])), F.HALF - F.CLEARANCE + tol)
+                    for r in solid:
+                        self.assertGreaterEqual(F._point_rect_dist(spot["view_x"], spot["view_y"], r),
+                                                F.CLEARANCE - tol)
+                    # the robot at the viewing pose looks at her
+                    a = math.degrees(math.atan2(spot["person_y"] - spot["view_y"], spot["person_x"] - spot["view_x"]))
+                    self.assertAlmostEqual((a - spot["heading_deg"] + 180) % 360 - 180, 0.0, delta=1.0)
+            self.assertEqual(F.zone_at(flat, flat["dock"]["x"], flat["dock"]["y"]), "hallway")
+            self.assertEqual(len(F.zone(flat, "living_room")["spots"]), 2)  # couch and armchair
+
+    def test_layouts_vary(self):
+        walls, corners = set(), set()
+        for i in range(60):
+            flat = make_flat(i)
+            walls.add(flat["door"]["wall"])
+            bed = F.zone(flat, "bedroom")
+            corners.add((bed["x"] > 0, bed["y"] > 0))
+        self.assertEqual(walls, {"xmin", "xmax", "ymin", "ymax"})
+        self.assertEqual(len(corners), 4)
 
     def test_same_seed_same_flat(self):
         self.assertEqual(make_flat(7), make_flat(7))
@@ -70,11 +89,63 @@ class FlatsTest(unittest.TestCase):
     def test_to_app_zones_has_the_shape_of_app_knock_zones(self):
         zones = F.to_app_zones(make_flat(3))
         for name, (label, (x, y), heading, description) in zones.items():
-            self.assertIn(name, APP_ZONES)
+            self.assertIn(name, ZONES)
             self.assertIsInstance(label, str)
             self.assertIsInstance(description, str)
             self.assertTrue(-180.0 <= heading <= 180.0)
             self.assertTrue(isinstance(x, float) and isinstance(y, float))
+
+    def test_furniture_matches_the_arena_xml(self):
+        """The footprints and bodies in flats.PIECES are the ones in sim/arena_furniture.xml."""
+        import xml.etree.ElementTree as ET
+        bodies = {b.get("name"): b for b in ET.parse(REPO / "sim" / "arena_furniture.xml").getroot().iter("body")}
+        self.assertEqual({p["body"] for p in F.PIECES.values()}, set(bodies))
+        for name, piece in F.PIECES.items():
+            lo, hi, radius = [9.0, 9.0], [-9.0, -9.0], 0.0
+            for g in bodies[piece["body"]].iter("geom"):
+                pos = [float(v) for v in g.get("pos").split()]
+                size = [float(v) for v in g.get("size").split()]
+                half = (size[0], size[0]) if g.get("type") == "cylinder" else (size[0], size[1])
+                reach = size[0] if g.get("type") == "cylinder" else math.hypot(size[0], size[1])
+                radius = max(radius, math.hypot(pos[0], pos[1]) + reach)
+                for k in (0, 1):
+                    lo[k], hi[k] = min(lo[k], pos[k] - half[k]), max(hi[k], pos[k] + half[k])
+            for k in (0, 1):
+                self.assertAlmostEqual(lo[k], -piece["half"][k], places=6, msg=name)
+                self.assertAlmostEqual(hi[k], piece["half"][k], places=6, msg=name)
+            self.assertAlmostEqual(radius, piece["radius"], places=3, msg=name)
+
+    def test_a_flat_opens_in_the_mujoco_arena(self):
+        """Arena.apply() takes arena_layout(flat), and the furniture then stands where the flat says."""
+        try:
+            import mujoco
+            sys.path.insert(0, str(REPO / "vision"))
+            from scene import Arena
+        except ImportError:
+            self.skipTest("needs mujoco")
+        arena = Arena(simple=True)
+        try:
+            for i in (0, 1, 2, 3):
+                flat = make_flat(i)
+                layout = F.arena_layout(flat, "living_room")
+                arena.apply(layout)
+                model, data = arena.sim.model, arena.sim.data
+                self.assertEqual(F.zone_at(flat, *layout["target"]), "living_room")  # the pillar stands in for her
+                for f in flat["furniture"]:
+                    obstacle = next(o for o in arena.obstacles if o["name"] == f["body"])
+                    lo, hi = np.full(2, 9.0), np.full(2, -9.0)
+                    for g in obstacle["geoms"]:
+                        size = model.geom_size[g]
+                        if model.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX:
+                            half = np.abs(data.geom_xmat[g].reshape(3, 3)[:2, :2]) @ size[:2]
+                        else:
+                            half = np.array([size[0], size[0]])
+                        lo = np.minimum(lo, data.geom_xpos[g][:2] - half)
+                        hi = np.maximum(hi, data.geom_xpos[g][:2] + half)
+                    np.testing.assert_allclose(np.concatenate([lo, hi]), F.furniture_rect(f), atol=3e-3,
+                                               err_msg="{} in flat {}".format(f["name"], i))
+        finally:
+            arena.close()
 
 
 class ResidentsTest(unittest.TestCase):
@@ -150,7 +221,7 @@ class GenerateTest(unittest.TestCase):
                 allowed = set(F.zone_names(self.flats[fid])) | {"out"}
                 self.assertTrue(set(g["zone"]) <= allowed)
                 self.assertTrue(set(g["last_heard_zone"].dropna()) <= allowed)
-        self.assertTrue(set(self.diary["zone"]) | set(self.checkins["zone"]) <= APP_ZONES | {"out"})
+        self.assertTrue(set(self.diary["zone"]) | set(self.checkins["zone"]) <= ZONES | {"out"})
 
     def test_no_leakage_last_heard_is_the_previous_row(self):
         d = self.diary.sort_values(["resident_id", "day", "hour"])
@@ -169,10 +240,14 @@ class GenerateTest(unittest.TestCase):
         self.assertTrue(self.checkins.loc[self.checkins["kind"] == "help", "voice_bearing_deg"].notna().all())
         self.assertTrue((self.checkins.loc[self.checkins["kind"] == "help", "zone"] != "out").all())
 
-    def test_positions_only_when_home(self):
+    def test_positions_only_when_home_and_inside_her_zone(self):
         home = self.checkins["zone"] != "out"
         self.assertTrue(self.checkins.loc[home, "x"].notna().all())
         self.assertTrue(self.checkins.loc[~home, "x"].isna().all())
+        at = self.checkins[home]
+        inside = [F._point_rect_dist(x, y, F.zone_rect(F.zone(self.flats[fid], zone))) < 0.35  # 10 cm scatter
+                  for fid, zone, x, y in zip(at["flat_id"], at["zone"], at["x"], at["y"])]
+        self.assertTrue(all(inside))
 
     def test_splits_do_not_overlap_and_feature_frame_is_numeric(self):
         split = self.diary.groupby("resident_id")["resident_split"].nunique()
@@ -200,7 +275,7 @@ class PriorTest(unittest.TestCase):
                     self.assertTrue(0.0 <= p_out <= 1.0)
         zones, p_out = model.probs(out["flats"][0], 3.0, 1)  # night: the stated default
         self.assertEqual(p_out, 0.0)
-        self.assertAlmostEqual(zones["bed"], 0.85)
+        self.assertAlmostEqual(zones["bedroom"], 0.85)
 
 
 if __name__ == "__main__":

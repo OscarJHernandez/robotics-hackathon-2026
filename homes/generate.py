@@ -3,7 +3,7 @@
     uv run --project <team repo> --group ml python homes/generate.py                  # 8500 residents -> data/
     uv run --project <team repo> --group ml python homes/generate.py --residents 50   # a quick small run
 
-Each resident lives in her own flat and has a weekly routine table (residents.py). The data covers 7 days with
+Each resident lives in her own flat (the MuJoCo arena with five named zones, flats.py) and has a weekly routine table (residents.py). The data covers 7 days with
 exactly 3 diary records a day: one at a random time in the morning (07:00-12:00), afternoon (12:00-18:00) and evening
 (18:00-22:30) slot. A record is what the robot learns at that moment: if she is home it hears her and logs a zone
 (from the direction and loudness of the sound; 10% land in a neighbouring zone), if she is out it finds nobody and logs
@@ -33,12 +33,10 @@ CLASS_ARR = np.array(CLASSES, dtype=object)
 HIST = ["hist_" + c for c in CLASSES]
 SPEC_COLUMNS = ["day", "resident", "source", "hour", "weekday", "last_heard_zone", "min_since_heard",
                 "voice_bearing_deg", "voice_loudness_db", "zone"]
-EXTRA_COLUMNS = ["slot", "is_weekend", "voice_zone_guess", "voice_dist_m", "n_zones", "has_couch", "has_armchair",
-                 "has_entrance", "room_area_m2"] + HIST + ["hist_n"]
+EXTRA_COLUMNS = ["slot", "is_weekend", "voice_zone_guess", "voice_dist_m"] + HIST + ["hist_n"]
 ID_COLUMNS = ["resident_id", "resident_name", "resident_split", "flat_id", "archetype"]
 NUMERIC_FEATURES = ["hour", "weekday", "is_weekend", "slot", "min_since_heard", "voice_bearing_deg",
-                    "voice_loudness_db", "voice_dist_m", "n_zones", "has_couch", "has_armchair", "has_entrance",
-                    "room_area_m2"] + HIST + ["hist_n"]
+                    "voice_loudness_db", "voice_dist_m"] + HIST + ["hist_n"]
 VOICE_FEATURES = ["voice_bearing_deg", "voice_loudness_db", "voice_dist_m"]
 DIARY_COLUMNS = SPEC_COLUMNS + EXTRA_COLUMNS + ID_COLUMNS + ["true_zone"]
 CHECKIN_COLUMNS = SPEC_COLUMNS + EXTRA_COLUMNS + ID_COLUMNS + ["kind", "x", "y"]
@@ -47,10 +45,12 @@ CHECKIN_COLUMNS = SPEC_COLUMNS + EXTRA_COLUMNS + ID_COLUMNS + ["kind", "x", "y"]
 # --- hearing ---
 
 def _person_xy(flat, name, rng):
+    """Where she is in a zone: near one of its spots (the couch or the armchair in the living room)."""
     z = next(z for z in flat["zones"] if z["name"] == name)
+    spot = z["spots"][int(rng.integers(len(z["spots"])))]
     w, d = flat["width"] / 2 - 0.05, flat["depth"] / 2 - 0.05
-    return (float(np.clip(z["person_x"] + rng.normal(0, 0.1), -w, w)),
-            float(np.clip(z["person_y"] + rng.normal(0, 0.1), -d, d)))
+    return (float(np.clip(spot["person_x"] + rng.normal(0, 0.1), -w, w)),
+            float(np.clip(spot["person_y"] + rng.normal(0, 0.1), -d, d)))
 
 
 def _voice(flat, x, y, rng):
@@ -86,7 +86,6 @@ def _history(q_day, q_slot, q_wk, s_day, s_slot, s_wk, s_zone):
 
 def _frame(flat, p, a, share, hist_n, last_zone, min_since, target):
     n = len(target)
-    names = zone_names(flat)
     f = {
         "day": a["day"], "resident": np.full(n, p["resident"], object), "source": a["source"],
         "hour": np.round(a["hour"], 3), "weekday": a["weekday"].astype(np.int8),
@@ -96,10 +95,6 @@ def _frame(flat, p, a, share, hist_n, last_zone, min_since, target):
         "zone": CLASS_ARR[target],
         "slot": a["slot"].astype(np.int8), "is_weekend": (a["weekday"] >= 5).astype(np.int8),
         "voice_zone_guess": _zone_guess(flat, a["vb"]), "voice_dist_m": np.round(10 ** ((65 - a["vl"]) / 20), 2),
-        "n_zones": np.full(n, len(names), np.int8), "has_couch": np.full(n, int("couch" in names), np.int8),
-        "has_armchair": np.full(n, int("armchair" in names), np.int8),
-        "has_entrance": np.full(n, int("entrance" in names), np.int8),
-        "room_area_m2": np.full(n, round(flat["area_m2"], 2), np.float32),
     }
     for i, c in enumerate(CLASSES):
         f["hist_" + c] = np.round(share[:, i], 4).astype(np.float32)
@@ -175,7 +170,7 @@ def build_resident(task):
                 for _ in range(20):
                     t = float(rq.uniform(0, 1440))
                     slot = slot_of(int(t), n)
-                    true = CODE["bed"] if slot is None else day_codes[day][slot]  # night: asleep at home
+                    true = CODE["bedroom"] if slot is None else day_codes[day][slot]  # night: asleep at home
                     if true != OUT:
                         break
                 else:
@@ -249,7 +244,8 @@ def zones_table(flats):
     rows = []
     for f in flats:
         for z in f["zones"]:
-            rows.append(dict({k: v for k, v in z.items() if k != "neighbours"}, flat_id=f["flat_id"],
+            rows.append(dict({k: v for k, v in z.items() if k not in ("neighbours", "furniture", "spots")},
+                             flat_id=f["flat_id"], furniture=",".join(z["furniture"]), n_spots=len(z["spots"]),
                              neighbours=",".join(z["neighbours"]), room_w=f["width"], room_d=f["depth"]))
     return pd.DataFrame(rows)
 

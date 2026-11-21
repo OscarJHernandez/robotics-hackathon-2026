@@ -1,0 +1,176 @@
+"""Bayesian search: journal + habits + floor plan -> where to look for her, in which order.
+
+    beliefs(flat, hour, weekday, population, habits, journal, last)   -> P(zone) and P(out), step by step
+    plan(flat, probs)                                                  -> the order to check the zones in
+    after_miss(probs, zone)                                            -> P(zone) once a zone was checked, nobody there
+
+The belief is counting with Bayes' rule, no model to train:
+
+1. Population: how often people are in each zone in this part of the day (weekday or weekend), as a few
+   pseudo-records. This is all there is for a new resident.
+2. Habits: what she or her carer stated (residents.stated_habits): her usual zone in this part of the day gets
+   extra pseudo-records, and so does `out` on the weekday of a regular outing.
+3. Journal: every record of her in this part of the day (same weekday type) counts as one record.
+4. Last heard: if the newest record is from this same part of today, she has most likely not moved. Bayes' rule
+   with the chance that the record was logged in the wrong zone (10%, to a neighbouring zone).
+
+The floor plan turns the belief into a search: `plan` tries every order of the zones and keeps the one with the
+fewest expected metres walked from the dock until she is found. Needs only numpy.
+"""
+
+import itertools
+import math
+
+import numpy as np
+
+from flats import CLASSES, ZONE_NAMES, view_xy, zone
+from residents import slot_of
+
+POPULATION_WEIGHT = 2.0  # pseudo-records behind the population share
+HABIT_WEIGHT = 4.0  # pseudo-records behind her stated usual zone
+OUTING_WEIGHT = 8.0  # pseudo-records behind `out` on a stated outing
+MISPLACED = 0.1  # share of records logged in a neighbouring zone (HEARD_MISPLACED in generate.py)
+NIGHT = {"bedroom": 0.85, "kitchen": 0.15}  # no records at night (22:30-07:00): a stated default
+STAGES = ("population", "habits", "journal", "last_heard")
+
+
+def population_shares(diary):
+    """P(class | weekday type, slot) from the train residents' diary: array [2, slots, classes]."""
+    train = diary[diary["resident_split"] == "train"]
+    counts = np.full((2, int(train["slot"].max()) + 1, len(CLASSES)), 0.5)
+    code = {c: i for i, c in enumerate(CLASSES)}
+    np.add.at(counts, (train["is_weekend"].to_numpy().astype(int), train["slot"].to_numpy().astype(int),
+                       train["zone"].map(code).to_numpy()), 1.0)
+    return counts / counts.sum(axis=2, keepdims=True)
+
+
+def _named(p):
+    return {c: float(p[i]) for i, c in enumerate(CLASSES)}
+
+
+def beliefs(flat, hour, weekday, population=None, habits=None, journal=(), last=None, n_slots=3):
+    """P over the five zones and `out` at this hour (0-24) and weekday (0 = Monday), after each step.
+
+    population: array from population_shares(), or None (every class equally likely).
+    habits:     residents.stated_habits(), or None.
+    journal:    her records so far, each (weekday, slot, zone).
+    last:       (zone, minutes ago) of her newest record, or None.
+    Returns {"population": {...}, "habits": {...}, "journal": {...}, "last_heard": {...}}; each is the belief with
+    everything up to that step, and "last_heard" is the final one."""
+    slot = slot_of(int(hour * 60), n_slots)
+    code = {c: i for i, c in enumerate(CLASSES)}
+    if slot is None:
+        night = np.array([NIGHT.get(c, 0.0) for c in CLASSES])
+        return {stage: _named(night) for stage in STAGES}
+    wk = 1 if weekday >= 5 else 0
+    share = population[wk, slot] if population is not None else np.full(len(CLASSES), 1.0 / len(CLASSES))
+    counts = POPULATION_WEIGHT * share
+    out = {"population": _named(counts / counts.sum())}
+
+    outings = set(map(tuple, habits["outings"])) if habits else set()
+    if habits:
+        counts = counts.copy()
+        counts[code[habits["usual"][str(wk)][slot]]] += HABIT_WEIGHT
+        if (weekday, slot) in outings:
+            counts[code["out"]] += OUTING_WEIGHT
+    out["habits"] = _named(counts / counts.sum())
+
+    counts = counts.copy()
+    for r_weekday, r_slot, r_zone in journal:
+        if r_slot != slot or (1 if r_weekday >= 5 else 0) != wk:
+            continue
+        # A record made during a stated outing says nothing about an ordinary day.
+        if r_zone == "out" and (r_weekday, r_slot) in outings and (weekday, slot) not in outings:
+            continue
+        counts[code[r_zone]] += 1.0
+    p = counts / counts.sum()
+    out["journal"] = _named(p)
+
+    if last is not None and last[0] is not None and slot_of(int(hour * 60 - last[1]), n_slots) == slot \
+            and last[1] < 16 * 60:
+        like = np.zeros(len(CLASSES))  # P(the record says last[0] | she is in zone z)
+        if last[0] == "out":
+            like[code["out"]] = 1.0
+        else:
+            for z in flat["zones"]:
+                if z["name"] == last[0]:
+                    like[code[z["name"]]] = 1.0 - MISPLACED
+                elif last[0] in z["neighbours"]:
+                    like[code[z["name"]]] = MISPLACED / len(z["neighbours"])
+        p = p * like
+        p = p / p.sum()
+    out["last_heard"] = _named(p)
+    return out
+
+
+# --- the floor plan: from belief to search ---
+
+def distances(flat):
+    """Straight-line metres between the dock and the zones' viewing poses: (names, matrix); names[0] is 'dock'."""
+    names = ["dock"] + [z["name"] for z in flat["zones"]]
+    xy = np.array([view_xy(flat, n) for n in names])
+    return names, np.hypot(xy[:, None, 0] - xy[None, :, 0], xy[:, None, 1] - xy[None, :, 1])
+
+
+_ORDERS = np.array(list(itertools.permutations(range(1, len(ZONE_NAMES) + 1))))
+
+
+def plan(flat, probs):
+    """The order of zones with the fewest expected metres until she is found, starting at the dock.
+    Returns (order, expected metres). If she is out, every zone gets checked."""
+    names, dist = distances(flat)
+    legs = dist[np.c_[np.zeros(len(_ORDERS), int), _ORDERS[:, :-1]], _ORDERS]
+    walked = np.cumsum(legs, axis=1)  # metres walked when arriving at the i-th zone of each order
+    p = np.array([probs.get(n, 0.0) for n in names])
+    expected = (walked * p[_ORDERS]).sum(axis=1) + probs.get("out", 0.0) * walked[:, -1]
+    best = int(np.argmin(expected))
+    return [names[i] for i in _ORDERS[best]], float(expected[best])
+
+
+def likeliest_first(flat, probs):
+    """The zones from the most to the least likely: uses the belief but not the floor plan."""
+    return sorted((z["name"] for z in flat["zones"]), key=lambda n: -probs.get(n, 0.0))
+
+
+def nearest_first(flat, first=None):
+    """Always walk to the nearest unchecked zone (after `first`, if given): uses the floor plan but no belief."""
+    names, dist = distances(flat)
+    order, at = [], 0
+    if first in names[1:]:
+        order.append(first)
+        at = names.index(first)
+    while len(order) < len(names) - 1:
+        at = min((i for i in range(1, len(names)) if names[i] not in order), key=lambda i: dist[at, i])
+        order.append(names[at])
+    return order
+
+
+def walk(flat, order, truth):
+    """(metres walked, zones checked) until she is found in `truth`; if she is out, the whole round."""
+    names, dist = distances(flat)
+    metres, at = 0.0, 0
+    for n, name in enumerate(order, start=1):
+        i = names.index(name)
+        metres, at = metres + float(dist[at, i]), i
+        if name == truth:
+            return metres, n
+    return metres, len(order)
+
+
+def after_miss(probs, checked):
+    """The belief once `checked` was looked at and she was not there: it drops to 0, the rest share its part."""
+    rest = {k: v for k, v in probs.items() if k != checked}
+    total = sum(rest.values())
+    out = {k: v / total for k, v in rest.items()}
+    out[checked] = 0.0
+    return out
+
+
+def spot_xy(flat, name):
+    z = zone(flat, name)
+    return z["person_x"], z["person_y"]
+
+
+def heading_to(flat, a, b):
+    (ax, ay), (bx, by) = view_xy(flat, a), view_xy(flat, b)
+    return math.degrees(math.atan2(by - ay, bx - ax))
