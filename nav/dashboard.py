@@ -1,13 +1,15 @@
-"""Write a self-contained HTML dashboard of one model's fine-tuning rounds.
+"""Write a self-contained HTML dashboard of the TabPFN controllers.
 
-    uv run --group ml python nav/dashboard.py [--model NAME] [--out PATH]
+    uv run --group ml python nav/dashboard.py [--controller NAME] [--out PATH]
 
-Reads the navigation database read-only (see nav/db.py) and writes one HTML file with all data embedded
-as JSON: KPIs of the latest round, metrics across rounds, the fine-tuning audit (training rows, loss
-curves), how the regression changed (actual vs predicted, the steering map), every evaluation episode
-as a path plot with its per-cycle table, and an inventory of the runs. No external scripts: the file
-works offline. Default model: the one with the most recent `training` row. Default output:
-<data folder>/dashboard.html.
+A controller is a set of recorded examples given to TabPFN's built-in `fit()` (see nav/controller.py);
+no weights are trained. The dashboard reads the navigation database read-only (see nav/db.py) and
+writes one HTML file with all data embedded as JSON: a plain answer to "does TabPFN walk the robot
+from a to b?", one row per controller (examples, held-out prediction quality, evaluation results)
+next to the hand-written baseline, a comparison chart, how each controller's regression behaves
+(actual vs predicted, the steering map), every evaluation episode as a path plot with its per-cycle
+table, and an inventory of the runs. No external scripts: the file works offline.
+Default output: <data folder>/dashboard.html.
 """
 
 import argparse
@@ -25,6 +27,8 @@ from db import db_path, query  # noqa: E402
 TEMPLATE = HERE / "dashboard_template.html"
 STEP_BUDGET = 400_000  # most path points embedded in total; steps are thinned to stay under it
 MIN_STEP_STRIDE = 5  # keep at most every 5th 20 ms pose (one per 0.1 s)
+MAX_SCATTER = 800  # held-out points embedded per controller and output
+MAX_SECONDS = 40.0  # time limit of an evaluation trip; a trip that never reached b counts as this
 
 
 def tables():
@@ -73,48 +77,65 @@ def rnd(value, digits=4):
     return round(value, digits) if isinstance(value, float) else value
 
 
-def default_model():
-    frame = query("SELECT model FROM training ORDER BY created_at DESC LIMIT 1")
-    if len(frame):
-        return frame["model"][0]
-    frame = query("SELECT model FROM runs WHERE kind = 'eval' AND model <> '' ORDER BY started_at DESC LIMIT 1")
-    if len(frame):
-        return frame["model"][0]
-    raise SystemExit("no trained model in {}: run nav/train.py first".format(db_path()))
+def controllers(only=None):
+    """One row per controller (the newest if a name appears twice)."""
+    if "controllers" not in tables():
+        return []
+    rows = records(query("""
+        SELECT name, kind, created_at, context_rows, total_examples, val_rows, features, outputs, fit_seconds,
+               context_file, git_commit, settings
+        FROM controllers QUALIFY row_number() OVER (PARTITION BY name ORDER BY created_at DESC) = 1
+        ORDER BY created_at"""))
+    if only:
+        rows = [r for r in rows if r["name"] == only]
+    return rows
 
 
-def eval_runs(model):
-    """The latest eval run per (policy, round) of this model, plus the latest baseline run."""
-    runs = query("""
-        SELECT run_id, policy, round, model, started_at FROM runs
-        WHERE kind = 'eval' AND finished_at IS NOT NULL AND (model = ? OR policy = 'baseline')
-        ORDER BY started_at""", [model])
-    chosen = {}
-    for row in runs.itertuples(index=False):
-        if row.policy == "baseline":
-            key = ("baseline", None)
-            # prefer this model's baseline; else the most recent baseline of any model
-            if key in chosen and chosen[key]["model"] == model and row.model != model:
-                continue
-        else:
-            key = (row.policy, None if clean(row.round) is None else int(row.round))
-        chosen[key] = {"run_id": row.run_id, "policy": row.policy, "round": key[1], "model": row.model}
-    return list(chosen.values())
+def latest_eval_runs(names):
+    """The latest eval run per controller name, and the baseline run to compare with.
+
+    Old runs from a removed experiment (a `round` value, kind 'attempts') are ignored. A finished
+    run is preferred; an unfinished one is used only when the controller has nothing else.
+    """
+    if not names:
+        return {}, {}
+    marks = ",".join("?" * len(names))
+    runs = records(query("""
+        SELECT run_id, policy, model, started_at, finished_at FROM runs
+        WHERE kind = 'eval' AND round IS NULL AND model IN ({}) ORDER BY started_at""".format(marks), names))
+    chosen, baselines = {}, {}
+    for r in runs:
+        target = baselines if r["policy"] == "baseline" else chosen
+        prev = target.get(r["model"])
+        if prev is None or r["finished_at"] is not None or prev["finished_at"] is None:
+            target[r["model"]] = r
+    return chosen, baselines
 
 
-def paired(run_a, run_b, max_seconds=40.0, seed=0):
-    """Compare two eval runs task by task. Positive gains mean run_a is better.
+def episode_summary(run_ids):
+    if not run_ids:
+        return {}
+    marks = ",".join("?" * len(run_ids))
+    frame = query("""
+        SELECT run_id, count(*) AS n, sum(reached::INT) AS reached, avg(reached::INT) AS success,
+               avg(final_dist) AS final_dist, avg(directness) AS directness,
+               avg(CASE WHEN reached THEN seconds END) AS seconds_reached, avg(fell::INT) AS fell
+        FROM episodes WHERE run_id IN ({}) GROUP BY run_id""".format(marks), run_ids)
+    return {r["run_id"]: r for r in records(frame, digits=5)}
 
-    Seconds to b counts a trip that never reached b as the time limit (40 s). Returns per-task gains,
-    wins/losses and a bootstrap 95% interval of the mean gain for seconds and for directness.
+
+def paired(run_a, run_b, seed=0):
+    """Compare two eval runs trip by trip. Positive gains mean run_a is better.
+
+    Seconds to b counts a trip that never reached b as the time limit. Returns per-metric wins and
+    losses and a bootstrap 95% interval of the mean gain, for seconds and for directness.
     """
     import numpy as np
     frame = query("""
-        SELECT a.task, a.reached AS ra, b.reached AS rb,
-               CASE WHEN a.reached THEN a.seconds ELSE ? END AS sa, CASE WHEN b.reached THEN b.seconds ELSE ? END AS sb,
-               a.directness AS da, b.directness AS db
+        SELECT a.task, CASE WHEN a.reached THEN a.seconds ELSE ? END AS sa,
+               CASE WHEN b.reached THEN b.seconds ELSE ? END AS sb, a.directness AS da, b.directness AS db
         FROM episodes a JOIN episodes b USING (task)
-        WHERE a.run_id = ? AND b.run_id = ? ORDER BY task""", [max_seconds, max_seconds, run_a, run_b])
+        WHERE a.run_id = ? AND b.run_id = ? ORDER BY task""", [MAX_SECONDS, MAX_SECONDS, run_a, run_b])
     rng = np.random.default_rng(seed)
     out = {"tasks": len(frame)}
     for name, gain in (("seconds", frame["sb"] - frame["sa"]), ("directness", frame["da"] - frame["db"])):
@@ -123,95 +144,129 @@ def paired(run_a, run_b, max_seconds=40.0, seed=0):
         out[name] = {"mean": float(g.mean()) if len(g) else 0.0, "low": float(np.percentile(boots, 2.5)),
                      "high": float(np.percentile(boots, 97.5)), "wins": int((g > 1e-9).sum()),
                      "losses": int((g < -1e-9).sum())}
-    out["reached"] = (int(frame["ra"].sum()), int(frame["rb"].sum()))
     return out
 
 
-def verdict(summary, training):
-    """A plain, honest answer to "is training making the robot better?".
+def answer(rows, baseline):
+    """A plain, honest answer to "does TabPFN walk the robot from a to b?".
 
-    Trained and untrained TabPFN (same examples) do the same 20 held-out trips; compare them trip by
-    trip on seconds to reach b. "Yes" only when the trained model is faster on most trips AND the
-    95% interval of the mean gain is above zero. A gain inside the noise is reported as "no clear
-    difference", never as progress.
+    Judged on the best controller (highest mean directness on its latest evaluation): "Yes" when it
+    reaches b on at least 90% of the held-out trips, "Partly" from 50%, else "No". The comparison
+    with the hand-written baseline is trip by trip; a difference inside the noise is called that.
     """
-    def pick(policy, round_):
-        return next((s for s in summary if s["policy"] == policy and s["round"] == round_), None)
-
-    base = next((s for s in summary if s["policy"] == "baseline"), None)
-    rounds = sorted({s["round"] for s in summary if s["policy"] == "tabpfn-finetuned" and s["round"] is not None})
-    rounds = [r for r in rounds if pick("tabpfn-pretrained", r)]
-    out = {"status": "waiting", "baseline": base, "round": None, "rounds": len(rounds), "checks": []}
-    if not rounds:
+    tested = [r for r in rows if r.get("eval")]
+    out = {"status": "waiting", "best": None, "baseline": baseline, "checks": []}
+    if not tested:
         out["headline"] = "Not known yet."
-        out["detail"] = "No training round has been tested yet. The answer appears when round 0 is tested."
+        out["detail"] = ("No controller has been evaluated yet. Build one with `just controller`; the answer "
+                         "appears when its 20 test trips are recorded.")
         return out
-    r = rounds[-1]
-    ft, pre = pick("tabpfn-finetuned", r), pick("tabpfn-pretrained", r)
-    p = paired(ft["run_id"], pre["run_id"])
-    sec, dirn = p["seconds"], p["directness"]
-    moved = [t for t in training if t["round"] == r and (t["weight_change"] or 0) > 1e-6]
-    clear = sec["low"] > 0 and sec["wins"] > p["tasks"] / 2
-    worse = sec["high"] < 0
-    out.update(round=r, paired=p)
-    out["checks"] = [
-        {"ok": bool(moved), "text": "Training changed the model's weights" if moved else
-         "Training did not change the model's weights"},
-        {"ok": clear, "text": "Trip by trip (20 test trips): the trained model was faster on {} and slower on {}. "
-         "Average gain {:+.1f} s per trip; likely range {:+.1f} to {:+.1f} s.".format(
-             sec["wins"], sec["losses"], sec["mean"], sec["low"], sec["high"])},
-        {"ok": dirn["low"] > 0, "text": "Path straightness: better on {}, worse on {} trips; average {:+.2f} "
-         "(likely range {:+.2f} to {:+.2f}).".format(dirn["wins"], dirn["losses"], dirn["mean"], dirn["low"], dirn["high"])},
-    ]
-    if clear and moved:
-        out["status"], out["headline"] = "working", "Yes: training is making the robot better."
-        out["detail"] = "After round {}, the trained model reaches b faster on most trips, by more than the noise.".format(r)
-    elif worse:
-        out["status"], out["headline"] = "not_working", "No: training is making the robot worse."
-        out["detail"] = "After round {}, the trained model is clearly slower than the untrained one.".format(r)
+    best = tested[0]
+    e = best["eval"]
+    out["best"] = best["name"]
+    n, reached = int(e["n"] or 0), int(e["reached"] or 0)
+    rate = reached / n if n else 0.0
+    if rate >= 0.9:
+        out["status"], word = "working", "Yes"
+    elif rate >= 0.5:
+        out["status"], word = "partly", "Partly"
     else:
-        out["status"], out["headline"] = "unclear", "Not yet: no clear difference."
-        out["detail"] = ("After round {}, the trained and untrained models perform about the same; any difference "
-                         "is within the noise. This is not progress yet.".format(r))
+        out["status"], word = "not_working", "No"
+    out["headline"] = "{}: controller {} reaches b on {} of {} test trips.".format(word, best["name"], reached, n)
+    sec = "{:.1f} s".format(e["seconds_reached"]) if e["seconds_reached"] is not None else "no trip reached b"
+    out["detail"] = ("Its paths have a mean directness of {:.2f} (1 = a straight line from a to b) and the trips "
+                     "that reached b took {} on average. It is the best of {} evaluated controller{}.".format(
+                         e["directness"] or 0, sec, len(tested), "" if len(tested) == 1 else "s"))
+    if baseline and best.get("baseline_run"):
+        p = paired(best["run_id"], best["baseline_run"])
+        out["paired"] = p
+        s, d = p["seconds"], p["directness"]
+
+        def verdict(m, unit_better, unit_worse):
+            if m["low"] > 0:
+                return unit_better
+            if m["high"] < 0:
+                return unit_worse
+            return "about the same (the difference is within the trip-to-trip noise)"
+
+        out["checks"] = [
+            {"ok": rate >= 0.9, "text": "Reaches b: {} of {} trips (baseline: {} of {}).".format(
+                reached, n, int(baseline["reached"] or 0), int(baseline["n"] or 0))},
+            {"ok": s["low"] > 0, "text": "Time to b, trip by trip against the baseline: faster on {}, slower on {}; "
+             "average {:+.1f} s per trip (likely range {:+.1f} to {:+.1f} s). Verdict: {}.".format(
+                 s["wins"], s["losses"], s["mean"], s["low"], s["high"],
+                 verdict(s, "faster than the baseline", "slower than the baseline"))},
+            {"ok": d["low"] > 0, "text": "Path straightness against the baseline: better on {}, worse on {} trips; "
+             "average {:+.2f} (likely range {:+.2f} to {:+.2f}). Verdict: {}.".format(
+                 d["wins"], d["losses"], d["mean"], d["low"], d["high"],
+                 verdict(d, "straighter than the baseline", "less straight than the baseline"))},
+        ]
+        faster = verdict(s, "faster", "slower")
+        straighter = verdict(d, "straighter", "less straight")
+        if faster.startswith("about") and straighter.startswith("about"):
+            out["detail"] += " Against the hand-written baseline it is about the same: the differences are within the noise."
+        else:
+            parts = ["time to b: " + (faster if not faster.startswith("about") else "about the same"),
+                     "paths: " + (straighter if not straighter.startswith("about") else "about the same")]
+            out["detail"] += " Against the hand-written baseline on the same trips: {}.".format("; ".join(parts))
     return out
 
-def fmt_cycles(s):
-    return "-" if s.get("cycles_reached") is None else "{:.1f}".format(s["cycles_reached"])
+
+def regression(rows, have):
+    """Held-out actual vs predicted per controller and output, its RMSE and R², and the steering map."""
+    names = [r["name"] for r in rows]
+    preds, quality, policy_map = {}, {}, {}
+    if not names:
+        return preds, quality, policy_map
+    marks = ",".join("?" * len(names))
+    if "predictions" in have:
+        q = query("""
+            SELECT model, output, count(*) AS n, sqrt(avg((predicted - actual) ^ 2)) AS rmse,
+                   1 - sum((predicted - actual) ^ 2) / nullif(sum((actual - a.mu) ^ 2), 0) AS r2
+            FROM predictions p JOIN (SELECT model, output, avg(actual) AS mu FROM predictions
+                                     WHERE round IS NULL GROUP BY ALL) a USING (model, output)
+            WHERE p.round IS NULL AND p.model IN ({}) GROUP BY ALL""".format(marks), names)
+        for r in records(q, digits=6):
+            quality.setdefault(r["model"], {})[r["output"]] = {"n": r["n"], "rmse": r["rmse"], "r2": r["r2"]}
+        frame = query("""
+            SELECT model, output, actual, predicted FROM (
+                SELECT *, row_number() OVER (PARTITION BY model, output ORDER BY run_id, episode, cycle) AS i
+                FROM predictions WHERE round IS NULL AND model IN ({})) WHERE i <= {}
+            ORDER BY model, output""".format(marks, MAX_SCATTER), names)
+        for (model, output), part in frame.groupby(["model", "output"], sort=False):
+            preds["{}|{}".format(model, output)] = [
+                [round(float(a), 5), round(float(p), 5)] for a, p in zip(part["actual"], part["predicted"])]
+    if "policy_map" in have:
+        frame = query("""
+            SELECT model, output, goal_dist, bearing, predicted FROM policy_map
+            WHERE round IS NULL AND model IN ({}) ORDER BY model, output, goal_dist, bearing""".format(marks), names)
+        for (model, output), part in frame.groupby(["model", "output"], sort=False):
+            policy_map["{}|{}".format(model, output)] = [
+                [round(float(d), 3), round(float(b), 2), round(float(p), 5)]
+                for d, b, p in zip(part["goal_dist"], part["bearing"], part["predicted"])]
+    return preds, quality, policy_map
 
 
-def build(model, out_path):
-    have = tables()
-    meta = {
-        "model": model, "db": str(db_path()), "generated": datetime.now().isoformat(sep=" ", timespec="seconds"),
-        "out": str(out_path),
-    }
-    commits = query("SELECT DISTINCT git_commit FROM runs WHERE model = ? AND git_commit <> ''", [model])
-    meta["git_commits"] = sorted(commits["git_commit"].tolist())
-
-    # ---- evaluation episodes
-    chosen = eval_runs(model)
-    run_ids = [r["run_id"] for r in chosen]
-    episodes = []
-    summary = []
+def episodes_of(run_ids, have):
+    """Every episode of these runs with its thinned path and its per-cycle commands."""
+    if not run_ids:
+        return [], {}, MIN_STEP_STRIDE
+    marks = ",".join("?" * len(run_ids))
+    ep = query("SELECT * FROM episodes WHERE run_id IN ({}) ORDER BY run_id, episode".format(marks), run_ids)
+    n_steps = query("SELECT count(*) AS n FROM steps WHERE run_id IN ({})".format(marks), run_ids)["n"][0]
+    stride = max(MIN_STEP_STRIDE, int(math.ceil(n_steps / STEP_BUDGET)))
+    st = query("""
+        SELECT run_id, episode, x, y FROM (
+            SELECT *, row_number() OVER (PARTITION BY run_id, episode ORDER BY t) - 1 AS i,
+                   count(*) OVER (PARTITION BY run_id, episode) AS n
+            FROM steps WHERE run_id IN ({})) WHERE i % {} = 0 OR i = n - 1
+        ORDER BY run_id, episode, t""".format(marks, stride), run_ids)
     steps_by_ep = {}
+    for (run_id, episode), part in st.groupby(["run_id", "episode"], sort=False):
+        steps_by_ep[(run_id, int(episode))] = [[round(float(x), 3), round(float(y), 3)]
+                                               for x, y in zip(part["x"], part["y"])]
     cycles_by_ep = {}
-    if run_ids:
-        marks = ",".join("?" * len(run_ids))
-        ep = query("SELECT * FROM episodes WHERE run_id IN ({}) ORDER BY run_id, episode".format(marks), run_ids)
-        info = {r["run_id"]: r for r in chosen}
-        ep["policy"] = ep["run_id"].map(lambda r: info[r]["policy"])
-        ep["round"] = ep["run_id"].map(lambda r: info[r]["round"])
-        n_steps = query("SELECT count(*) AS n FROM steps WHERE run_id IN ({})".format(marks), run_ids)["n"][0]
-        stride = max(MIN_STEP_STRIDE, int(math.ceil(n_steps / STEP_BUDGET)))
-        st = query("""
-            SELECT run_id, episode, x, y FROM (
-                SELECT *, row_number() OVER (PARTITION BY run_id, episode ORDER BY t) - 1 AS i,
-                       count(*) OVER (PARTITION BY run_id, episode) AS n
-                FROM steps WHERE run_id IN ({})) WHERE i % {} = 0 OR i = n - 1
-            ORDER BY run_id, episode, t""".format(marks, stride), run_ids)
-        for (run_id, episode), part in st.groupby(["run_id", "episode"], sort=False):
-            steps_by_ep[(run_id, int(episode))] = [[round(float(x), 3), round(float(y), 3)]
-                                                   for x, y in zip(part["x"], part["y"])]
+    if "cycles" in have:
         cyc_cols = ["cycle", "t_rel", "target_dist", "goal_dist", "goal_sin", "goal_cos", "horizon", "stride",
                     "turn", "dist_next", "reached"]
         cyc = query("SELECT run_id, episode, {} FROM cycles WHERE run_id IN ({}) ORDER BY run_id, episode, cycle"
@@ -219,112 +274,136 @@ def build(model, out_path):
         for (run_id, episode), part in cyc.groupby(["run_id", "episode"], sort=False):
             rows = []
             for r in part.itertuples(index=False):
-                bearing = math.degrees(math.atan2(r.goal_sin, r.goal_cos))
+                bearing = math.degrees(math.atan2(r.goal_sin, r.goal_cos)) if clean(r.goal_sin) is not None else None
                 rows.append([int(r.cycle), rnd(r.t_rel, 2), rnd(r.target_dist), rnd(r.goal_dist),
-                             round(bearing, 1), rnd(r.horizon, 1), rnd(r.stride), rnd(r.turn), rnd(r.dist_next),
-                             bool(r.reached)])
-            cycles_by_ep[(run_id, int(episode))] = rows
-        for rec in records(ep, digits=4):
-            key = (rec["run_id"], rec["episode"])
-            rec["path"] = steps_by_ep.get(key, [])
-            rec["has_cycles"] = key in cycles_by_ep
-            episodes.append(rec)
-        summary = records(query("""
-            SELECT run_id, count(*) AS n, avg(reached::INT) AS success, avg(final_dist) AS final_dist,
-                   avg(directness) AS directness, avg(CASE WHEN reached THEN cycles END) AS cycles_reached,
-                   avg(fell::INT) AS fell
-            FROM episodes WHERE run_id IN ({}) GROUP BY run_id""".format(marks), run_ids), digits=5)
-        for rec in summary:
-            rec["policy"] = info[rec["run_id"]]["policy"]
-            rec["round"] = info[rec["run_id"]]["round"]
-        meta["step_stride"] = stride
-    cycles_json = {"{}|{}".format(k[0], k[1]): v for k, v in cycles_by_ep.items()}
+                             None if bearing is None else round(bearing, 1), rnd(r.horizon, 1), rnd(r.stride),
+                             rnd(r.turn), rnd(r.dist_next), bool(r.reached)])
+            cycles_by_ep["{}|{}".format(run_id, int(episode))] = rows
+    out = []
+    for rec in records(ep, digits=4):
+        key = (rec["run_id"], rec["episode"])
+        rec["path"] = steps_by_ep.get(key, [])
+        rec.pop("round", None)
+        out.append(rec)
+    return out, cycles_by_ep, stride
 
-    # ---- training audit
-    training = records(query("""
-        SELECT round, output, created_at, train_rows, val_rows, epochs, seconds, val_mse_before, val_mse_after,
-               weight_change, checkpoint, start_checkpoint
-        FROM training WHERE model = ? ORDER BY round, output, created_at""", [model]))
-    log = {}
-    frame = query("""
-        SELECT round, output, kind, step, metric, value FROM training_log
-        WHERE model = ? AND metric IN ('train/loss', 'val/MSE', 'train/mean_loss', 'train/lr')
-        ORDER BY round, output, metric, step""", [model])
-    for (round_, output, metric), part in frame.groupby(["round", "output", "metric"], sort=False):
-        log.setdefault("{}|{}".format(int(round_), output), {})[metric] = [
-            [int(s), float(v)] for s, v in zip(part["step"], part["value"]) if clean(v) is not None]
 
-    # ---- regression: validation predictions and the steering map
-    preds = {}
-    frame = query("""
-        SELECT round, output, weights, actual, predicted FROM predictions WHERE model = ?
-        ORDER BY round, output, weights""", [model])
-    for (round_, output, weights), part in frame.groupby(["round", "output", "weights"], sort=False):
-        preds["{}|{}|{}".format(int(round_), output, weights)] = [
-            [round(float(a), 5), round(float(p), 5)] for a, p in zip(part["actual"], part["predicted"])]
-    policy_map = None
-    if "policy_map" in have:
-        policy_map = {}
-        frame = query("""
-            SELECT round, output, weights, goal_dist, bearing, horizon, predicted FROM policy_map WHERE model = ?
-            ORDER BY round, output, weights, goal_dist, bearing""", [model])
-        for (round_, output, weights), part in frame.groupby(["round", "output", "weights"], sort=False):
-            policy_map["{}|{}|{}".format(int(round_), output, weights)] = [
-                [round(float(d), 3), round(float(b), 2), round(float(h), 1), round(float(p), 5)]
-                for d, b, h, p in zip(part["goal_dist"], part["bearing"], part["horizon"], part["predicted"])]
+def build(out_path, only=None):
+    have = tables()
+    meta = {"db": str(db_path()), "generated": datetime.now().isoformat(sep=" ", timespec="seconds"),
+            "out": str(out_path), "filter": only}
+    rows = controllers(only)
+    names = [r["name"] for r in rows]
+    chosen, baselines = latest_eval_runs(names)
+    summary = episode_summary([r["run_id"] for r in chosen.values()] + [r["run_id"] for r in baselines.values()])
+    preds, quality, policy_map = regression(rows, have)
 
-    # ---- inventory
+    for r in rows:
+        r.pop("settings", None)
+        r["features"] = (r["features"] or "").split(",") if r["features"] else []
+        r["outputs"] = (r["outputs"] or "").split(",") if r["outputs"] else []
+        run = chosen.get(r["name"])
+        r["run_id"] = run["run_id"] if run else None
+        r["run_finished"] = bool(run and run["finished_at"])
+        r["eval"] = summary.get(run["run_id"]) if run else None
+        base = baselines.get(r["name"])
+        r["baseline_run"] = base["run_id"] if base else None
+        r["quality"] = quality.get(r["name"], {})
+    rows.sort(key=lambda r: (r["eval"] is None, -((r["eval"] or {}).get("directness") or 0),
+                             -((r["eval"] or {}).get("success") or 0)))
+
+    # the baseline shown everywhere: the one evaluated with the best controller, else the latest one
+    base_run = next((r["baseline_run"] for r in rows if r["eval"] and r["baseline_run"]), None)
+    if base_run is None and baselines:
+        base_run = max(baselines.values(), key=lambda b: str(b["started_at"]))["run_id"]
+    baseline = dict(summary.get(base_run, {}), run_id=base_run) if base_run else None
+    if baseline is not None:
+        baseline["all_runs"] = len(baselines)
+        others = [summary[b["run_id"]] for b in baselines.values() if b["run_id"] in summary]
+        baseline["identical"] = len({(o["reached"], o["directness"], o["seconds_reached"]) for o in others}) <= 1
+
+    ep_runs = [r["run_id"] for r in rows if r["run_id"]] + ([base_run] if base_run else [])
+    episodes, cycles, stride = episodes_of(ep_runs, have)
+    meta["step_stride"] = stride
+    run_label = {r["run_id"]: r["name"] for r in rows if r["run_id"]}
+    if base_run:
+        run_label[base_run] = "baseline"
+    for e in episodes:
+        e["controller"] = run_label.get(e["run_id"], e["run_id"])
+
+    # ---- inventory: runs of this project's controllers and the random-walk data they were built from
+    n_cycles = "(SELECT count(*) FROM cycles c WHERE c.run_id = r.run_id)" if "cycles" in have else "0"
+    all_names = [c["name"] for c in controllers()] if only else names
+    marks_all = ",".join("?" * len(all_names)) or "''"
     runs = records(query("""
-        SELECT r.run_id, r.kind, r.policy, r.model, r.round, r.started_at, r.finished_at, r.git_commit,
-               (SELECT count(*) FROM episodes e WHERE e.run_id = r.run_id) AS n_episodes,
-               (SELECT count(*) FROM cycles c WHERE c.run_id = r.run_id) AS n_cycles
-        FROM runs r ORDER BY r.started_at""" if "cycles" in have else """
-        SELECT r.run_id, r.kind, r.policy, r.model, r.round, r.started_at, r.finished_at, r.git_commit,
-               (SELECT count(*) FROM episodes e WHERE e.run_id = r.run_id) AS n_episodes, 0 AS n_cycles
-        FROM runs r ORDER BY r.started_at"""))
+        SELECT r.run_id, r.kind, r.policy, r.model, r.started_at, r.finished_at, r.git_commit,
+               (SELECT count(*) FROM episodes e WHERE e.run_id = r.run_id) AS n_episodes, {} AS n_cycles
+        FROM runs r WHERE r.round IS NULL AND r.kind <> 'attempts' AND (r.kind = 'collect' OR r.model IN ({}))
+        ORDER BY r.started_at""".format(n_cycles, marks_all), all_names))
+    hidden = query("SELECT count(*) AS n FROM runs").iloc[0]["n"] - len(runs)
+    meta["hidden_runs"] = int(hidden)
+
     sql_examples = [
-        ("Success rate by policy and round (evaluation runs)",
-         "SELECT e.policy, e.round, count(*) AS episodes,\n       avg(e.reached::INT) AS success_rate,\n"
-         "       avg(e.final_dist) AS mean_final_dist_m, avg(e.directness) AS mean_directness\n"
-         "FROM episodes e JOIN runs r USING (run_id)\nWHERE r.kind = 'eval' AND (e.model = '{m}' OR e.policy = 'baseline')\n"
-         "GROUP BY ALL ORDER BY e.round NULLS FIRST, e.policy;".format(m=model)),
-        ("Validation error before and after fine-tuning",
-         "SELECT round, output, train_rows, val_mse_before, val_mse_after,\n"
-         "       100 * (val_mse_after - val_mse_before) / val_mse_before AS pct_change\n"
-         "FROM training WHERE model = '{m}' ORDER BY round, output;".format(m=model)),
-        ("Every command one episode received (first eval run of the latest round)",
+        ("Success, directness and time to b per controller (latest evaluation of each)",
+         "SELECT r.model AS controller, e.policy, count(*) AS trips,\n"
+         "       avg(e.reached::INT) AS success_rate, avg(e.directness) AS mean_directness,\n"
+         "       avg(CASE WHEN e.reached THEN e.seconds END) AS mean_seconds_to_b,\n"
+         "       avg(e.final_dist) AS mean_final_dist_m\n"
+         "FROM episodes e JOIN runs r USING (run_id)\n"
+         "WHERE r.kind = 'eval' AND r.model IN (SELECT name FROM controllers)\n"
+         "  AND r.started_at = (SELECT max(started_at) FROM runs x\n"
+         "                      WHERE x.kind = 'eval' AND x.model = r.model AND x.policy = r.policy)\n"
+         "GROUP BY ALL ORDER BY mean_directness DESC;"),
+        ("Held-out prediction error per controller and output",
+         "SELECT model AS controller, output, count(*) AS examples,\n"
+         "       sqrt(avg((predicted - actual) ^ 2)) AS rmse,\n"
+         "       1 - sum((predicted - actual) ^ 2)\n"
+         "         / sum((actual - (SELECT avg(actual) FROM predictions q\n"
+         "                          WHERE q.model = p.model AND q.output = p.output)) ^ 2) AS r2\n"
+         "FROM predictions p WHERE model IN (SELECT name FROM controllers)\nGROUP BY ALL ORDER BY controller, output;"),
+        ("The controllers: examples given to fit() and how long fit() took",
+         "SELECT name, kind, context_rows, total_examples, val_rows, features, outputs, fit_seconds\n"
+         "FROM controllers ORDER BY created_at;"),
+        ("Every command one trip received (latest evaluation of the best controller{})".format(
+            ", " + rows[0]["name"] if rows and rows[0]["eval"] else ""),
          "SELECT cycle, t_rel, target_dist, degrees(atan2(goal_sin, goal_cos)) AS bearing_deg,\n"
          "       horizon, stride, turn, dist_next, reached\nFROM cycles\n"
-         "WHERE run_id = (SELECT run_id FROM runs WHERE kind = 'eval' AND model = '{m}'\n"
-         "                ORDER BY round DESC, started_at DESC LIMIT 1)\n  AND episode = 0\nORDER BY cycle;"
-         .format(m=model)),
+         "WHERE run_id = '{}'\n  AND episode = 0\nORDER BY cycle;".format(
+             rows[0]["run_id"] if rows and rows[0]["run_id"] else "<run_id>")),
     ]
+    commits = sorted({r["git_commit"] for r in rows if r.get("git_commit")})
+    meta["git_commits"] = commits
     return {
-        "verdict": verdict(summary, training),
-        "meta": meta, "summary": summary, "episodes": episodes, "cycles": cycles_json, "training": training,
-        "log": log, "preds": preds, "policy_map": policy_map, "runs": runs,
+        "answer": answer(rows, baseline), "meta": meta, "controllers": rows, "baseline": baseline,
+        "episodes": episodes, "cycles": cycles, "preds": preds, "policy_map": policy_map, "runs": runs,
         "sql": [{"title": t, "sql": s} for t, s in sql_examples],
     }
 
 
+def render_html(data):
+    payload = json.dumps(data, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
+    return TEMPLATE.read_text().replace("__DASHBOARD_DATA__", payload).replace(
+        "__DASHBOARD_TITLE__", "TabPFN controllers")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", help="model name (default: the most recently trained)")
+    parser.add_argument("--controller", help="show only this controller (and the baseline)")
     parser.add_argument("--out", help="output HTML file (default: <data folder>/dashboard.html)")
     args = parser.parse_args()
     if not db_path().exists():
         raise SystemExit("no navigation data yet: {} does not exist".format(db_path()))
-    model = args.model or default_model()
     out = Path(args.out) if args.out else db_path().parent / "dashboard.html"
-    data = build(model, out.resolve())
-    payload = json.dumps(data, separators=(",", ":"), allow_nan=False).replace("</", "<\\/")
-    html = TEMPLATE.read_text().replace("__DASHBOARD_DATA__", payload).replace(
-        "__DASHBOARD_TITLE__", "Navigation training: " + model.replace("<", "&lt;"))
+    data = build(out.resolve(), args.controller)
+    if not data["controllers"]:
+        print("note: no controller {}; build one with `just controller`".format(
+            "named " + args.controller if args.controller else "in the database yet"), file=sys.stderr)
+    html = render_html(data)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html)
     print(out.resolve())
-    print("{:.1f} MB, {} evaluation episodes, {} training rows".format(
-        len(html.encode()) / 1e6, len(data["episodes"]), len(data["training"])), file=sys.stderr)
+    print("{:.1f} MB, {} controllers, {} evaluation episodes".format(
+        len(html.encode()) / 1e6, len(data["controllers"]), len(data["episodes"])), file=sys.stderr)
 
 
 if __name__ == "__main__":
