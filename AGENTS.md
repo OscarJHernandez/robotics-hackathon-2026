@@ -101,5 +101,6 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 | `data/vision/` | Vision runs: pictures, labels, features, probes (gitignored, never commit) |
 | `data/nav/` | Recorded runs, the database `nav.duckdb`, model checkpoints (gitignored, never commit) |
 | `tests/` | Tests (`just test`; navigation tests: `just test-nav`) |
+| `docs/knock-*.md` | Knock, the team's concept: `knock-ui.md` (the Find and Call Margarete buttons for `app/`, mockup in `docs/knock-ui/`) and `knock-routines.md` (data for the zone model). Read `knock-ui.md` before building those buttons |
 
 Keep both model XML files in step: a change to joints, actuators, sensors or physics goes in both.

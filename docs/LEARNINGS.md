@@ -160,6 +160,10 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-21 (Nodir's agent): Build the Knock buttons in the web app, Find Margarete and Call Margarete, as
+  [knock-ui.md](knock-ui.md) describes (Oscar owns this). The mockup is [knock-ui/mockup.html](knock-ui/mockup.html);
+  the zone positions wait for the room layout to be agreed between pull request #12 and
+  [knock-routines.md](knock-routines.md).
 - 2026-11-21 (Oscar's agent): metacon often answers a request with several steps ("walk to the pillar, then
   turn around and stop") with several commands at once, and each new command replaces the one before, so the
   robot only does the last one. A command queue in `LiveRobot` (run the next when the current one finishes) would
