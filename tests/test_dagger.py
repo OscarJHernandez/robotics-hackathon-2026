@@ -120,6 +120,28 @@ class FeaturesTest(unittest.TestCase):
         self.assertEqual(pooled_c.shape, (13, 23))
         self.assertEqual(int(pooled_c[0, 0]), OBSTACLE)
 
+    def test_repool_matches_live_pooling(self):
+        import pandas as pd
+        from nav.dagger.featurize import columns, obstacle_summary, pool_grid
+        from nav.dagger.repool import pool_arrays, repool_frame
+        rng = np.random.default_rng(0)
+        classes = rng.integers(0, 4, (3, 26, 46)).astype(np.int8)
+        depths = rng.uniform(0.2, 10.0, (3, 26, 46)).astype(np.float32)
+        batch_c, batch_d = pool_arrays(classes, depths, 2)
+        for k in range(3):
+            live_c, live_d = pool_grid(classes[k], depths[k], 2)
+            np.testing.assert_array_equal(batch_c[k], live_c)
+            np.testing.assert_allclose(batch_d[k], live_d, rtol=1e-5)
+        feature, cat = columns(1)
+        table = pd.DataFrame(np.concatenate([classes.reshape(3, -1), depths.reshape(3, -1),
+                                             np.zeros((3, 8), np.float32)], axis=1), columns=feature)
+        table["episode"] = [0, 0, 1]
+        pooled = repool_frame(table, 2)
+        self.assertEqual(list(pooled.columns), columns(2)[0] + ["episode"])
+        self.assertEqual(len(columns(2)[0]), 299 * 2 + 8)
+        expected = obstacle_summary(batch_c[1], batch_d[1])
+        self.assertAlmostEqual(float(pooled["free_ahead"].iloc[1]), expected["free_ahead"], places=5)
+
 
 class FakeEnv:
     """Walks one step per call; collides on step `collide_at`, reaches the goal on step `goal_at`."""

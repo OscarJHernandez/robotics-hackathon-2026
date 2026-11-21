@@ -33,7 +33,8 @@ expert:
 features:
   perception: probe    # probe: frozen DINOv2 + patch probe on the RGB picture; truth: simulator segmentation
   probe: full60/probe-mlp256.pt   # under data/vision/
-  patch_pool: 1        # 1 = all 26 x 46 patches; 2 = 13 x 23 blocks (majority class, mean depth)
+  patch_pool: 2        # 2 = 13 x 23 blocks of 2 x 2 patches (majority class, mean depth): 299 + 299 + 8 = 606 columns;
+                       # 1 = all 26 x 46 patches (2,400 columns). Re-pool old runs: python -m nav.dagger.repool
   depth_cap: 10.0      # metres
   use_prev_command: false
 
