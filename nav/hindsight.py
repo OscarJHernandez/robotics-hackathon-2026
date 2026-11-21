@@ -4,19 +4,15 @@ Every example says: "from this state, to reach a goal at (goal_dist, goal bearin
 cycles, use this (stride, turn)". The examples are derived from the `cycles` table each time and
 never stored, so the database always holds only what really happened.
 
-- Hindsight rows (any run): a stretch of K cycles with one command, starting at cycle t, reached
-  some point P. Relabel: P is the goal, K the horizon, the command the label.
-- Success rows (runs where a policy walked to b): each cycle of an episode that reached b, with
-  its real goal and the command used, repeated by how direct the path was (fine-tuning has no
-  sample weights, so a weight means repeating a row).
+Hindsight relabelling: a stretch of K cycles with one command, starting at cycle t, reached some
+point P. Relabel: P is the goal, K the horizon, the command the label.
 """
 
 import math
 
-import numpy as np
 import pandas as pd
 
-from common import MAX_HORIZON, make_goal, relative
+from common import MAX_HORIZON, relative
 
 GOAL = ["goal_dist", "goal_sin", "goal_cos", "horizon"]
 HISTORY = ["prev_stride", "prev_turn", "fwd_1", "left_1", "dyaw_1", "fwd_3", "left_3", "dyaw_3",
@@ -66,38 +62,3 @@ def hindsight_rows(cycles):
                             "horizon": float(k), "kind": "hindsight"})
                 out.append(row)
     return pd.DataFrame(out)
-
-
-def success_rows(cycles, episodes, max_repeat=3):
-    """Cycles of the better half of the episodes that reached b (by path directness, per run).
-
-    An episode at the median directness is used once, the most direct one `max_repeat` times.
-    Keeping only the better half is what pushes each round toward straighter paths: when every
-    attempt reaches b, taking all of them would also teach the detours.
-    """
-    good = episodes[episodes["reached"]].copy()
-    if good.empty:
-        return pd.DataFrame()
-    good["rank"] = good.groupby("run_id")["directness"].rank(pct=True)
-    good = good[good["rank"] >= 0.5]
-    merged = cycles.merge(good[["run_id", "episode", "rank"]], on=["run_id", "episode"])
-    merged = merged[~merged["partial"].astype(bool) | merged["reached"].astype(bool)].assign(kind="success")
-    repeat = np.round(1 + (max_repeat - 1) * (merged["rank"].to_numpy() - 0.5) / 0.5)
-    return merged.loc[merged.index.repeat(np.clip(repeat, 1, max_repeat).astype(int))].reset_index(drop=True)
-
-
-def training_table(cycles, episodes=None):
-    """All examples for fine-tuning: hindsight rows from every run plus success rows from policy runs."""
-    parts = [hindsight_rows(cycles)]
-    if episodes is not None:
-        policy_cycles = cycles[cycles["source"] != "random"]
-        if not policy_cycles.empty:
-            parts.append(success_rows(policy_cycles, episodes))
-    table = pd.concat([p for p in parts if not p.empty], ignore_index=True)
-    return table
-
-
-def goal_for(row):
-    """Goal columns for an observed row (the real target), as the policy sees it."""
-    bearing = math.atan2(row["target_sin"], row["target_cos"])
-    return make_goal(row["target_dist"], bearing)

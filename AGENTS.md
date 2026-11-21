@@ -43,10 +43,8 @@ experiment, demo, script and test.
   `tabpfn.finetuning`, no gradient steps, no optimizer, no custom training loop, no saved fine-tuned checkpoints.
 - **To make a controller better, change what goes into `fit()`**: better or more examples, better features,
   a better choice of context rows. Do not reach for fine-tuning.
-- **Do not run or extend the existing fine-tuning code** (`nav/train.py` and `just train`, and the fine-tuning
-  parts of `nav/dynamics.py`). It is left over from an earlier experiment. Use `TabPFNNavPolicy` in
-  `nav/policy.py` without `checkpoints`: that is the `fit()`-only controller, and it reached b on 20 of 20
-  test tasks.
+- **Build controllers with `just controller`** (`nav/controller.py`): it picks recorded examples and calls
+  TabPFN's `fit()` on them, in seconds. `tests/test_nav.py` fails if fine-tuning code appears in `nav/`.
 - If a task seems to need fine-tuning, stop and ask Oscar first.
 
 ## Stack and commands
@@ -94,7 +92,7 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 | `sim/jethexa_sim.py` | `JetHexaSim`: load, set joint targets, step, read joints, body, IMU and foot contacts, move the target marker, render camera; demo tripod gait with steering |
 | `sim/demo.py` | What `just sim`, `just view` and `just snapshot` run |
 | `sim/fetch_meshes.py` | Mesh download, pinned to one Hiwonder commit and checked by SHA-256 |
-| `nav/` | Walking from a to b with TabPFN: `common.py` (walker, geometry), `db.py` (DuckDB recorder), `collect.py`, `hindsight.py`, `policy.py`, `train.py` (fine-tuning rounds), `evaluate.py`, `run.py` (demo video), `dashboard.py`. Guide: [docs/navigation.md](docs/navigation.md) |
+| `nav/` | Walking from a to b with TabPFN: `common.py` (walker, geometry), `db.py` (DuckDB recorder), `collect.py`, `hindsight.py` (goal examples), `dynamics.py` (motion examples and planner), `policy.py` (`fit()`-only TabPFN policies), `controller.py` (build and test a controller), `evaluate.py`, `run.py` (demo video), `dashboard.py`, `live_dashboard.py`. Guide: [docs/navigation.md](docs/navigation.md) |
 | `data/nav/` | Recorded runs, the database `nav.duckdb`, model checkpoints (gitignored, never commit) |
 | `tests/` | Tests (`just test`; navigation tests: `just test-nav`) |
 

@@ -1,6 +1,6 @@
-"""Walk the robot from a to b with a trained TabPFN model, record it and make a video.
+"""Walk the robot from a to b with a TabPFN controller, record it and make a video.
 
-    uv run --group ml python nav/run.py --model a2b-v1 --round 3 --target 1.0 0.6 [--yaw 3.0] [--policy finetuned]
+    uv run --group ml python nav/run.py --controller default --target 1.0 0.6 [--yaw 3.0]
 
 Writes a `demo` run to the database and, in its run folder, `demo.gif` (top view with the robot's own
 camera in the corner) and `path.png` (top-down path with the command of every cycle).
@@ -12,7 +12,7 @@ import math
 import numpy as np
 import pandas as pd
 
-from common import REACHED, JetHexaSim, Walker, data_dir
+from common import REACHED, JetHexaSim, Walker
 from db import Recorder
 from images import follow_view, save_camera, write_gif
 
@@ -27,9 +27,9 @@ def compose(sim):
     return frame
 
 
-def demo(policy, start, target, model, round_, max_cycles=40, fps=10):
+def demo(policy, start, target, controller_name, max_cycles=40, fps=10):
     sim = JetHexaSim()
-    recorder = Recorder("demo", policy=policy.name, model=model, round_=round_,
+    recorder = Recorder("demo", policy=policy.name, model=controller_name,
                         settings={"start": list(start), "target": list(target)}, images=True)
     walker = Walker(sim, start, target)
     frames, rows = [compose(sim)], []
@@ -110,20 +110,14 @@ def plot_path(walker, rows, path, title):
 
 
 def main():
-    from policy import TabPFNNavPolicy, checkpoint_paths
+    import controller
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--round", type=int, required=True)
+    parser.add_argument("--controller", default="default", help="controller name (see `just controller`)")
     parser.add_argument("--target", type=float, nargs=2, default=(1.0, 0.6), metavar=("X", "Y"))
     parser.add_argument("--yaw", type=float, default=0.0, help="start heading in radians (start is at 0, 0)")
-    parser.add_argument("--policy", choices=("finetuned", "pretrained"), default="finetuned")
-    parser.add_argument("--context-rows", type=int, default=150)
     args = parser.parse_args()
-    folder = data_dir() / "models" / args.model
-    context = pd.read_parquet(folder / "round_{}_context.parquet".format(args.round))
-    checkpoints = checkpoint_paths(folder, args.round) if args.policy == "finetuned" else None
-    policy = TabPFNNavPolicy(context, checkpoints=checkpoints, context_rows=args.context_rows)
-    summary, gif, plot, run_id = demo(policy, (0.0, 0.0, args.yaw), tuple(args.target), args.model, args.round)
+    policy = controller.load(args.controller)
+    summary, gif, plot, run_id = demo(policy, (0.0, 0.0, args.yaw), tuple(args.target), args.controller)
     print("{}: {} in {} cycles ({:.0f} s), final distance {:.3f} m, path {:.2f} m".format(
         policy.name, "reached b" if summary["reached"] else "did not reach b", summary["cycles"],
         summary["seconds"], summary["final_dist"], summary["path_length"]))

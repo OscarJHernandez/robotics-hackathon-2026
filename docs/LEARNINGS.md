@@ -43,16 +43,14 @@ in the same pull request as the work.
 
 ## Code and tooling
 
-- 2026-11-21 (Oscar's agent): TabPFN (package 10.2.0) can be fine-tuned with `FinetunedTabPFNRegressor` and
-  it runs on the Mac GPU (`device="mps"`), although its example assumes CUDA. Use the v2 weights
-  (`ModelVersion.V2`): v2.5 and later are licence-gated (browser login) and non-commercial. Save fine-tuned
-  weights with `tabpfn.model_loading.save_tabpfn_model`; a hand-built checkpoint loses the regression bin
-  borders, and a fresh `TabPFNRegressor` reloads its `model_path` on every `fit()`. See
-  [navigation.md](navigation.md).
-- 2026-11-21 (Oscar's agent): TabPFN's fine-tuning early stopping keeps the start weights when validation
-  MSE does not improve. On hindsight a→b labels the pretrained model is already almost exact (MSE about
-  1e-5), so the weights never moved. Check `weight_change` in the `training` table before believing a
-  round trained anything; judge by the held-out a→b tasks.
+- 2026-11-21 (Oscar's agent): Use the TabPFN v2 weights (`ModelVersion.V2`): v2.5 and later are licence-gated
+  (browser login) and non-commercial. v2 downloads once into `~/Library/Caches/tabpfn` with no login.
+- 2026-11-21 (Oscar's agent): For a→b, letting TabPFN predict the robot's motion and planning over 45 candidate
+  commands (`--kind planner`) walks straighter than letting it predict the command directly: directness 0.89
+  against 0.77 on the 20 held-out tasks, both with `fit()` only. Hindsight command labels copy the curved arcs
+  of random walking. More examples did not help: planner 300 and 2000 rows both 0.89, goal 3000 rows 0.72.
+- 2026-11-21 (Oscar's agent): Fine-tuning TabPFN (since dropped, see Process) barely helped here: on hindsight
+  labels the pretrained model is already almost exact, and TabPFN's early stopping then keeps the start weights.
 - 2026-11-21 (Oscar's agent): In random-walk data a command is held for several cycles, so "previous command"
   and "motion over the last cycle" as inputs leak the label: the model learns to repeat itself. The nav
   policy uses only the goal columns by default.
@@ -88,7 +86,7 @@ in the same pull request as the work.
 - 2026-11-21 (Oscar's agent): Oscar decided: no TabPFN fine-tuning in this repo. Use only the built-in
   `fit()` and `predict()` for all experiments (rule in [AGENTS.md](../AGENTS.md)). Reason: the `fit()`-only
   controller already walks a→b on 20 of 20 test tasks, and four fine-tuning rounds (30 min) gave one small
-  gain in round 0 (directness 0.78 to 0.85) and none after.
+  gain in round 0 (directness 0.78 to 0.85) and none after. The fine-tuning code (`nav/train.py`) was removed.
 
 - 2026-11-21 (Oscar's agent): `main` only accepts changes through a pull request, for everyone including
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
@@ -103,7 +101,7 @@ in the same pull request as the work.
   recorded per cycle (`just collect --images`), so features can be added later without re-collecting.
 - 2026-11-21 (Oscar's agent): The 20 held-out a→b tasks are easy (the hand-written baseline reaches all of
   them), so success rate does not separate policies; directness and cycles do. Add harder tasks
-  (obstacles, a time limit, changed friction) to see where fine-tuning matters.
+  (obstacles, a time limit, changed friction) to tell controllers apart.
 
 - 2026-11-21 (Oscar's agent): Next step for sensor fusion: add a lidar sweep (`mj_multiRay` from the lidar
   position) and a logger that writes one row per control step with a timestamp per sensor. Keep images and

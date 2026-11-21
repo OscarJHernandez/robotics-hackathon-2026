@@ -99,18 +99,43 @@ class NavTest(unittest.TestCase):
         self.assertAlmostEqual(two["goal_cos"], 1.0)
         self.assertEqual((two["stride"], two["turn"]), (0.3, 0.0))
 
-    def test_success_rows_keep_the_more_direct_half(self):
+    def test_planner_picks_the_command_that_heads_for_b(self):
+        import numpy as np
         import pandas as pd
-        from hindsight import success_rows
-        episodes = pd.DataFrame([dict(run_id="r", episode=i, reached=True, directness=d)
-                                 for i, d in enumerate([0.5, 0.7, 0.9, 0.95])])
-        cycles = pd.DataFrame([dict(run_id="r", episode=i, cycle=0, partial=False, reached=False)
-                               for i in range(4)])
-        kept = success_rows(cycles, episodes)
-        self.assertEqual(sorted(set(kept["episode"])), [1, 2, 3])  # the median one and above
-        counts = kept["episode"].value_counts()
-        self.assertEqual((counts[1], counts[3]), (1, 3))
+        from dynamics import FEATURES, DynamicsPlanner, motion_rows
+        rng = np.random.default_rng(0)
+        rows = []
+        for i in range(120):  # a made-up robot: forward = stride / 2, yaw change = 2 * turn
+            stride, turn = rng.uniform(0, 0.3), rng.uniform(-0.25, 0.25)
+            yaw = rng.uniform(-math.pi, math.pi)
+            fwd, dyaw = stride / 2, 2 * turn
+            rows.append(dict(run_id="r", episode=0, cycle=i, partial=False, fell=False, x=0.0, y=0.0,
+                             sin_yaw=math.sin(yaw), cos_yaw=math.cos(yaw), x_next=fwd * math.cos(yaw),
+                             y_next=fwd * math.sin(yaw), yaw_next=yaw + dyaw, stride=stride, turn=turn,
+                             prev_stride=0.0, prev_turn=0.0, fwd_1=0.0, left_1=0.0, dyaw_1=0.0))
+        table = motion_rows(pd.DataFrame(rows))
+        self.assertAlmostEqual(float(table["m_dyaw"].iloc[0]), 2 * rows[0]["turn"], places=6)
+        planner = DynamicsPlanner(table[FEATURES + ["m_fwd", "m_left", "m_dyaw"]], n_estimators=1)
+        state = dict(prev_stride=0.0, prev_turn=0.0, fwd_1=0.0, left_1=0.0, dyaw_1=0.0)
+        ahead, left = planner.act([dict(state, target_dist=1.0, target_sin=0.0, target_cos=1.0),
+                                   dict(state, target_dist=1.0, target_sin=1.0, target_cos=0.0)])
+        self.assertGreater(ahead[0], 0.2)  # b straight ahead: walk
+        self.assertLess(abs(ahead[1]), 0.1)  # and do not turn
+        self.assertGreater(left[1], 0.1)  # b to the left: turn left
 
+
+class FitOnlyRuleTest(unittest.TestCase):
+    """AGENTS.md: TabPFN is used only through fit() and predict(); its weights are never trained."""
+
+    def test_no_fine_tuning_code_in_nav(self):
+        banned = ("Finetuned", "tabpfn.finetuning", "save_tabpfn_model", "optimizer", ".backward(",
+                  "load_state_dict", "requires_grad", "learning_rate")
+        nav = Path(__file__).resolve().parents[1] / "nav"
+        for path in sorted(nav.glob("*.py")):
+            text = path.read_text()
+            for word in banned:
+                self.assertNotIn(word, text, "{} uses '{}': fine-tuning is not allowed (AGENTS.md)".format(
+                    path.name, word))
 
 if __name__ == "__main__":
     unittest.main()
