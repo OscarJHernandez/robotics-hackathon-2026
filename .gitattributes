@@ -1,0 +1,2 @@
+# Keep entries from both sides when two branches add to the learnings document.
+docs/LEARNINGS.md merge=union
