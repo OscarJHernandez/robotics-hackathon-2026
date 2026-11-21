@@ -57,5 +57,7 @@ You never need to activate the virtual environment or use `pip`: `just` and `uv 
 | [tests/](tests/) | Tests (`just test`) |
 | [docs/simulation.md](docs/simulation.md) | Full simulation guide: setup on every OS, the model, its limits, problems |
 | [docs/LEARNINGS.md](docs/LEARNINGS.md) | What we have learned so far. Read it before you start |
+| [docs/knock-ui.md](docs/knock-ui.md) | Knock: the Find Margarete and Call Margarete buttons for the web app, with the mockup in [docs/knock-ui/](docs/knock-ui/) |
+| [docs/knock-routines.md](docs/knock-routines.md) | Knock: where Margarete is through the day, the data for the zone model |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to make a change: every change goes through a pull request |
 | [AGENTS.md](AGENTS.md) | Instructions for coding agents (Claude Code, Codex, Cursor, …) |

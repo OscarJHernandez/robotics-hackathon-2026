@@ -8,6 +8,9 @@ just app-build     # once, and after front-end changes: npm install + build app/
 just app           # http://127.0.0.1:8790
 ```
 
+**Planned:** the Knock buttons, Find Margarete and Call Margarete, and their screens on desktop and phone. Spec:
+[knock-ui.md](knock-ui.md); mockup: [knock-ui/mockup.html](knock-ui/mockup.html).
+
 ## Pieces
 
 | Path | What it is |
