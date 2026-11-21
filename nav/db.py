@@ -2,17 +2,15 @@
 
 Tables (query them with SQL; see docs/navigation.md):
 
-    runs      one row per run (collect, attempts, eval, demo): kind, policy, model, round, settings
+    runs      one row per run (collect, eval, demo): kind, policy, model (controller name), settings
     episodes  one row per episode: start, target, outcome (reached, fell, final distance, directness)
     cycles    one row per gait cycle: time, robot sensors, history, location, target, command, outcome
     steps     the body pose every 20 ms, for path plots
-    training  one row per fine-tuning round and output: rows used, validation error before and after,
-              how much the weights moved, checkpoint files
-    training_log  every value the fine-tuner logged (per step loss, per epoch validation MSE)
-    predictions   validation examples of each round with the label and the prediction before
-              (start weights) and after (fine-tuned weights): how the regression changed
-    policy_map    each round's predicted command over a grid of goals (bearing x distance), before
-              and after fine-tuning: the learned steering map
+    controllers   one row per controller built with `just controller`: kind, examples given to
+              TabPFN's fit(), features, outputs, the file holding those examples
+    predictions   held-out examples per controller with the label and TabPFN's prediction
+              (`model` = controller name; `round` is NULL and `weights` is 'pretrained')
+    policy_map    each controller's command over a grid of goals (bearing x distance): its steering map
     columns   the data dictionary: group, unit and meaning of every `cycles` column
 
 Per run, `runs/<run_id>/` next to the database holds the camera images and CSV copies of its rows.
@@ -43,13 +41,10 @@ CREATE TABLE IF NOT EXISTS episodes (
     final_dist DOUBLE, reached BOOLEAN, fell BOOLEAN, path_length DOUBLE, directness DOUBLE);
 CREATE TABLE IF NOT EXISTS steps (
     run_id VARCHAR, episode INTEGER, t DOUBLE, x DOUBLE, y DOUBLE, yaw DOUBLE);
-CREATE TABLE IF NOT EXISTS training (
-    model VARCHAR, round INTEGER, output VARCHAR, created_at TIMESTAMP, train_rows INTEGER,
-    val_rows INTEGER, epochs INTEGER, seconds DOUBLE, val_mse_before DOUBLE, val_mse_after DOUBLE,
-    weight_change DOUBLE, checkpoint VARCHAR, start_checkpoint VARCHAR, settings JSON);
-CREATE TABLE IF NOT EXISTS training_log (
-    model VARCHAR, round INTEGER, output VARCHAR, kind VARCHAR, step INTEGER, metric VARCHAR,
-    value DOUBLE, logged_at TIMESTAMP);
+CREATE TABLE IF NOT EXISTS controllers (
+    name VARCHAR, kind VARCHAR, created_at TIMESTAMP, context_rows INTEGER, total_examples INTEGER,
+    val_rows INTEGER, features VARCHAR, outputs VARCHAR, fit_seconds DOUBLE, context_file VARCHAR,
+    git_commit VARCHAR, settings JSON);
 CREATE TABLE IF NOT EXISTS predictions (
     model VARCHAR, round INTEGER, output VARCHAR, weights VARCHAR, run_id VARCHAR, episode INTEGER,
     cycle INTEGER, goal_dist DOUBLE, goal_sin DOUBLE, goal_cos DOUBLE, horizon DOUBLE,
@@ -128,7 +123,7 @@ def describe_column(name):
         "fell": ("outcome", "", "the robot fell during this cycle"),
         "hold": ("command", "", "id of the stretch of cycles that used the same command (random runs)"),
         "image": ("image", "", "camera picture at the start of the cycle, relative to the data folder"),
-        "source": ("key", "", "how the command was chosen: random, baseline, tabpfn-pretrained, tabpfn-finetuned"),
+        "source": ("key", "", "how the command was chosen: random, baseline, tabpfn, tabpfn-planner"),
     }
     if name in fixed:
         return fixed[name]

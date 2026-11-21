@@ -42,15 +42,15 @@ test:
 collect *args:
     uv run --group ml python nav/collect.py {{ args }}
 
-# Fine-tune TabPFN for walking a→b in rounds, with evaluation after each: just train --name a2b-v1 --rounds 3
-train *args:
-    uv run --group ml python nav/train.py {{ args }}
+# Build a TabPFN controller (TabPFN's fit() on recorded examples, no training) and test it: just controller --name default
+controller *args:
+    uv run --group ml python nav/controller.py {{ args }}
 
-# Evaluate a trained round on the 20 held-out tasks: just nav-eval --model a2b-v1 --round 3
+# Test a controller again on the 20 held-out tasks, next to the baseline: just nav-eval --controller default
 nav-eval *args:
     uv run --group ml python nav/evaluate.py {{ args }}
 
-# Walk from a to b with a trained model and save a video: just nav --model a2b-v1 --round 3 --target 1.0 0.6
+# Walk from a to b with a controller and save a video: just nav --controller default --target 1.0 0.6 --yaw 3.0
 nav *args:
     uv run --group ml python nav/run.py {{ args }}
 
@@ -58,7 +58,7 @@ nav *args:
 query sql:
     uv run --group ml python -c 'import sys; sys.path.insert(0, "nav"); from db import query; import pandas as pd; pd.set_option("display.width", 200); pd.set_option("display.max_columns", 30); print(query(sys.argv[1]).to_string())' "{{ sql }}"
 
-# Write the training dashboard to data/nav/dashboard.html (one file, works offline)
+# Write the controller dashboard to data/nav/dashboard.html (one file, works offline)
 dashboard-file *args:
     uv run --group ml python nav/dashboard.py {{ args }}
 
@@ -66,6 +66,6 @@ dashboard-file *args:
 test-nav:
     uv run --group ml python -m unittest discover -s tests -p "test_nav*.py" -v
 
-# Live training dashboard at http://127.0.0.1:8770 (rebuilds from the database on every load)
+# Live controller dashboard at http://127.0.0.1:8770 (rebuilds from the database on every load)
 dashboard port="8770":
     uv run --group ml python nav/live_dashboard.py --port {{ port }}

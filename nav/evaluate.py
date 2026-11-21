@@ -1,9 +1,9 @@
 """Run a policy on a→b tasks and record every episode in the database.
 
-    uv run --group ml python nav/evaluate.py --model demo --round 2     # trained vs pretrained vs baseline
+    uv run --group ml python nav/evaluate.py --controller default     # the controller and the baseline
 
 Episodes run in lockstep (one simulator per task) so TabPFN predicts all robots in one call.
-The 20 held-out tasks in eval_tasks.json are never used for training.
+The 20 held-out tasks in eval_tasks.json are never used as examples.
 """
 
 import argparse
@@ -14,8 +14,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from common import JetHexaSim, Walker, data_dir
-from db import Recorder, query
+from common import JetHexaSim, Walker
+from db import Recorder
 from images import save_camera
 
 NAV_DIR = Path(__file__).resolve().parent
@@ -76,26 +76,24 @@ def report(summaries, name):
     return line
 
 
-def evaluate(policy, model="", round_=None, tasks=None, images=False):
+def evaluate(policy, controller="", tasks=None, images=False):
+    """Walk the held-out tasks with `policy`; `controller` is the name stored with the run."""
     tasks = tasks or eval_tasks()
-    recorder = Recorder("eval", policy=policy.name, model=model, round_=round_,
+    recorder = Recorder("eval", policy=policy.name, model=controller,
                         settings={"tasks": len(tasks), "max_cycles": MAX_CYCLES}, images=images)
     summaries = run_episodes(policy, tasks, recorder, images=images)
     recorder.close()
-    return report(summaries, policy.name if round_ is None else "{} r{}".format(policy.name, round_))
+    return report(summaries, policy.name)
 
 
 def main():
-    from policy import BaselinePolicy, TabPFNNavPolicy, checkpoint_paths
+    import controller
+    from policy import BaselinePolicy
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", required=True, help="trained model name (folder in data/nav/models)")
-    parser.add_argument("--round", type=int, required=True)
+    parser.add_argument("--controller", default="default", help="controller name (see `just controller`)")
     args = parser.parse_args()
-    folder = data_dir() / "models" / args.model
-    context = pd.read_parquet(folder / "round_{}_context.parquet".format(args.round))
-    evaluate(BaselinePolicy())
-    evaluate(TabPFNNavPolicy(context), args.model, args.round)
-    evaluate(TabPFNNavPolicy(context, checkpoints=checkpoint_paths(folder, args.round)), args.model, args.round)
+    evaluate(BaselinePolicy(), args.controller)
+    evaluate(controller.load(args.controller), args.controller)
 
 
 if __name__ == "__main__":

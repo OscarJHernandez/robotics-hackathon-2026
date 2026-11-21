@@ -1,8 +1,11 @@
 """Policies that pick (stride, turn) for each gait cycle.
 
-- `TabPFNNavPolicy`: TabPFN regressors (one for stride, one for turn) with a context of training
-  examples. `checkpoint=None` uses the pretrained TabPFN v2 weights; a path uses fine-tuned weights.
+- `TabPFNNavPolicy`: two TabPFN regressors (stride, turn) that map the goal to the command.
 - `BaselinePolicy`: a hand-written steer-to-bearing controller, for comparison.
+- `dynamics.DynamicsPlanner` (in dynamics.py): TabPFN predicts the motion of candidate commands.
+
+TabPFN is used only through its built-in `fit()` and `predict()` (rule in AGENTS.md): `fit()` stores
+the examples as context and the pretrained weights are never changed.
 
 All policies take a list of observed rows (one per robot, so many episodes run in lockstep) and
 return an (n, 2) array.
@@ -10,7 +13,6 @@ return an (n, 2) array.
 
 import math
 import warnings
-from pathlib import Path
 
 import numpy as np
 
@@ -42,42 +44,46 @@ def sample_context(table, rows, seed=0):
     return table.iloc[sorted(keep[:rows])]
 
 
-def make_regressor(checkpoint=None, device="cpu", n_estimators=4, seed=0):
+def fit_regressor(X, y, device="cpu", n_estimators=4, seed=0):
+    """A pretrained TabPFN regressor with (X, y) as its context: TabPFN's own `fit()`, nothing else."""
     from tabpfn import TabPFNRegressor
     from tabpfn.constants import ModelVersion
-    kwargs = dict(device=device, n_estimators=n_estimators, random_state=seed, fit_mode="fit_with_cache",
-                  ignore_pretraining_limits=True)
-    if checkpoint is not None:
-        kwargs["model_path"] = str(checkpoint)
-    return TabPFNRegressor.create_default_for_version(ModelVersion(MODEL_VERSION), **kwargs)
+    model = TabPFNRegressor.create_default_for_version(
+        ModelVersion(MODEL_VERSION), device=device, n_estimators=n_estimators, random_state=seed,
+        fit_mode="fit_with_cache", ignore_pretraining_limits=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model.fit(np.asarray(X, np.float32), np.asarray(y, np.float32))
+    return model
+
+
+def predict(model, X):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return model.predict(np.asarray(X, np.float32))
 
 
 class TabPFNNavPolicy:
-    def __init__(self, context, checkpoints=None, groups=DEFAULT_GROUPS, device="cpu", n_estimators=4,
-                 context_rows=3000, seed=0, noise=None, name=None):
-        """`checkpoints` = {"stride": path, "turn": path} for fine-tuned weights, or None."""
+    """goal (distance, bearing, horizon) -> (stride, turn), with `context` as TabPFN's examples."""
+
+    kind = "goal"
+    name = "tabpfn"
+    labels = LABELS
+
+    def __init__(self, context, groups=DEFAULT_GROUPS, device="cpu", n_estimators=4, seed=0):
         self.groups = tuple(groups)
         self.columns = feature_columns(self.groups, context)
-        self.context = sample_context(context, context_rows, seed)
-        self.noise = noise  # (stride sd, turn sd) for exploration, or None
-        self.rng = np.random.default_rng(seed)
-        self.name = name or ("tabpfn-finetuned" if checkpoints else "tabpfn-pretrained")
-        X = self.context[self.columns].to_numpy(np.float32)
-        self.models = {}
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            for label in LABELS:
-                model = make_regressor((checkpoints or {}).get(label), device, n_estimators, seed)
-                model.fit(X, self.context[label].to_numpy(np.float32))
-                self.models[label] = model
+        X = context[self.columns].to_numpy(np.float32)
+        self.models = {label: fit_regressor(X, context[label], device, n_estimators, seed) for label in LABELS}
+
+    def predict_labels(self, table):
+        """{label: predictions} for the rows of an example table (for validation)."""
+        X = table[self.columns].to_numpy(np.float32)
+        return {label: predict(self.models[label], X) for label in LABELS}
 
     def act(self, rows):
         X = np.array([[row[c] for c in self.columns] for row in rows], dtype=np.float32)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            out = np.stack([self.models[label].predict(X) for label in LABELS], axis=1)
-        if self.noise is not None:
-            out = out + self.rng.normal(0.0, self.noise, size=out.shape)
+        out = np.stack([predict(self.models[label], X) for label in LABELS], axis=1)
         out[:, 0] = np.clip(out[:, 0], *STRIDE_RANGE)
         out[:, 1] = np.clip(out[:, 1], *TURN_RANGE)
         return out
@@ -97,8 +103,3 @@ class BaselinePolicy:
             speed = min(1.0, row["target_dist"] / (2 * MAX_STEP))
             out.append((STRIDE_RANGE[1] * facing ** 2 * speed, turn))
         return np.array(out)
-
-
-def checkpoint_paths(folder, round_):
-    folder = Path(folder)
-    return {label: folder / "round_{}_{}.ckpt".format(round_, label) for label in LABELS}
