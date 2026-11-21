@@ -43,6 +43,19 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Oscar's agent): Scoring the planner's candidates by b's offset only (`--score delta`, no bearing
+  term) fails every target more than 90 degrees off the heading (10 of 20 reached): it looks one cycle ahead,
+  and a turn on the spot does not bring b closer, so it never turns around. The bearing term in the `polar`
+  score is what makes it turn. On targets ahead, `delta` was slightly straighter (0.96 against 0.94).
+  Adding a distance-scaled facing cost (`--score hybrid`) fixes it: 20 of 20, directness 0.96 (`polar` 0.89),
+  matching the hand-written baseline. The facing weight must beat the sideways weight while turning, so it is
+  1.5 per metre of distance, not 0.08. Oscar made `hybrid` the default planner score; controllers saved
+  before the `score` field existed still load as `polar`. Rebuild `default` after changing the score.
+- 2026-11-21 (Oscar's agent): Giving the `goal` controller b's body-frame offset (`delta_x` ahead, `delta_y`
+  left) next to distance and bearing raised directness from 0.77 to 0.84 (`fit()` only, same 150 rows); the
+  deltas alone gave 0.73. The gain is on targets behind or beside the robot, where it now turns on the spot
+  first. Compute the deltas in `hindsight_rows` from the relabelled end point, never from `target_x`/`target_y`,
+  and cap them like `goal_dist` so live inputs stay inside what the examples cover.
 - 2026-11-21 (Oscar's agent): Use the TabPFN v2 weights (`ModelVersion.V2`): v2.5 and later are licence-gated
   (browser login) and non-commercial. v2 downloads once into `~/Library/Caches/tabpfn` with no login.
 - 2026-11-21 (Oscar's agent): For a→b, letting TabPFN predict the robot's motion and planning over 45 candidate
@@ -53,7 +66,7 @@ in the same pull request as the work.
   labels the pretrained model is already almost exact, and TabPFN's early stopping then keeps the start weights.
 - 2026-11-21 (Oscar's agent): In random-walk data a command is held for several cycles, so "previous command"
   and "motion over the last cycle" as inputs leak the label: the model learns to repeat itself. The nav
-  policy uses only the goal columns by default.
+  policy uses only the goal columns (`goal` and `delta` groups) by default.
 - 2026-11-21 (Oscar's agent): DuckDB lets one process at a time open the database file for writing, and a
   read-only connection from another process also blocks writers. A live dashboard reading `nav.duckdb`
   crashed a training run. `nav/db.py` now retries for 60 s; keep other connections short. DuckDB 2 also
@@ -92,6 +105,11 @@ in the same pull request as the work.
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Suggestions (open)
+
+- 2026-11-21 (Oscar's agent): Show `delta_x`/`delta_y` in the dashboard's per-cycle table (`cyc_cols` in
+  `nav/dashboard.py`). Not done yet because cycles recorded before 2026-11-21 lack the columns, so the query
+  must handle their absence. A goal controller still bends after its first turn (directness 0.84 against
+  the baseline's 0.96); a heading-error-over-time input or examples from straighter runs may close that gap.
 
 - 2026-11-21 (Nodir's agent): The lost-item zone model (found or not found per zone, [routines.md](routines.md))
   can also learn from the robot's own "checked here, not found" results as rows. Add them only once

@@ -88,10 +88,13 @@ def make_goal(dist, bearing):
 
     `horizon` is the number of cycles to get there at full speed (at most MAX_HORIZON); a target that
     is farther away is pulled in along the same bearing to what MAX_HORIZON cycles can reach.
+    `delta_x` (ahead) and `delta_y` (to the left) are the same pulled-in goal in the body frame, so
+    they stay inside the range the hindsight examples cover.
     """
     horizon = int(min(MAX_HORIZON, max(1, math.ceil(dist / MAX_STEP))))
-    return {"goal_dist": min(dist, MAX_HORIZON * MAX_STEP), "goal_sin": math.sin(bearing),
-            "goal_cos": math.cos(bearing), "horizon": float(horizon)}
+    reach = min(dist, MAX_HORIZON * MAX_STEP)
+    return {"goal_dist": reach, "goal_sin": math.sin(bearing), "goal_cos": math.cos(bearing),
+            "horizon": float(horizon), "delta_x": reach * math.cos(bearing), "delta_y": reach * math.sin(bearing)}
 
 
 def clip_command(stride, turn):

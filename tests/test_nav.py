@@ -40,6 +40,20 @@ class NavTest(unittest.TestCase):
         self.assertEqual(far["horizon"], MAX_HORIZON)
         self.assertAlmostEqual(far["goal_dist"], MAX_HORIZON * MAX_STEP)
         self.assertEqual(make_goal(0.05, 0.0)["horizon"], 1)
+        # delta_x/delta_y: the same capped goal in the body frame (ahead, left)
+        self.assertAlmostEqual(math.hypot(far["delta_x"], far["delta_y"]), MAX_HORIZON * MAX_STEP)
+        ahead = make_goal(0.5, 0.0)
+        self.assertAlmostEqual(ahead["delta_x"], 0.5)
+        self.assertAlmostEqual(ahead["delta_y"], 0.0)
+        self.assertGreater(make_goal(0.5, 0.4)["delta_y"], 0.0)  # b to the left
+        self.assertLess(make_goal(0.5, -0.4)["delta_y"], 0.0)
+
+    def test_feature_groups(self):
+        from hindsight import feature_columns
+        self.assertEqual(feature_columns(("goal",), None), ["goal_dist", "goal_sin", "goal_cos", "horizon"])
+        self.assertEqual(feature_columns(("goal", "delta"), None)[-2:], ["delta_x", "delta_y"])
+        with self.assertRaises(ValueError):
+            feature_columns(("nope",), None)
 
     def test_walker_records_a_cycle(self):
         from common import JetHexaSim, Walker
@@ -97,7 +111,13 @@ class NavTest(unittest.TestCase):
         two = table[(table["cycle"] == 0) & (table["horizon"] == 2.0)].iloc[0]
         self.assertAlmostEqual(two["goal_dist"], 0.2)
         self.assertAlmostEqual(two["goal_cos"], 1.0)
+        self.assertAlmostEqual(two["delta_x"], 0.2)
+        self.assertAlmostEqual(two["delta_y"], 0.0)
         self.assertEqual((two["stride"], two["turn"]), (0.3, 0.0))
+        # the deltas are the relabelled end point in the start pose's frame: cycle 2 ends 0.05 ahead, 0.05 left
+        last = table[table["cycle"] == 2].iloc[0]
+        self.assertAlmostEqual(last["delta_x"], 0.05)
+        self.assertAlmostEqual(last["delta_y"], 0.05)
 
     def test_planner_picks_the_command_that_heads_for_b(self):
         import numpy as np
@@ -115,13 +135,25 @@ class NavTest(unittest.TestCase):
                              prev_stride=0.0, prev_turn=0.0, fwd_1=0.0, left_1=0.0, dyaw_1=0.0))
         table = motion_rows(pd.DataFrame(rows))
         self.assertAlmostEqual(float(table["m_dyaw"].iloc[0]), 2 * rows[0]["turn"], places=6)
-        planner = DynamicsPlanner(table[FEATURES + ["m_fwd", "m_left", "m_dyaw"]], n_estimators=1)
+        planner = DynamicsPlanner(table[FEATURES + ["m_fwd", "m_left", "m_dyaw"]], n_estimators=1, score="polar")
         state = dict(prev_stride=0.0, prev_turn=0.0, fwd_1=0.0, left_1=0.0, dyaw_1=0.0)
         ahead, left = planner.act([dict(state, target_dist=1.0, target_sin=0.0, target_cos=1.0),
                                    dict(state, target_dist=1.0, target_sin=1.0, target_cos=0.0)])
         self.assertGreater(ahead[0], 0.2)  # b straight ahead: walk
         self.assertLess(abs(ahead[1]), 0.1)  # and do not turn
         self.assertGreater(left[1], 0.1)  # b to the left: turn left
+        planner.score = "delta"  # b's offset ahead and sideways instead of distance and bearing
+        ahead, left = planner.act([dict(state, target_dist=1.0, target_sin=0.0, target_cos=1.0),
+                                   dict(state, target_dist=1.0, target_sin=0.5, target_cos=math.sqrt(0.75))])
+        self.assertGreater(ahead[0], 0.2)
+        self.assertLess(abs(ahead[1]), 0.1)
+        self.assertGreater(left[1], 0.0)  # b ahead-left: steer left
+        planner.score = "hybrid"  # delta + facing b: must also turn toward a b that is behind
+        ahead, behind = planner.act([dict(state, target_dist=1.0, target_sin=0.0, target_cos=1.0),
+                                     dict(state, target_dist=1.0, target_sin=0.3, target_cos=-math.sqrt(0.91))])
+        self.assertGreater(ahead[0], 0.2)
+        self.assertLess(abs(ahead[1]), 0.1)
+        self.assertGreater(behind[1], 0.1)  # b behind, slightly left: turn left
 
 
 class FitOnlyRuleTest(unittest.TestCase):

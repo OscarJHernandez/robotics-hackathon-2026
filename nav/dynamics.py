@@ -6,8 +6,9 @@ Instead of predicting the command directly (policy.py), TabPFN predicts what a c
                                                                         (forward m, left m, yaw rad)
 
 Each cycle the planner asks TabPFN about a grid of 45 candidate commands for every robot in one
-batch and picks the command whose predicted end pose is closest to b (with a small cost for not
-facing b). The examples are plain recorded cycles: no relabelling is needed.
+batch and picks the command whose predicted end pose is best for reaching b. The default score
+("hybrid") is b's offset from that pose, ahead and sideways, plus a cost for not facing b. The
+examples are plain recorded cycles: no relabelling is needed.
 
 TabPFN is used only through `fit()` and `predict()` (rule in AGENTS.md). Build one with
 `just controller --kind planner`.
@@ -26,6 +27,15 @@ FEATURES = STATE + COMMAND
 MOTION = ["m_fwd", "m_left", "m_dyaw"]
 CANDIDATES = [(s, t) for s in np.linspace(*STRIDE_RANGE, 5) for t in np.linspace(*TURN_RANGE, 9)]
 FACING_COST = 0.08  # metres of distance one radian of bearing error is worth
+# Score "delta": b's offset from the predicted end pose, ahead (delta_x) and to the left (delta_y), with no
+# distance or bearing term; a metre sideways costs SIDE_WEIGHT metres ahead.
+# Score "hybrid": the delta score plus a cost for not facing b, scaled by the distance to b. Turning toward
+# a b that is behind first makes delta_y larger; with SIDE_WEIGHT 2 the facing cost must be at least about
+# 1 m per radian per metre of distance for the turn to pay off within one cycle.
+SCORES = ("polar", "delta", "hybrid")
+DEFAULT_SCORE = "hybrid"  # directness 0.96 against polar's 0.89 on the 20 held-out tasks
+SIDE_WEIGHT = 2.0
+HYBRID_FACING = 1.5
 
 
 def motion_rows(cycles):
@@ -52,7 +62,10 @@ class DynamicsPlanner:
     name = "tabpfn-planner"
     labels = MOTION
 
-    def __init__(self, context, device="cpu", n_estimators=4, seed=0):
+    def __init__(self, context, device="cpu", n_estimators=4, seed=0, score=DEFAULT_SCORE):
+        if score not in SCORES:
+            raise ValueError("unknown planner score: " + score)
+        self.score = score
         X = context[FEATURES].to_numpy(np.float32)
         self.models = {label: fit_regressor(X, context[label], device, n_estimators, seed) for label in MOTION}
 
@@ -73,7 +86,12 @@ class DynamicsPlanner:
             rf, rl = tf - m[:, 0], tl - m[:, 1]
             c, s = np.cos(m[:, 2]), np.sin(m[:, 2])
             ef, el = c * rf + s * rl, -s * rf + c * rl
-            cost = np.hypot(ef, el) + FACING_COST * np.abs(np.arctan2(el, ef))
+            if self.score == "delta":  # ef, el are delta_x, delta_y seen from the predicted end pose
+                cost = np.hypot(ef, SIDE_WEIGHT * el)
+            elif self.score == "hybrid":
+                cost = np.hypot(ef, SIDE_WEIGHT * el) + HYBRID_FACING * np.hypot(ef, el) * np.abs(np.arctan2(el, ef))
+            else:
+                cost = np.hypot(ef, el) + FACING_COST * np.abs(np.arctan2(el, ef))
             best = cands[int(np.argmin(cost))]
             out.append((float(best[0]), float(best[1])))
         return np.array(out)
