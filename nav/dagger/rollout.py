@@ -75,6 +75,7 @@ def run_episodes(envs, featurizer, expert, policy, beta, plan, round_, rng, log=
     if log:
         log.event("round", "round {} beta {}: {} episodes on {} robots".format(round_, beta, total, len(envs)),
                   round=round_, beta=beta, episodes=total, robots=len(envs))
+        log.start_rollout()
     while any(slot is not None for slot in slots):
         if deadline is not None and time.time() > deadline:
             break

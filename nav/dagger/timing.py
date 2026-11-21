@@ -87,6 +87,10 @@ class RunLog:
         self.name = name
         self.echo = echo
         self.last_beat = 0.0
+        self.rollout_start = None  # set by start_rollout(): rates and ETAs leave out setup and fit()
+
+    def start_rollout(self):
+        self.rollout_start = time.time()
 
     def event(self, kind, message="", **fields):
         now = time.time()
@@ -106,7 +110,7 @@ class RunLog:
         if not force and now - self.last_beat < every:
             return
         self.last_beat = now
-        elapsed = now - self.start
+        elapsed = now - (self.rollout_start or self.start)  # driving time only, once the rollout started
         rate = done / elapsed if elapsed > 0 else 0.0
         eta = (total - done) / rate if rate > 0 else None
         finish = (datetime.datetime.now() + datetime.timedelta(seconds=eta)).strftime("%H:%M:%S") if eta else "?"
