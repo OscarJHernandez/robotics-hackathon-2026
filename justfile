@@ -70,6 +70,18 @@ test-nav:
 dashboard port="8770":
     uv run --group ml python nav/live_dashboard.py --port {{ port }}
 
+# Labeled camera pictures in the 50 m² arena: just vision-data --episodes 60 --poses 16
+vision-data *args:
+    uv run --group vision python vision/dataset.py {{ args }}
+
+# DINOv2 patch features and patch labels for a vision run: just vision-features latest
+vision-features *args:
+    uv run --group vision python vision/features.py {{ args }}
+
+# Train and test the patch classifier: just vision-probe latest [--hidden 256]
+vision-probe *args:
+    uv run --group vision python vision/probe.py {{ args }}
+
 # Build the web app's front end (app/web, made with Lovable) into app/web/dist
 app-build:
     cd app/web && npm ci && npm run build

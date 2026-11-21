@@ -78,6 +78,7 @@ command, add it there with a one-line comment above it (the comment is what `jus
 | `just inspect` | MuJoCo's viewer on `sim/jethexa.xml`, to move joints by hand |
 | `just snapshot [file.png]` | Save a picture of the robot after walking |
 | `just test` | Run the tests (`unittest`; the camera test skips without OpenGL) |
+| `just vision-data`, `just vision-features`, `just vision-probe` | Labeled arena pictures, DINOv2 patch features, train and test the patch classifier; guide: [docs/vision.md](docs/vision.md) |
 | `just app-build`, `just app [port]` | Build and run the web app (live sim + metacon chat) at http://127.0.0.1:8790; guide: [docs/app.md](docs/app.md) |
 
 Lint: not set up yet.
@@ -96,7 +97,8 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 | `sim/fetch_meshes.py` | Mesh download, pinned to one Hiwonder commit and checked by SHA-256 |
 | `nav/` | Walking from a to b with TabPFN: `common.py` (walker, geometry), `db.py` (DuckDB recorder), `collect.py`, `hindsight.py` (goal examples), `dynamics.py` (motion examples and planner), `policy.py` (`fit()`-only TabPFN policies), `controller.py` (build and test a controller), `evaluate.py`, `run.py` (demo video), `dashboard.py`, `live_dashboard.py`. Guide: [docs/navigation.md](docs/navigation.md) |
 | `app/` | The web app: `robot.py` (live sim thread), `llm.py` (metacon chat), `voice.py` (speech via Voice Control), `call.py` (voice calls shown live to every viewer), `server.py` (API + page), `web/` (front end from Lovable; phone layout in `PhoneApp.tsx`). Guide: [docs/app.md](docs/app.md) |
-| `vision/` | Camera perception: `scene.py` (the arena: random layouts, robot poses, class per pixel) |
+| `vision/` | Camera perception: `scene.py` (the arena: random layouts, robot poses, class per pixel), `dataset.py` (labeled pictures), `features.py` (frozen DINOv2 patch features, patch labels), `probe.py` (patch classifier, `blocked_grid` for avoidance). Guide: [docs/vision.md](docs/vision.md) |
+| `data/vision/` | Vision runs: pictures, labels, features, probes (gitignored, never commit) |
 | `data/nav/` | Recorded runs, the database `nav.duckdb`, model checkpoints (gitignored, never commit) |
 | `tests/` | Tests (`just test`; navigation tests: `just test-nav`) |
 

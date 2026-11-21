@@ -43,6 +43,15 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Oscar's agent): Frozen DINOv2 ViT-S/14 (`dinov2_vits14_reg`) patch features plus a linear probe
+  label arena patches as floor, wall, obstacle or target at 98.8% on held-out layouts (one hidden layer of 256:
+  99.3%), from 960 pictures; see [vision.md](vision.md). The probe trains with AdamW, which is fine: the
+  no-fine-tuning rule is about TabPFN, DINOv2 stays frozen, and the code is in `vision/`, outside `nav/`.
+- 2026-11-21 (Oscar's agent): A 70% purity rule on patch labels gives no target examples beyond about 2 m,
+  because the 6 cm target pillar never fills 70% of a 14-pixel patch there. The target uses 30% instead.
+  Edge patches that are 10 to 20% obstacle are almost never classified as obstacle, so `blocked_grid` grows the
+  blocked region by one patch rather than relabelling edges; that blocks 99.7% of them.
+
 - 2026-11-21 (Oscar's agent): Oscar wants the obstacle-avoidance work in a closed, square 50 m² room with walls
   on the boundary ([sim/arena_furniture.xml](../sim/arena_furniture.xml)), with furniture positions, colors and
   the target random per episode. The walls are 4.5 m high because the camera is only 15 cm up: with lower walls
