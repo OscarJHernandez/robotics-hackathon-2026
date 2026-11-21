@@ -163,11 +163,13 @@ class FitOnlyRuleTest(unittest.TestCase):
         banned = ("Finetuned", "tabpfn.finetuning", "save_tabpfn_model", "optimizer", ".backward(",
                   "load_state_dict", "requires_grad", "learning_rate")
         nav = Path(__file__).resolve().parents[1] / "nav"
-        for path in sorted(nav.glob("*.py")):
+        paths = sorted(nav.rglob("*.py"))
+        self.assertTrue(any(p.parent.name == "dagger" for p in paths))  # nav/dagger/ is checked too
+        for path in paths:
             text = path.read_text()
             for word in banned:
                 self.assertNotIn(word, text, "{} uses '{}': fine-tuning is not allowed (AGENTS.md)".format(
-                    path.name, word))
+                    path.relative_to(nav), word))
 
 if __name__ == "__main__":
     unittest.main()

@@ -70,6 +70,26 @@ test-nav:
 dashboard port="8770":
     uv run --group ml python nav/live_dashboard.py --port {{ port }}
 
+# DAgger for the TabPFN arena policy: just dagger local --run try1 [--smoke] (see docs/navigation.md, "DAgger")
+dagger *args:
+    uv run --group ml --group vision python -m nav.dagger.loop {{ args }}
+
+# One machine's share of a DAgger round: just dagger-worker --run try1 --round 0 --plan plan.json --procs 8
+dagger-worker *args:
+    uv run --group ml --group vision python -m nav.dagger.worker {{ args }}
+
+# Merge a DAgger round's parts and print timings: just dagger-merge --run try1 --round 0 --timings
+dagger-merge *args:
+    uv run --group ml --group vision python -m nav.dagger.merge {{ args }}
+
+# Measure this machine's DAgger speed and project the round's duration: just dagger-bench --procs 1,4,8
+dagger-bench *args:
+    uv run --group ml --group vision python -m nav.dagger.bench {{ args }}
+
+# Run the DAgger tests
+test-dagger:
+    uv run --group ml --group vision python -m unittest tests.test_dagger -v
+
 # Labeled camera pictures in the 50 m² arena: just vision-data --episodes 60 --poses 16
 vision-data *args:
     uv run --group vision python vision/dataset.py {{ args }}

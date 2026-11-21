@@ -1,0 +1,44 @@
+# DAgger settings. `just dagger --config nav/dagger/dagger.yaml`; `--smoke` shrinks everything for a quick check.
+
+seed: 0
+
+# Rounds: beta = chance per step that the expert's command is executed instead of the student's.
+# The label is always the expert's command. Round 0 has no student yet (beta 1).
+rounds:
+  - {episodes: 1000, beta: 1.0}
+  - {episodes: 100, beta: 0.5}
+  - {episodes: 100, beta: 0.25}
+  - {episodes: 100, beta: 0.0}
+  - {episodes: 100, beta: 0.0}
+
+scenes:
+  train: 1000      # scene ids 0..999: one random obstacle layout each
+  heldout: 200     # scene ids 100000..100199, never used for fitting
+  heldout_episodes: 200
+
+env:
+  n_envs: 16           # robots stepped in lock-step per process
+  max_steps: 300       # gait cycles (1 s each) before a timeout
+  goal_radius: 0.25    # metres from the target pillar
+  min_start_dist: 1.0  # metres between start and target
+  simple: null         # null: mesh model when sim/meshes exists, else simple shapes
+
+expert:
+  cell: 0.05           # metres per planning grid cell
+  inflate: 0.32        # metres kept between the robot's centre and any wall or obstacle
+  lookahead: 0.40      # metres along the path to the pure-pursuit point
+  gain: 0.6            # turn = gain * heading error, clipped to the turn range
+  stop_turning: 0.8    # radians: above this heading error the robot turns on the spot
+
+features:
+  perception: probe    # probe: frozen DINOv2 + patch probe on the RGB picture; truth: simulator segmentation
+  probe: full60/probe-mlp256.pt   # under data/vision/
+  patch_pool: 1        # 1 = all 26 x 46 patches; 2 = 13 x 23 blocks (majority class, mean depth)
+  depth_cap: 10.0      # metres
+  use_prev_command: false
+
+student:
+  model_version: v3.5
+  device: auto         # cuda, then mps, then cpu
+  n_estimators: 4
+  max_context_rows: null   # null = every aggregated row
