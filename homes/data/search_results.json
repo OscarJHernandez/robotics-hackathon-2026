@@ -1,0 +1,166 @@
+{
+ "all": {
+  "check_ins": 4800,
+  "at_home": 4101,
+  "random": {
+   "metres": 11.4,
+   "zones_checked": 2.98
+  },
+  "nearest": {
+   "metres": 7.23,
+   "zones_checked": 3.3
+  },
+  "last": {
+   "metres": 7.42,
+   "zones_checked": 2.12
+  },
+  "population": {
+   "metres": 6.72,
+   "zones_checked": 3.07,
+   "belief_top1": 0.383,
+   "log_loss": 1.513
+  },
+  "habits": {
+   "metres": 6.69,
+   "zones_checked": 2.98,
+   "belief_top1": 0.507,
+   "log_loss": 1.343
+  },
+  "journal": {
+   "metres": 6.38,
+   "zones_checked": 2.82,
+   "belief_top1": 0.541,
+   "log_loss": 1.213
+  },
+  "full": {
+   "metres": 5.63,
+   "zones_checked": 2.13,
+   "belief_top1": 0.72,
+   "log_loss": 0.766
+  },
+  "full_no_plan": {
+   "metres": 6.61,
+   "zones_checked": 1.54
+  },
+  "oracle": {
+   "metres": 6.14,
+   "zones_checked": 2.56,
+   "belief_top1": 0.569,
+   "log_loss": 1.097
+  }
+ },
+ "not_heard_yet": {
+  "check_ins": 2465,
+  "at_home": 2087,
+  "random": {
+   "metres": 11.42,
+   "zones_checked": 2.99
+  },
+  "nearest": {
+   "metres": 7.26,
+   "zones_checked": 3.31
+  },
+  "last": {
+   "metres": 9.59,
+   "zones_checked": 2.97
+  },
+  "population": {
+   "metres": 6.83,
+   "zones_checked": 3.11,
+   "belief_top1": 0.367,
+   "log_loss": 1.553
+  },
+  "habits": {
+   "metres": 6.78,
+   "zones_checked": 3.01,
+   "belief_top1": 0.486,
+   "log_loss": 1.39
+  },
+  "journal": {
+   "metres": 6.4,
+   "zones_checked": 2.82,
+   "belief_top1": 0.532,
+   "log_loss": 1.233
+  },
+  "full": {
+   "metres": 6.4,
+   "zones_checked": 2.82,
+   "belief_top1": 0.532,
+   "log_loss": 1.233
+  },
+  "full_no_plan": {
+   "metres": 8.24,
+   "zones_checked": 1.94
+  },
+  "oracle": {
+   "metres": 6.16,
+   "zones_checked": 2.57,
+   "belief_top1": 0.541,
+   "log_loss": 1.129
+  }
+ },
+ "heard_recently": {
+  "check_ins": 2335,
+  "at_home": 2014,
+  "random": {
+   "metres": 11.39,
+   "zones_checked": 2.97
+  },
+  "nearest": {
+   "metres": 7.21,
+   "zones_checked": 3.3
+  },
+  "last": {
+   "metres": 5.17,
+   "zones_checked": 1.24
+  },
+  "population": {
+   "metres": 6.61,
+   "zones_checked": 3.03,
+   "belief_top1": 0.4,
+   "log_loss": 1.47
+  },
+  "habits": {
+   "metres": 6.6,
+   "zones_checked": 2.96,
+   "belief_top1": 0.53,
+   "log_loss": 1.293
+  },
+  "journal": {
+   "metres": 6.35,
+   "zones_checked": 2.82,
+   "belief_top1": 0.551,
+   "log_loss": 1.191
+  },
+  "full": {
+   "metres": 4.84,
+   "zones_checked": 1.41,
+   "belief_top1": 0.918,
+   "log_loss": 0.272
+  },
+  "full_no_plan": {
+   "metres": 4.92,
+   "zones_checked": 1.13
+  },
+  "oracle": {
+   "metres": 6.13,
+   "zones_checked": 2.55,
+   "belief_top1": 0.597,
+   "log_loss": 1.063
+  }
+ },
+ "out": {
+  "share_out": 0.146,
+  "caught": 0.95,
+  "right_when_said": 0.9
+ },
+ "residents": 120,
+ "residents_generated": 600,
+ "days": 30,
+ "seed": 0,
+ "weights": {
+  "population": 8.0,
+  "habit": 2.0,
+  "outing": 32.0
+ }
+}

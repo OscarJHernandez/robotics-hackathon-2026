@@ -58,7 +58,9 @@ def main():
     print("\n=== HER ROUTINE (hidden table the generator draws from; the model never sees it) ===")
     print("{} ({}), type '{}'. P(zone) per weekday and slot, 'out' = not home:".format(p["name"], p["resident"], p["archetype"]))
     for wd in (1, 5):  # a Tuesday and a Saturday
-        for s, name in enumerate(range(len(p["tables"]["0"]))):
+        n_slots = len(p["tables"]["0"])
+        for s in range(n_slots):
+            name = ("morning", "afternoon", "evening")[s] if n_slots == 3 else "slot {}".format(s)
             probs = {z: round(v, 2) for z, v in sorted(zone_probs(p, wd, s).items(), key=lambda kv: -kv[1]) if v >= 0.02}
             print("  {} {:9s} {}".format(DAYS[wd], name, probs))
     print("  other weekdays differ only in 'out':", {DAYS[d]: [round(x, 2) for x in p["out_p"][d]] for d in range(7)

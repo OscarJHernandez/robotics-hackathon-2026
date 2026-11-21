@@ -109,3 +109,11 @@ app-build:
 # Run the web app (live simulation + metacon chat) at http://127.0.0.1:8790: just app 8790
 app port="8790":
     uv run --group app python app/server.py --port {{ port }}
+
+# Where is she? Bayesian search (journal + habits + floor plan): results table and 6 examples in homes/data/search_examples/
+search-demo *args:
+    cd homes && uv run --group ml python search_demo.py {{ args }}
+
+# Run the tests for homes/ (Knock data, arena flats, Bayesian search)
+test-homes:
+    cd homes && uv run --group ml python -m unittest test_homes.py -v

@@ -278,5 +278,62 @@ class PriorTest(unittest.TestCase):
         self.assertAlmostEqual(zones["bedroom"], 0.85)
 
 
+class SearchTest(unittest.TestCase):
+    """The Bayesian search (search.py): journal + habits + floor plan -> belief -> search order."""
+
+    def setUp(self):
+        import search
+        self.S = search
+        self.flat = make_flat(5)
+        self.habits = {"usual": {"0": ["kitchen", "living_room", "living_room"], "1": ["bedroom"] * 3},
+                       "outings": [(1, 1)]}  # Tuesday afternoons out
+
+    def test_each_step_sums_to_one(self):
+        b = self.S.beliefs(self.flat, 15.0, 2, None, self.habits, [(2, 1, "bedroom")] * 3, ("kitchen", 30.0))
+        self.assertEqual(list(b), list(self.S.STAGES))
+        for stage in b.values():
+            self.assertEqual(set(stage), set(F.CLASSES))
+            self.assertAlmostEqual(sum(stage.values()), 1.0)
+
+    def test_habits_journal_and_last_heard_move_the_belief_the_right_way(self):
+        b = self.S.beliefs(self.flat, 15.0, 2, None, self.habits, [])  # Wednesday afternoon
+        self.assertEqual(max(b["habits"], key=b["habits"].get), "living_room")
+        journal = [(wd, 1, "bedroom") for wd in (0, 2, 3, 4) for _ in range(3)]  # weekday afternoons in bed
+        b = self.S.beliefs(self.flat, 15.0, 2, None, self.habits, journal)
+        self.assertEqual(max(b["journal"], key=b["journal"].get), "bedroom")
+        b = self.S.beliefs(self.flat, 15.0, 2, None, self.habits, journal, ("kitchen", 20.0))  # heard 20 min ago
+        self.assertGreater(b["last_heard"]["kitchen"], 0.5)
+        self.assertEqual(b["last_heard"]["out"], 0.0)
+        old = self.S.beliefs(self.flat, 15.0, 2, None, self.habits, journal, ("kitchen", 240.0))  # this morning
+        self.assertEqual(old["last_heard"], old["journal"])
+
+    def test_a_stated_outing_makes_out_likely(self):
+        b = self.S.beliefs(self.flat, 14.0, 1, None, self.habits, [])  # Tuesday afternoon
+        self.assertGreater(b["habits"]["out"], 0.5)
+
+    def test_plan_is_the_best_order_and_after_miss_renormalizes(self):
+        import itertools
+        probs = {"bedroom": 0.1, "living_room": 0.5, "dining_area": 0.1, "kitchen": 0.2, "hallway": 0.05, "out": 0.05}
+        order, expected = self.S.plan(self.flat, probs)
+        self.assertEqual(sorted(order), sorted(F.ZONE_NAMES))
+        for other in itertools.permutations(F.ZONE_NAMES):
+            cost = sum(probs[z] * self.S.walk(self.flat, list(other), z)[0] for z in F.ZONE_NAMES) \
+                + probs["out"] * self.S.walk(self.flat, list(other), "out")[0]
+            self.assertGreaterEqual(cost, expected - 1e-6)
+        rest = self.S.after_miss(probs, "living_room")
+        self.assertEqual(rest["living_room"], 0.0)
+        self.assertAlmostEqual(sum(rest.values()), 1.0)
+        self.assertAlmostEqual(rest["kitchen"], 0.4)
+
+    def test_a_sure_belief_goes_there_without_a_detour(self):
+        # A zone on the way may be looked at first (the hallway, by the dock), but the walk is no longer.
+        for i in range(20):
+            flat = make_flat(i)
+            for zone in F.ZONE_NAMES:
+                probs = {c: (0.99 if c == zone else 0.002) for c in F.CLASSES}
+                walked, _ = self.S.walk(flat, self.S.plan(flat, probs)[0], zone)
+                self.assertLessEqual(walked, F.distance(flat, "dock", zone) + 0.1)
+
+
 if __name__ == "__main__":
     unittest.main()

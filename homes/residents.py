@@ -150,9 +150,20 @@ def zone_probs(p, weekday, slot):
     return out
 
 
-def stated_habits(p):
+STATED_WRONG = 0.3  # share of parts of the day where the stated usual zone is not her real most likely zone
+
+
+def stated_habits(p, wrong=STATED_WRONG):
     """Her habits as she or her carer would state them on a form: the usual zone for each part of the day (weekdays
-    and weekends), and the regular outings as (weekday, slot) pairs. Much coarser than her routine table."""
-    usual = {wk: [max(table, key=table.get) for table in p["tables"][wk]] for wk in ("0", "1")}
+    and weekends), and the regular outings as (weekday, slot) pairs. Coarser than her routine table, and imperfect:
+    in `wrong` of the parts of the day the form names her second most likely zone (people misjudge their habits).
+    The same resident always gets the same form."""
+    rng = np.random.default_rng([p["resident_id"], 7])
+    usual = {}
+    for wk in ("0", "1"):
+        usual[wk] = []
+        for table in p["tables"][wk]:
+            ranked = sorted(table, key=table.get, reverse=True)
+            usual[wk].append(ranked[1] if len(ranked) > 1 and rng.random() < wrong else ranked[0])
     outings = [(wd, slot) for wd in range(7) for slot, q in enumerate(p["out_p"][wd]) if q >= 0.5]
     return {"usual": usual, "outings": outings}

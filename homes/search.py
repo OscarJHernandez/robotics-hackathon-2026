@@ -19,16 +19,15 @@ fewest expected metres walked from the dock until she is found. Needs only numpy
 """
 
 import itertools
-import math
 
 import numpy as np
 
-from flats import CLASSES, ZONE_NAMES, view_xy, zone
+from flats import CLASSES, ZONE_NAMES, view_xy
 from residents import slot_of
 
-POPULATION_WEIGHT = 2.0  # pseudo-records behind the population share
-HABIT_WEIGHT = 4.0  # pseudo-records behind her stated usual zone
-OUTING_WEIGHT = 8.0  # pseudo-records behind `out` on a stated outing
+# How many journal records each source is worth (pseudo-records). Chosen by `search_demo.py --tune`: the values
+# with the lowest log loss on the check-ins of TRAIN residents (counting, not model training).
+WEIGHTS = {"population": 8.0, "habit": 2.0, "outing": 32.0}
 MISPLACED = 0.1  # share of records logged in a neighbouring zone (HEARD_MISPLACED in generate.py)
 NIGHT = {"bedroom": 0.85, "kitchen": 0.15}  # no records at night (22:30-07:00): a stated default
 STAGES = ("population", "habits", "journal", "last_heard")
@@ -48,7 +47,7 @@ def _named(p):
     return {c: float(p[i]) for i, c in enumerate(CLASSES)}
 
 
-def beliefs(flat, hour, weekday, population=None, habits=None, journal=(), last=None, n_slots=3):
+def beliefs(flat, hour, weekday, population=None, habits=None, journal=(), last=None, n_slots=3, weights=None):
     """P over the five zones and `out` at this hour (0-24) and weekday (0 = Monday), after each step.
 
     population: array from population_shares(), or None (every class equally likely).
@@ -57,6 +56,7 @@ def beliefs(flat, hour, weekday, population=None, habits=None, journal=(), last=
     last:       (zone, minutes ago) of her newest record, or None.
     Returns {"population": {...}, "habits": {...}, "journal": {...}, "last_heard": {...}}; each is the belief with
     everything up to that step, and "last_heard" is the final one."""
+    w = weights or WEIGHTS
     slot = slot_of(int(hour * 60), n_slots)
     code = {c: i for i, c in enumerate(CLASSES)}
     if slot is None:
@@ -64,15 +64,15 @@ def beliefs(flat, hour, weekday, population=None, habits=None, journal=(), last=
         return {stage: _named(night) for stage in STAGES}
     wk = 1 if weekday >= 5 else 0
     share = population[wk, slot] if population is not None else np.full(len(CLASSES), 1.0 / len(CLASSES))
-    counts = POPULATION_WEIGHT * share
+    counts = w["population"] * share
     out = {"population": _named(counts / counts.sum())}
 
     outings = set(map(tuple, habits["outings"])) if habits else set()
     if habits:
         counts = counts.copy()
-        counts[code[habits["usual"][str(wk)][slot]]] += HABIT_WEIGHT
+        counts[code[habits["usual"][str(wk)][slot]]] += w["habit"]
         if (weekday, slot) in outings:
-            counts[code["out"]] += OUTING_WEIGHT
+            counts[code["out"]] += w["outing"]
     out["habits"] = _named(counts / counts.sum())
 
     counts = counts.copy()
@@ -164,13 +164,3 @@ def after_miss(probs, checked):
     out = {k: v / total for k, v in rest.items()}
     out[checked] = 0.0
     return out
-
-
-def spot_xy(flat, name):
-    z = zone(flat, name)
-    return z["person_x"], z["person_y"]
-
-
-def heading_to(flat, a, b):
-    (ax, ay), (bx, by) = view_xy(flat, a), view_xy(flat, b)
-    return math.degrees(math.atan2(by - ay, bx - ax))

@@ -43,6 +43,15 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): `homes/search.py` is a counting Bayesian search (population share + stated habits + her
+  journal + last heard, then the order of zones with the fewest expected metres): on 120 test residents it walks 5.6 m
+  until she is found against 7.2 m for "nearest first" and 7.4 m for "last heard first", and before she is heard its
+  belief is within 1 point of her true routine. It is the baseline a TabPFN belief has to beat; `homes/search_demo.py`
+  prints the table and six worked examples. Planning on the floor plan matters: the same belief searched likeliest-first
+  walks 6.6 m.
+- 2026-11-22 (Oscar's agent): Two traps when making "where is she" data look good: stated habits copied from her true
+  routine make the journal useless (it can only repeat the form), and one week of journal (3 records a day) adds only
+  1-2 points. `stated_habits()` now names a wrong zone in 30% of the parts of the day, and the demo uses 4 weeks.
 - 2026-11-21 (Oscar's agent): DAgger round 1 student (TabPFN 3.5 fitted on 32k expert rows) matched the expert
   closely at beta 0.5 (100/100 goals, mean |d turn| 0.05) but collided in 3 of 3 held-out layouts when driving alone:
   it keeps walking when the expert says stop and turn on the spot, a label only 6.6% of the rows have. Judge a
@@ -64,7 +73,7 @@ in the same pull request as the work.
   `ProcessPoolExecutor` (raises `BrokenProcessPool`), as `nav/dagger/worker.py` does.
 - 2026-11-21 (Oscar's agent): Copies to the homelab machines sometimes did not arrive although rsync/scp
   exited 0 (cause unknown). Check the file on the other side before starting a job that needs it.
-- 2026-11-21 (Nodir's agent): `homes/` has the synthetic Knock data: 8,500 random one-room flats (3-5 named zones), a weekly routine table per resident, 3 diary records a day for 7 days (102,000 training rows, `homes/data/train.parquet`), test check-ins and a cold-start zone prior; see [homes/README.md](../homes/README.md). With only 3 records a day TabPFN learns little about one person (mostly the population prior plus the slot and where she was last heard), so judge it on held-out residents and keep the `out` rows in the context. In the smoke tests TabPFN does not beat "last heard" on check-ins with 3 records a day (0.43 against 0.53) or with 12 (0.48 against 0.67), so do not promise it does. Zones are names, not `z1`-`z6` as in [knock-routines.md](knock-routines.md); `app/knock.py` still uses its 6-cell `ZONES` and `PRIORS`, switching it to `homes/flats.py` and `homes/prior.py` is open.
+- 2026-11-21 (Nodir's agent): `homes/` has the synthetic Knock data: 8,500 flats (since 2026-11-22: the MuJoCo arena with five named zones, bedroom, living room, dining area, kitchen and hallway, built around the arena's furniture), a weekly routine table per resident, 3 diary records a day for 7 days (102,000 training rows, `homes/data/train.parquet`), test check-ins and a cold-start zone prior; see [homes/README.md](../homes/README.md). With only 3 records a day TabPFN learns little about one person (mostly the population prior plus the slot and where she was last heard), so judge it on held-out residents and keep the `out` rows in the context. In the smoke tests TabPFN does not beat "last heard" on check-ins with 3 records a day (0.43 against 0.53) or with 12 (0.48 against 0.67), so do not promise it does. Zones are names, not `z1`-`z6` as in [knock-routines.md](knock-routines.md); `app/knock.py` still uses its old six names (`bed`, `bathroom`, ...), switching it to `homes/flats.py` and `homes/search.py` is open.
 
 - 2026-11-21 (Oscar's agent): Frozen DINOv2 ViT-S/14 (`dinov2_vits14_reg`) patch features plus a linear probe
   label arena patches as floor, wall, obstacle or target at 98.8% on held-out layouts (one hidden layer of 256:
@@ -201,6 +210,10 @@ in the same pull request as the work.
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Suggestions (open)
+
+- 2026-11-22 (Oscar's agent): Knock: switch `app/knock.py` and the phone UI to the five arena zones and use
+  `homes/search.py` for `probs` and the order (it already has `after_miss`). Add a bathroom to the arena (a piece or a
+  marked floor area in both arena XML files) so falls in the bathroom can be part of the story.
 
 - 2026-11-21 (Oscar's agent): DAgger: try a label-balanced context (`max_context_rows: 20000`) from round 2 on,
   and run DINOv2 on the Radeon iGPUs (ROCm torch) to speed up the Linux workers.

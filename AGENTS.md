@@ -81,6 +81,7 @@ command, add it there with a one-line comment above it (the comment is what `jus
 | `just vision-data`, `just vision-features`, `just vision-probe` | Labeled arena pictures, DINOv2 patch features, train and test the patch classifier; guide: [docs/vision.md](docs/vision.md) |
 | `just dagger local --run NAME [--smoke]`, `just dagger-worker`, `just dagger-merge`, `just dagger-bench`, `just test-dagger` | DAgger for the TabPFN arena policy, on one or several machines; guide: [docs/navigation.md](docs/navigation.md) ("DAgger in the arena") |
 | `just app-build`, `just app [port]` | Build and run the web app (live sim + metacon chat) at http://127.0.0.1:8790; guide: [docs/app.md](docs/app.md) |
+| `just search-demo`, `just test-homes` | Where is she: the Bayesian search's results and 6 worked examples (`homes/data/search_examples/`), and its tests; guide: [homes/README.md](homes/README.md) |
 
 Lint: not set up yet.
 
@@ -101,6 +102,7 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 | `app/` | The web app: `robot.py` (live sim thread), `llm.py` (metacon chat), `voice.py` (speech via Voice Control), `call.py` (voice calls shown live to every viewer), `knock.py` (Find and Call Margarete), `server.py` (API + page), `web/` (front end from Lovable; phone layout in `PhoneApp.tsx`). Guide: [docs/app.md](docs/app.md) |
 | `vision/` | Camera perception: `scene.py` (the arena: random layouts, robot poses, class per pixel), `dataset.py` (labeled pictures), `features.py` (frozen DINOv2 patch features, patch labels), `probe.py` (patch classifier, `blocked_grid` for avoidance). Guide: [docs/vision.md](docs/vision.md) |
 | `data/vision/` | Vision runs: pictures, labels, features, probes (gitignored, never commit) |
+| `homes/` | Knock's "where is she": `flats.py` (the arena as a flat with five named zones: bedroom, living room, dining area, kitchen, hallway), `residents.py` (routines, stated habits), `generate.py` (diary and check-in tables), `search.py` (Bayesian search: journal + habits + floor plan -> search order), `search_demo.py`. Data in `homes/data/` is committed. Guide: [homes/README.md](homes/README.md) |
 | `data/nav/` | Recorded runs, the database `nav.duckdb`, model checkpoints (gitignored, never commit) |
 | `tests/` | Tests (`just test`; navigation tests: `just test-nav`) |
 | `docs/knock-*.md` | Knock, the team's concept: `knock-ui.md` (the Find and Call Margarete buttons for `app/`, mockup in `docs/knock-ui/`) and `knock-routines.md` (data for the zone model). Read `knock-ui.md` before building those buttons |
