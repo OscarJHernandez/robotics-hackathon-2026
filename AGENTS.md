@@ -31,6 +31,24 @@ If there is nothing new to record, say so in the pull request description.
 
 Claude Code users: the `contribute` and `record-learning` skills in `.claude/skills/` walk through these steps.
 
+## TabPFN: no fine-tuning. Use `fit()` and `predict()` only
+
+**Do not fine-tune TabPFN in this repo.** This is Oscar's decision (2026-11-21) and it applies to every
+experiment, demo, script and test.
+
+- **"Training" TabPFN means calling its built-in `fit()`** on our recorded examples
+  (`TabPFNRegressor.fit(X, y)` or `TabPFNClassifier.fit(X, y)`), then `predict()`. `fit()` stores the
+  examples as context; the pretrained weights stay as they are.
+- **Never change TabPFN's weights.** No `FinetunedTabPFNRegressor` or `FinetunedTabPFNClassifier`, no
+  `tabpfn.finetuning`, no gradient steps, no optimizer, no custom training loop, no saved fine-tuned checkpoints.
+- **To make a controller better, change what goes into `fit()`**: better or more examples, better features,
+  a better choice of context rows. Do not reach for fine-tuning.
+- **Do not run or extend the existing fine-tuning code** (`nav/train.py` and `just train`, and the fine-tuning
+  parts of `nav/dynamics.py`). It is left over from an earlier experiment. Use `TabPFNNavPolicy` in
+  `nav/policy.py` without `checkpoints`: that is the `fit()`-only controller, and it reached b on 20 of 20
+  test tasks.
+- If a task seems to need fine-tuning, stop and ask Oscar first.
+
 ## Stack and commands
 
 The project is Python with the [MuJoCo](https://mujoco.readthedocs.io/) simulator. The simulated JetHexa robot is in
