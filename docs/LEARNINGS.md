@@ -64,6 +64,18 @@ in the same pull request as the work.
   It also widens the 6 x 6 m floor plane in `model.geom_size` instead of adding a second floor geom, because
   `foot_contacts()` looks for the geom named `floor`.
 
+- 2026-11-21 (Nodir's agent): For Knock's zone model, how often the robot hears her decides whether TabPFN has
+  anything to beat. In a quick simulation of [knock-routines.md](knock-routines.md), 0.6 heard events an hour
+  gave 55% best possible top-1 against 51% for "usual place at this hour"; 1 an hour gave 59% against 51%.
+  Columns that never change in the context rows (like `answered_robot` in heard rows) teach TabPFN nothing, so
+  leave them out of `fit()`.
+- 2026-11-21 (Oscar's agent): In the web app every `goto` and `forward` used to move the red pillar to its end
+  point, so when metacon answered "walk to the target" with `[[forward 1]]` (likely with spoken words on the phone)
+  the pillar jumped to just in front of the robot. Walking no longer moves the pillar (only `random` does), and the
+  prompt says target, goal and end point all mean `[[target]]`.
+- 2026-11-21 (Oscar's agent): `Hub.current()` in [app/call.py](../app/call.py) replays only the voice call in
+  progress, and `useLiveCall` drops events without a call id. Anything else on `/api/live` (the Knock card) needs
+  its own snapshot for pages that open late (`Knock.latest()`, written first by `live()`) and its own listener.
 - 2026-11-21 (Oscar's agent): Live captions during a voice call work without a streaming speech API: the
   browser records with `MediaRecorder.start(250)` and every 1.5 s sends all chunks so far as one Blob, which is a
   valid WebM (or Safari MP4) file; Voice Control transcribes 3 s of speech in about 0.3 s. These interim requests
@@ -72,6 +84,10 @@ in the same pull request as the work.
   server on its own: `Line.sweep()` in [app/call.py](../app/call.py) checks every 5 s. Expiring calls only when the
   next request came left every viewer showing "listening" forever. Also, when rejecting an upload that is too large,
   read the body anyway (up to a limit) or the browser sees a broken pipe instead of the error message.
+- 2026-11-21 (Nodir's agent): The one-room scene ([sim/room_furniture.xml](../sim/room_furniture.xml)) is added
+  to the robot with MJCF `<include>` in `sim/room.xml` and `sim/room_simple.xml`, so the generated robot files
+  stay untouched. Load it with `JetHexaSim(SIM_DIR / "room_simple.xml")`. The obstacles are solid, and the a→b
+  controllers do not avoid them yet.
 - 2026-11-21 (Oscar's agent): Scoring the planner's candidates by b's offset only (`--score delta`, no bearing
   term) fails every target more than 90 degrees off the heading (10 of 20 reached): it looks one cycle ahead,
   and a turn on the spot does not bring b closer, so it never turns around. The bearing term in the `polar`
@@ -151,6 +167,12 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-21 (Oscar's agent): Knock on the desktop page (mockup screens 1-4): the phone part is built, and
+  `KnockCard.tsx` and `useKnock` are ready to reuse under `ViewList`. The zone poses in `app/knock.py` still wait
+  for the room layout to be agreed between `sim/room_furniture.xml` and [knock-routines.md](knock-routines.md), and
+  the app does not load the room yet. Then: the zone model's `predict()` in place of `PRIORS`, the person detector
+  in place of `KNOCK_FOUND_ZONE`, the robot-eye photo on the found card, and a calm, warm voice for the call-out
+  (today it uses `JETHEXA_VOICE`, Glados-portal).
 - 2026-11-21 (Oscar's agent): metacon often answers a request with several steps ("walk to the pillar, then
   turn around and stop") with several commands at once, and each new command replaces the one before, so the
   robot only does the last one. A command queue in `LiveRobot` (run the next when the current one finishes) would
@@ -158,6 +180,8 @@ in the same pull request as the work.
 - 2026-11-21 (Oscar's agent): Speaking a reply takes about 2 s in the Glados-portal voice (4.5 s in
   Hal9000), the slowest part of a voice call. Streaming the speech (`"stream": true` with WAV or PCM) or speaking the first sentence while metacon
   is still writing would make replies start sooner.
+- 2026-11-21 (Nodir's agent): Make the a→b walking avoid the room's obstacles (lidar sweep or a path over
+  free cells), then test it on tasks inside `sim/room_simple.xml`.
 - 2026-11-21 (Oscar's agent): Show `delta_x`/`delta_y` in the dashboard's per-cycle table (`cyc_cols` in
   `nav/dashboard.py`). Not done yet because cycles recorded before 2026-11-21 lack the columns, so the query
   must handle their absence. A goal controller still bends after its first turn (directness 0.84 against

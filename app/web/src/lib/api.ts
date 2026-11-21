@@ -149,3 +149,42 @@ export async function speak(text: string, call: string): Promise<Blob | null> {
 }
 
 export const liveUrl = () => `${API}/api/live`;
+
+// ---- Knock: the robot checks on Margarete (see app/knock.py, docs/knock-ui.md) ----
+
+export type KnockZone = "bed" | "bathroom" | "kitchen" | "couch" | "armchair" | "entrance";
+export const KNOCK_ZONES: { id: KnockZone; label: string }[] = [
+  { id: "bed", label: "Bed" }, { id: "bathroom", label: "Bathroom" }, { id: "kitchen", label: "Kitchen" },
+  { id: "couch", label: "Couch" }, { id: "armchair", label: "Armchair" }, { id: "entrance", label: "Entrance" },
+];
+export const zoneLabel = (z: string | null | undefined) => KNOCK_ZONES.find((k) => k.id === z)?.label ?? (z ?? "");
+
+/** The Knock card as every viewer sees it: the latest {"type": "knock"} event on /api/live. */
+export interface KnockState {
+  type: "knock";
+  state: "idle" | "calling" | "no_answer" | "finding" | "found" | "not_home";
+  text: string;
+  probs: Partial<Record<KnockZone, number>>;
+  checked: KnockZone[];
+  next: KnockZone | null;
+  steps: { text: string; time: string }[];
+  last_heard: { zone: KnockZone; time: string };
+  source: "placeholder" | "tabpfn";
+  audio?: string; // the call-out in the robot's voice, only in the event that brings it
+  listen_s?: number | null; // seconds left for her to answer
+  zone?: KnockZone; pose?: string; seen?: string; heard?: string; time?: string;
+  choice?: "call_112" | "call_neighbour";
+}
+
+export type KnockChoice = "call_112" | "call_neighbour" | "talk";
+
+/** null when it worked, else the error to show. */
+async function knockPost(path: string, body: Record<string, unknown> = {}): Promise<string | null> {
+  const { status, json } = await postJson(`/api/knock/${path}`, body);
+  return status === 200 ? null : String(json["error"] ?? `HTTP ${status}`);
+}
+export const knockCall = () => knockPost("call");
+export const knockFind = () => knockPost("find");
+export const knockStop = () => knockPost("stop");
+export const knockChoice = (choice: KnockChoice) => knockPost("choice", { choice });
+export const knockAudioUrl = (path: string) => `${API}${path}`;

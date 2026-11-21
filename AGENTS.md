@@ -96,10 +96,11 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 | `sim/demo.py` | What `just sim`, `just view` and `just snapshot` run |
 | `sim/fetch_meshes.py` | Mesh download, pinned to one Hiwonder commit and checked by SHA-256 |
 | `nav/` | Walking from a to b with TabPFN: `common.py` (walker, geometry), `db.py` (DuckDB recorder), `collect.py`, `hindsight.py` (goal examples), `dynamics.py` (motion examples and planner), `policy.py` (`fit()`-only TabPFN policies), `controller.py` (build and test a controller), `evaluate.py`, `run.py` (demo video), `dashboard.py`, `live_dashboard.py`. Guide: [docs/navigation.md](docs/navigation.md) |
-| `app/` | The web app: `robot.py` (live sim thread), `llm.py` (metacon chat), `voice.py` (speech via Voice Control), `call.py` (voice calls shown live to every viewer), `server.py` (API + page), `web/` (front end from Lovable; phone layout in `PhoneApp.tsx`). Guide: [docs/app.md](docs/app.md) |
+| `app/` | The web app: `robot.py` (live sim thread), `llm.py` (metacon chat), `voice.py` (speech via Voice Control), `call.py` (voice calls shown live to every viewer), `knock.py` (Find and Call Margarete), `server.py` (API + page), `web/` (front end from Lovable; phone layout in `PhoneApp.tsx`). Guide: [docs/app.md](docs/app.md) |
 | `vision/` | Camera perception: `scene.py` (the arena: random layouts, robot poses, class per pixel), `dataset.py` (labeled pictures), `features.py` (frozen DINOv2 patch features, patch labels), `probe.py` (patch classifier, `blocked_grid` for avoidance). Guide: [docs/vision.md](docs/vision.md) |
 | `data/vision/` | Vision runs: pictures, labels, features, probes (gitignored, never commit) |
 | `data/nav/` | Recorded runs, the database `nav.duckdb`, model checkpoints (gitignored, never commit) |
 | `tests/` | Tests (`just test`; navigation tests: `just test-nav`) |
+| `docs/knock-*.md` | Knock, the team's concept: `knock-ui.md` (the Find and Call Margarete buttons for `app/`, mockup in `docs/knock-ui/`) and `knock-routines.md` (data for the zone model). Read `knock-ui.md` before building those buttons |
 
 Keep both model XML files in step: a change to joints, actuators, sensors or physics goes in both.
