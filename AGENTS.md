@@ -76,6 +76,8 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 | `sim/jethexa_sim.py` | `JetHexaSim`: load, set joint targets, step, read joints, body, IMU and foot contacts, move the target marker, render camera; demo tripod gait with steering |
 | `sim/demo.py` | What `just sim`, `just view` and `just snapshot` run |
 | `sim/fetch_meshes.py` | Mesh download, pinned to one Hiwonder commit and checked by SHA-256 |
-| `tests/` | Tests |
+| `nav/` | Walking from a to b with TabPFN: `common.py` (walker, geometry), `db.py` (DuckDB recorder), `collect.py`, `hindsight.py`, `policy.py`, `train.py` (fine-tuning rounds), `evaluate.py`, `run.py` (demo video), `dashboard.py`. Guide: [docs/navigation.md](docs/navigation.md) |
+| `data/nav/` | Recorded runs, the database `nav.duckdb`, model checkpoints (gitignored, never commit) |
+| `tests/` | Tests (`just test`; navigation tests: `just test-nav`) |
 
 Keep both model XML files in step: a change to joints, actuators, sensors or physics goes in both.

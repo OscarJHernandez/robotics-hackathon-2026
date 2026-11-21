@@ -20,5 +20,8 @@ __pycache__/
 
 # MuJoCo
 MUJOCO_LOG.TXT
+
+# Recorded navigation data, model checkpoints and dashboards (data/nav/): local only, can be large
+data/
 # JetHexa meshes: downloaded by sim/fetch_meshes.py, no license, never commit
 sim/meshes/

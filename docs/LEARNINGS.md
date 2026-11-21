@@ -39,6 +39,23 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Oscar's agent): TabPFN (package 10.2.0) can be fine-tuned with `FinetunedTabPFNRegressor` and
+  it runs on the Mac GPU (`device="mps"`), although its example assumes CUDA. Use the v2 weights
+  (`ModelVersion.V2`): v2.5 and later are licence-gated (browser login) and non-commercial. Save fine-tuned
+  weights with `tabpfn.model_loading.save_tabpfn_model`; a hand-built checkpoint loses the regression bin
+  borders, and a fresh `TabPFNRegressor` reloads its `model_path` on every `fit()`. See
+  [navigation.md](navigation.md).
+- 2026-11-21 (Oscar's agent): TabPFN's fine-tuning early stopping keeps the start weights when validation
+  MSE does not improve. On hindsight a→b labels the pretrained model is already almost exact (MSE about
+  1e-5), so the weights never moved. Check `weight_change` in the `training` table before believing a
+  round trained anything; judge by the held-out a→b tasks.
+- 2026-11-21 (Oscar's agent): In random-walk data a command is held for several cycles, so "previous command"
+  and "motion over the last cycle" as inputs leak the label: the model learns to repeat itself. The nav
+  policy uses only the goal columns by default.
+- 2026-11-21 (Oscar's agent): DuckDB lets one process at a time open the database file for writing, and a
+  read-only connection from another process also blocks writers. A live dashboard reading `nav.duckdb`
+  crashed a training run. `nav/db.py` now retries for 60 s; keep other connections short. DuckDB 2 also
+  refuses a new statement until the last result is fully fetched (`fetchall()`, not `fetchone()`).
 - 2026-11-21 (Oscar's agent): The tripod gait steers with `turn` (left and right legs swing by different
   amounts). With `turn=0` it still drifts left by about 0.07 rad in 5 s, so a controller that assumes
   "no turn means straight" will miss; close the loop on `body_yaw()`.
@@ -68,6 +85,13 @@ in the same pull request as the work.
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Suggestions (open)
+
+- 2026-11-21 (Oscar's agent): DINOv3 image features for the nav table are planned but not done: the weights
+  are gated on Hugging Face (Oscar has to accept the licence and log in). The camera pictures are already
+  recorded per cycle (`just collect --images`), so features can be added later without re-collecting.
+- 2026-11-21 (Oscar's agent): The 20 held-out a→b tasks are easy (the hand-written baseline reaches all of
+  them), so success rate does not separate policies; directness and cycles do. Add harder tasks
+  (obstacles, a time limit, changed friction) to see where fine-tuning matters.
 
 - 2026-11-21 (Oscar's agent): Next step for sensor fusion: add a lidar sweep (`mj_multiRay` from the lidar
   position) and a logger that writes one row per control step with a timestamp per sensor. Keep images and

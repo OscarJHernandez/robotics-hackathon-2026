@@ -11,3 +11,14 @@ dependencies = [
 [tool.uv]
 # Scripts are run from the repo; nothing is built or installed as a package.
 package = false
+
+[dependency-groups]
+# Walking from a to b with TabPFN (nav/): `uv run --group ml ...`, used by the just recipes that need it.
+ml = [
+    "duckdb>=1.5.6",
+    "matplotlib>=3.10.9",
+    "pandas>=2.3.3",
+    "pillow>=12.3.0",
+    "pyarrow>=25.0.1",
+    "tabpfn>=10.2.0",
+]

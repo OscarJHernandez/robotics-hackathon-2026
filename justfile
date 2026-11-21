@@ -37,3 +37,35 @@ snapshot file="walk.png":
 # Run the tests
 test:
     uv run python -m unittest discover -s tests -v
+
+# Walk at random and record every gait cycle into data/nav/nav.duckdb: just collect --episodes 200 --images
+collect *args:
+    uv run --group ml python nav/collect.py {{ args }}
+
+# Fine-tune TabPFN for walking a→b in rounds, with evaluation after each: just train --name a2b-v1 --rounds 3
+train *args:
+    uv run --group ml python nav/train.py {{ args }}
+
+# Evaluate a trained round on the 20 held-out tasks: just nav-eval --model a2b-v1 --round 3
+nav-eval *args:
+    uv run --group ml python nav/evaluate.py {{ args }}
+
+# Walk from a to b with a trained model and save a video: just nav --model a2b-v1 --round 3 --target 1.0 0.6
+nav *args:
+    uv run --group ml python nav/run.py {{ args }}
+
+# Run SQL on the navigation database: just query "SELECT kind, count(*) FROM runs GROUP BY kind"
+query sql:
+    uv run --group ml python -c 'import sys; sys.path.insert(0, "nav"); from db import query; import pandas as pd; pd.set_option("display.width", 200); pd.set_option("display.max_columns", 30); print(query(sys.argv[1]).to_string())' "{{ sql }}"
+
+# Write the training dashboard to data/nav/dashboard.html (one file, works offline)
+dashboard-file *args:
+    uv run --group ml python nav/dashboard.py {{ args }}
+
+# Run the navigation tests (needs the ml packages)
+test-nav:
+    uv run --group ml python -m unittest discover -s tests -p "test_nav*.py" -v
+
+# Live training dashboard at http://127.0.0.1:8770 (rebuilds from the database on every load)
+dashboard port="8770":
+    uv run --group ml python nav/live_dashboard.py --port {{ port }}
