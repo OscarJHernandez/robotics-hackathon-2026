@@ -138,7 +138,10 @@ def film(run, round_, episode, config, probe, dino, out):
     filmer = Filmer(env, probe, dino)
     footprints, goal = env.footprints(), env.goal
     outcome = rows["done_reason"].iloc[-1]
-    title = "round {} episode {}: scene {}, expert driving".format(round_, episode, int(rows["scene_id"][0]))
+    share = rows["used_expert"].mean()
+    driver = ("expert driving" if share == 1 else "student alone (no expert help)" if share == 0
+              else "mixed: expert {:.0%} of steps".format(share))
+    title = "round {} ep. {}: scene {}, {}".format(round_, episode, int(rows["scene_id"][0]), driver)
     ffmpeg = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
                                "-s", "{}x{}".format(2 * W, 2 * H), "-r", str(FPS), "-i", "-", "-c:v", "libx264",
                                "-pix_fmt", "yuv420p", "-crf", "23", str(out)], stdin=subprocess.PIPE)
