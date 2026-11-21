@@ -20,6 +20,13 @@ just app           # http://127.0.0.1:8790
 The steering is a simple rule (turn toward the target, slow down when facing away), the same as the `baseline`
 policy in `nav/policy.py`, so the app needs no TabPFN and no recorded data.
 
+## The terminal
+
+Typing happens in the terminal's own prompt line when it is open (the white chat bar shows only while it is
+closed). Plain text goes to metacon; `/target`, `/goto X Y`, `/forward M`, `/turn DEG`, `/stop`, `/random`,
+`/reset` go straight to the robot; `/help` and `/clear` work locally. The title bar shows the robot's status, and
+the terminal prints a line when the robot arrives, finishes a turn or falls over.
+
 ## The metacon key
 
 The server reads the gateway key from `$METACON_LLM_KEY`, else from the macOS Keychain (service `metacon-llm`, see

@@ -24,6 +24,7 @@ class ParseCommandTest(unittest.TestCase):
         self.assertEqual(parse_command("STOP"), ("stop",))
         self.assertEqual(parse_command("reset"), ("reset",))
         self.assertEqual(parse_command("/random"), ("random",))
+        self.assertEqual(parse_command("target"), ("target",))
 
     def test_random_point(self):
         rng = random.Random(1)

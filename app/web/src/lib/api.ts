@@ -7,6 +7,7 @@ export interface Health { ok: boolean; model: string; llm: boolean; commands: st
 export interface RobotState {
   mode: Mode; x: number; y: number; height: number; yaw_deg: number;
   target_x: number; target_y: number; sim_time: number; turn_to_deg?: number;
+  target_dist?: number; target_bearing_deg?: number;
 }
 export interface ChatMessage { role: "user" | "assistant"; content: string }
 export type ChatEvent =
@@ -63,6 +64,9 @@ export async function streamChat(
   const reader = r.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
+  let finished = false;
+  const emit = onEvent;
+  onEvent = (e) => { if (e.type === "done") finished = true; emit(e); };
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -75,6 +79,10 @@ export async function streamChat(
         try { onEvent(JSON.parse(line.slice(5).trim()) as ChatEvent); } catch { /* skip */ }
       }
     }
+  }
+  if (!finished) { // the server went away mid-answer (restart, network): say so instead of ending silently
+    onEvent({ type: "error", text: "connection lost before metacon finished, please try again" });
+    onEvent({ type: "done" });
   }
 }
 

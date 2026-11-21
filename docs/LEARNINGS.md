@@ -64,12 +64,13 @@ in the same pull request as the work.
   `model.vis.global_.offwidth/offheight` before creating the renderer. Create and use it on one thread only.
 - 2026-11-21 (Oscar's agent): Lovable now makes TanStack Start projects (server rendering, Cloudflare Worker
   build), even when asked for a plain Vite SPA, and its preview needs a Lovable login. For the web app the
-  components were copied into a plain Vite project in `app/web` (see [app.md](app.md)); when Lovable changes
-  the design, copy `src/components/jethexa`, `src/hooks`, `src/lib` and `src/styles.css` again and port
-  `src/routes/index.tsx` into `src/App.tsx`.
-- 2026-11-21 (Oscar's agent): Through the metacon gateway, `qwen3:8b` follows a `/no_think` line at the end of
-  the system prompt, and the app still strips any `<think>` block from the stream. It reliably writes robot
-  commands as `[[forward 0.5]]` when the prompt lists them that way.
+  components were copied into a plain Vite project in `app/web` (see [app.md](app.md)). Since the terminal
+  rework, `app/web` is ahead of the Lovable project: use Lovable for design ideas, then port the changes by
+  hand instead of copying its files over ours.
+- 2026-11-21 (Oscar's agent): Through the metacon gateway, `qwen3:8b` thinks before answering even with
+  `/no_think` in the prompt: the reasoning arrives in a separate `reasoning_content` field, so a chat shows
+  nothing for about 7 s. Send `"think": false` in the request (it passes through the gateway): the first word
+  comes in about 0.5 s. It reliably writes robot commands as `[[target]]` when the prompt lists them that way.
 
 - 2026-11-21 (Oscar's agent): Use the TabPFN v2 weights (`ModelVersion.V2`): v2.5 and later are licence-gated
   (browser login) and non-commercial. v2 downloads once into `~/Library/Caches/tabpfn` with no login.

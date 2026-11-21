@@ -5,8 +5,8 @@ pictures (outside views named in VIEWS, and the robot's own camera), only of vie
 put commands on a queue and read the latest pictures and state. MuJoCo's renderer must be created
 and used on one thread, which is why rendering happens here too.
 
-Commands (the same words the chat understands): goto X Y, forward M, turn DEG, stop, reset, random
-(moves the red end-point pillar to a random spot; a robot walking to the pillar follows it).
+Commands (the same words the chat understands): goto X Y, forward M, turn DEG, stop, reset, target (walk to the
+red pillar), random (moves the red end-point pillar to a random spot; a robot walking to the pillar follows it).
 """
 
 import io
@@ -44,7 +44,7 @@ VIEWS = {"chase": 4, "orbit": 4, "overhead": 6, "eye": 6}
 WATCHED = 3.0  # seconds: a view is rendered only while someone asked for it this recently
 
 HELP = ("goto X Y (metres, floor is -{a} to {a}), forward M (metres), turn DEG (positive = left), "
-        "stop, reset, random (new random end point)").format(a=ARENA)
+        "stop, reset, target (walk to the red pillar), random (new random end point)").format(a=ARENA)
 
 
 def wrap(angle):
@@ -69,7 +69,7 @@ def parse_command(text):
         return ("forward", numbers[0])
     if name == "turn" and len(numbers) == 1 and abs(numbers[0]) <= 360:
         return ("turn", math.radians(numbers[0]))
-    if name in ("stop", "reset", "random") and not numbers:
+    if name in ("stop", "reset", "random", "target") and not numbers:
         return (name,)
     raise ValueError("unknown command '{}'. Commands: {}".format(text.strip(), HELP))
 
@@ -116,6 +116,9 @@ class LiveRobot:
         parsed = parse_command(text)
         if parsed[0] == "random":
             parsed = ("target",) + random_point(self.state())
+        elif parsed[0] == "target":  # walk to wherever the pillar is now
+            state = self.state()
+            parsed = ("goto", state.get("target_x", 1.0), state.get("target_y", 0.0))
         self._commands.put(parsed)
         if parsed[0] == "target":
             return "random end point {:.2f} {:.2f}".format(parsed[1], parsed[2])
@@ -256,7 +259,10 @@ class LiveRobot:
         tx, ty = sim.target()
         state = {"mode": mode, "x": round(x, 3), "y": round(y, 3), "height": round(z, 3),
                  "yaw_deg": round(yaw, 1), "target_x": round(tx, 3),
-                 "target_y": round(ty, 3), "sim_time": round(sim.time, 2)}
+                 "target_y": round(ty, 3), "sim_time": round(sim.time, 2),
+                 # where the pillar is seen from the robot: metres, and degrees (positive = to its left)
+                 "target_dist": round(math.hypot(tx - x, ty - y), 2),
+                 "target_bearing_deg": round(math.degrees(wrap(math.atan2(ty - y, tx - x) - math.radians(yaw))))}
         if mode == "turn":
             state["turn_to_deg"] = round(math.degrees(goal), 1)
         with self._lock:
