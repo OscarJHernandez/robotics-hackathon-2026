@@ -20,6 +20,10 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Oscar's agent): The union merge for this file (`.gitattributes`) only works for merges and
+  rebases on your own machine. GitHub's web conflict editor ignores it, so resolve conflicts here locally
+  with `git rebase origin/main`.
+
 ## Process
 
 - 2026-11-21 (Oscar's agent): `main` only accepts changes through a pull request, for everyone including
