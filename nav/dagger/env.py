@@ -88,7 +88,8 @@ class SimEnv:
             self.done = False
         return self.observe()
 
-    def step(self, cmd):
+    def step(self, cmd, on_control=None):
+        """One gait cycle with `cmd` = (stride, turn). `on_control(env)` runs after every 20 ms (videos)."""
         stride, turn = clip_command(*cmd)
         sim = self.sim
         collision = fell = reached = False
@@ -98,6 +99,8 @@ class SimEnv:
                 sim.set_targets(tripod_targets(sim.stand, self.gait, swing=stride, turn=turn))
                 sim.step(CONTROL_DT)
                 self.gait += CONTROL_DT
+                if on_control is not None:
+                    on_control(self)
                 if self._touching():
                     collision = True
                     break
