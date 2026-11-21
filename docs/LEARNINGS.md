@@ -81,6 +81,11 @@ in the same pull request as the work.
 
 ## Process
 
+- 2026-11-21 (Oscar's agent): Oscar decided: no TabPFN fine-tuning in this repo. Use only the built-in
+  `fit()` and `predict()` for all experiments (rule in [AGENTS.md](../AGENTS.md)). Reason: the `fit()`-only
+  controller already walks a→b on 20 of 20 test tasks, and four fine-tuning rounds (30 min) gave one small
+  gain in round 0 (directness 0.78 to 0.85) and none after.
+
 - 2026-11-21 (Oscar's agent): `main` only accepts changes through a pull request, for everyone including
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
