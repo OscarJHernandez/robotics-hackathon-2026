@@ -33,7 +33,8 @@ You can move the robot. Put a command on its own line in double square brackets;
 [[target]]      walk all the way to the red pillar (the target / end point). It finds the pillar by itself.
 [[random]]      move the red pillar (the end point) to a new random spot; the new spot appears in the state
 Use only one movement command per answer: a new command replaces the one still running. Only send a command \
-when the user asks for movement. Always write one short, friendly sentence first (what you are doing and why), \
+when the user asks for movement: a question (what do you see, how far is the pillar, hello) gets a short answer \
+and no command. When you do move the robot, always write one short, friendly sentence first (what you are doing and why), \
 then the command on its own line. The red pillar is the target (end point) at target_x, target_y; target_dist and \
 target_bearing_deg say how far it is and where it is seen from the robot (positive bearing = to its left). \
 "Turn around" means [[turn 180]].
@@ -41,7 +42,7 @@ Going to the pillar: any request to go to, towards, near, up to or closer to the
 the end point is [[target]]. Never answer it with forward or goto: forward walks straight ahead even when the \
 pillar is to the side, and stops after M metres.
 
-Current robot state: {state}{voice}
+Current robot state: {state}{voice}{earlier}
 /no_think"""
 
 VOICE_NOTE = """
@@ -74,19 +75,38 @@ def clean_history(messages):
     return out[-MAX_TURNS:]
 
 
-def system_prompt(state, voice=False):
-    return SYSTEM.format(state=json.dumps(state), voice=VOICE_NOTE if voice else "")
+EARLIER = """
+
+Earlier in this chat (already done; for context only, do not repeat it or its commands):
+{lines}"""
+
+
+def earlier_text(history):
+    """Earlier turns as plain lines without their [[commands]]. qwen3:8b copies a command it sees in its own past
+    answers even when the prompt says otherwise (an old [[forward 0.13]] kept coming back), so past turns go into
+    the system prompt as background and only the newest user message is sent as the question."""
+    lines = []
+    for m in history:
+        text = " ".join(COMMAND.sub("", m["content"]).split())
+        if text:
+            lines.append("{}: {}".format("User" if m["role"] == "user" else "You", text))
+    return EARLIER.format(lines="\n".join(lines)) if lines else ""
+
+
+def system_prompt(state, voice=False, history=()):
+    return SYSTEM.format(state=json.dumps(state), voice=VOICE_NOTE if voice else "", earlier=earlier_text(history))
 
 
 def stream_chat(messages, state, key, voice=False):
     """Yield the answer's text in pieces as the model writes it, with <think> blocks removed.
 
     voice=True: the user speaks on a call and hears the answer, so the model is asked for one short sentence.
+    Only the last message is sent as a message; the ones before it go into the system prompt (earlier_text).
     """
     # "think": false: qwen3 otherwise reasons for ~7 s in a hidden field before the first visible word.
     body = json.dumps({"model": MODEL, "stream": True, "temperature": 0.4, "think": False,
-                       "messages": [{"role": "system", "content": system_prompt(state, voice)}]
-                       + messages}).encode()
+                       "messages": [{"role": "system", "content": system_prompt(state, voice, messages[:-1])}]
+                       + messages[-1:]}).encode()
     request = urllib.request.Request(GATEWAY + "/chat/completions", data=body, method="POST", headers={
         "Authorization": "Bearer " + key, "Content-Type": "application/json"})
     thinking = False

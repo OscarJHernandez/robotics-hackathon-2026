@@ -71,6 +71,32 @@ class ChatStreamTest(unittest.TestCase):
         self.assertEqual(cleaned[0]["content"], "hi")
         self.assertEqual(len(cleaned[1]["content"]), llm.MAX_CHARS)
 
+    def test_earlier_turns_go_in_the_system_prompt_without_commands(self):
+        # The model copied an old [[forward 0.13]] from its past answers, so only the last message is sent as one.
+        history = [{"role": "user", "content": "Move towards the target."},
+                   {"role": "assistant", "content": "I am moving towards the target.\n[[forward 0.13]]"},
+                   {"role": "user", "content": "Move towards the target."}]
+        sent = {}
+
+        def urlopen(request, timeout=None):
+            sent.update(__import__("json").loads(request.data))
+            return iter([b"data: [DONE]\n"])
+
+        class Response(list):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        with mock.patch("urllib.request.urlopen", side_effect=lambda r, timeout=None: Response(urlopen(r))):
+            list(llm.stream_chat(history, {}, "key"))
+        system, *rest = sent["messages"]
+        self.assertEqual(rest, [history[-1]])
+        self.assertIn("You: I am moving towards the target.", system["content"])
+        self.assertNotIn("forward 0.13", system["content"])
+        self.assertNotIn("Earlier in this chat", llm.system_prompt({}, history=[]))
+
 
 if __name__ == "__main__":
     unittest.main()
