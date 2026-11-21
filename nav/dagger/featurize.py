@@ -14,6 +14,7 @@ the simulator's segmentation picture (faster, for comparisons).
 import math
 
 import numpy as np
+import pandas as pd
 
 from nav.common import relative
 
@@ -21,7 +22,7 @@ from . import REPO  # noqa: F401
 from .timing import Timer
 
 from features import COLS, PATCH, ROWS, extract, load_dino, patch_counts  # noqa: E402  (vision/features.py)
-from scene import CLASSES, OBSTACLE, WALL  # noqa: E402
+from scene import CLASSES, OBSTACLE, TARGET, WALL  # noqa: E402
 
 LEG = len(CLASSES)  # class 4: the robot's own body (simulator segmentation only)
 FOVY = 37.348871  # degrees, the "eye" camera in both robot files
@@ -104,6 +105,223 @@ def obstacle_summary(classes, depths, cap=10.0):
             "free_left": float(left), "free_ahead": float(ahead), "free_right": float(right)}
 
 
+# ---- derived feature variants: computed from the stored BASE rows, at fit time and at drive time ----------------
+
+DEFAULT_VARIANT = {"pool": 1, "pool_rule": "majority", "summary": "3", "history": 0, "patches": True,
+                   "categorical": True, "cap": 10.0}
+SECTORS = 7
+
+
+def base_columns():
+    """Names of the stored base columns holding the full-resolution grids: (classes, depths)."""
+    return (["pc_{}_{}".format(r, c) for r in range(ROWS) for c in range(COLS)],
+            ["pd_{}_{}".format(r, c) for r in range(ROWS) for c in range(COLS)])
+
+
+def _pool_batch(classes, depths, pool, rule):
+    """Vectorised pooling of (n, R, C) grids into blocks of pool x pool patches (edge blocks may be smaller)."""
+    if pool == 1:
+        return classes, depths
+    n, rows, cols = classes.shape
+    out_r, out_c = -(-rows // pool), -(-cols // pool)
+    pr, pc = out_r * pool, out_c * pool
+    cls = np.full((n, pr, pc), -1, np.int16)
+    cls[:, :rows, :cols] = classes
+    dep = np.full((n, pr, pc), np.nan, np.float64)
+    dep[:, :rows, :cols] = depths
+
+    def blocks(a):
+        return a.reshape(n, out_r, pool, out_c, pool)
+
+    counts = np.stack([(blocks(cls) == k).sum(axis=(2, 4)) for k in range(LEG + 1)], axis=-1)  # (n, r, c, 5)
+    if rule == "majority":
+        out_cls = counts.argmax(-1)
+    elif rule == "any_solid":
+        out_cls = np.zeros((n, out_r, out_c), np.int64)  # FLOOR
+        out_cls[counts[..., WALL] > 0] = WALL
+        out_cls[counts[..., OBSTACLE] > 0] = OBSTACLE
+        out_cls[counts[..., TARGET] > 0] = TARGET
+    else:
+        raise ValueError("pool_rule must be 'majority' or 'any_solid'")
+    out_dep = np.nanmean(blocks(dep), axis=(2, 4))
+    return out_cls.astype(np.int8), out_dep.astype(np.float32)
+
+
+def _solid_depth(classes, depths, cap):
+    """(n, R, C): depth of wall/obstacle patches, cap everywhere else."""
+    solid = (classes == WALL) | (classes == OBSTACLE)
+    return np.where(solid, np.minimum(depths, cap), cap)
+
+
+def _nearest(d, cap):
+    """Nearest solid patch of (n, R, C) distances: (near_dist, near_bearing) as (n,) arrays."""
+    n, _, cols = d.shape
+    flat = d.reshape(n, -1)
+    idx = flat.argmin(1)
+    near = flat[np.arange(n), idx]
+    bearing = column_bearings(cols)[idx % cols]
+    return near, np.where(near < cap, bearing, 0.0)
+
+
+def _summary3(classes, depths, cap):
+    d = _solid_depth(classes, depths, cap)
+    third = d.shape[2] / 3
+    a, b = int(round(third)), int(round(2 * third))
+    col_min = d.min(axis=1)
+    near, bearing = _nearest(d, cap)
+    return {"near_dist": near, "near_bearing": bearing, "free_left": col_min[:, :a].min(1),
+            "free_ahead": col_min[:, a:b].min(1), "free_right": col_min[:, b:].min(1)}
+
+
+def sector_edges(cols, sectors=SECTORS):
+    """Column boundaries of `sectors` equal sectors, left to right."""
+    return np.round(np.linspace(0, cols, sectors + 1)).astype(int)
+
+
+def _summary7(classes, depths, cap, goal_sin, goal_cos):
+    d = _solid_depth(classes, depths, cap)
+    n, _, cols = d.shape
+    col_min = d.min(axis=1)
+    edges = sector_edges(cols)
+    free = np.stack([col_min[:, edges[s]:edges[s + 1]].min(1) for s in range(SECTORS)], axis=1)  # (n, 7)
+    bearings = column_bearings(cols)
+    centres = np.array([bearings[edges[s]:edges[s + 1]].mean() for s in range(SECTORS)])
+    near, near_bearing = _nearest(d, cap)
+    goal_bearing = np.arctan2(goal_sin, goal_cos)
+    half = HFOV / 2
+    inside = np.abs(goal_bearing) < half
+    u = (1 - np.tan(np.clip(goal_bearing, -half, half)) / math.tan(half)) / 2
+    col = np.clip((u * cols).astype(int), 0, cols - 1)
+    sector = np.clip(np.searchsorted(edges, col, side="right") - 1, 0, SECTORS - 1)
+    out = {"near_dist": near, "near_bearing": near_bearing}
+    for s in range(SECTORS):
+        out["free_s{}".format(s)] = free[:, s]
+    out["widest_bearing"] = centres[free.argmax(1)]
+    out["goal_free"] = np.where(inside, free[np.arange(n), sector], cap)
+    return out, free
+
+
+def derive(base, variant=None):
+    """Feature variant from stored base rows -> (float32 matrix (n, k), column names, categorical column names).
+
+    `base`: DataFrame of base columns (pc_*, pd_* at 26 x 46, goal_dist, goal_sin, goal_cos, and for history
+    also episode, step, x, y, yaw), rows of many episodes. The same function runs at drive time (see
+    `derive_live`), so training and driving use identical features. Variant keys (all optional):
+      pool        1 or 2: blocks of pool x pool patches                              (default 1)
+      pool_rule   "majority" (most common class) or "any_solid" (target > obstacle > wall > floor
+                  if ANY patch of the block has it; LEG counts as nothing)           (default "majority")
+      summary     "3": near_dist, near_bearing, free_left/ahead/right, computed on the POOLED grid as today;
+                  "7": near_dist, near_bearing, free_s0..free_s6 (left to right), widest_bearing, goal_free,
+                  computed on the full-resolution grid                               (default "3")
+      history     k >= 0: for j = 1..k the row j steps back: its free distances (h{j}_free_*), goal sin/cos
+                  (h{j}_goal_sin/cos) and the odometry since then (odo_fwd_j, odo_left_j, odo_dyaw_j) in the
+                  robot frame of the earlier pose; same episode only, early steps repeat the first row.
+                  Never the previous command.                                        (default 0)
+      patches     include the pc_ / pd_ columns (False: summary + goal only)         (default True)
+      categorical list the pc_ columns as categorical                                (default True)
+      cap         depth cap in metres                                                (default 10)
+    """
+    v = dict(DEFAULT_VARIANT)
+    v.update(variant or {})
+    pool, cap, hist = int(v["pool"]), float(v["cap"]), int(v["history"])
+    if pool not in (1, 2):
+        raise ValueError("pool must be 1 or 2")
+    if str(v["summary"]) not in ("3", "7"):
+        raise ValueError("summary must be '3' or '7'")
+    n = len(base)
+    pc_names, pd_names = base_columns()
+    classes = base[pc_names].to_numpy().reshape(n, ROWS, COLS)
+    depths = base[pd_names].to_numpy().astype(np.float32).reshape(n, ROWS, COLS)
+    goal = base[GOAL].to_numpy(np.float32)
+    pooled_c, pooled_d = _pool_batch(classes, depths, pool, v["pool_rule"])
+
+    names, parts, categorical = [], [], []
+    if v["patches"]:
+        rows, cols = pooled_c.shape[1:]
+        pcn = ["pc_{}_{}".format(r, c) for r in range(rows) for c in range(cols)]
+        pdn = ["pd_{}_{}".format(r, c) for r in range(rows) for c in range(cols)]
+        names += pcn + pdn
+        parts += [pooled_c.reshape(n, -1).astype(np.float32), pooled_d.reshape(n, -1)]
+        if v["categorical"]:
+            categorical = pcn
+    names += GOAL
+    parts.append(goal)
+
+    if str(v["summary"]) == "3":
+        summ = _summary3(pooled_c, pooled_d, cap)
+        dist_names = ["free_left", "free_ahead", "free_right"]
+        dist = np.stack([summ[k] for k in dist_names], axis=1)
+    else:
+        summ, dist = _summary7(classes, depths, cap, goal[:, 1], goal[:, 2])
+        dist_names = ["free_s{}".format(s) for s in range(SECTORS)]
+    summ_names = list(summ)
+    names += summ_names
+    parts.append(np.stack([summ[k] for k in summ_names], axis=1).astype(np.float32))
+
+    if hist > 0:
+        order = np.lexsort((base["step"].to_numpy(), base["episode"].to_numpy()))
+        ep = base["episode"].to_numpy()[order]
+        pos = np.arange(n)
+        first = np.maximum.accumulate(np.where(np.r_[True, ep[1:] != ep[:-1]], pos, 0))  # sorted index of ep start
+        inv = np.empty(n, np.int64)
+        inv[order] = pos
+        x, y, yaw = (base[k].to_numpy(np.float64)[order] for k in ("x", "y", "yaw"))
+        dist_s, goal_s = dist[order], goal[order]
+        for j in range(1, hist + 1):
+            prev = np.maximum(pos - j, first)
+            c, s = np.cos(yaw[prev]), np.sin(yaw[prev])
+            dx, dy = x - x[prev], y - y[prev]
+            odo = np.stack([c * dx + s * dy, -s * dx + c * dy,
+                            np.arctan2(np.sin(yaw - yaw[prev]), np.cos(yaw - yaw[prev]))], axis=1)
+            block = np.concatenate([dist_s[prev], goal_s[prev][:, 1:3], odo], axis=1)
+            names += (["h{}_{}".format(j, m) for m in dist_names]
+                      + ["h{}_goal_sin".format(j), "h{}_goal_cos".format(j), "odo_fwd_{}".format(j),
+                         "odo_left_{}".format(j), "odo_dyaw_{}".format(j)])
+            parts.append(block[inv].astype(np.float32))
+    return np.concatenate(parts, axis=1).astype(np.float32), names, categorical
+
+
+def drop_constant(matrix, columns, threshold):
+    """Boolean keep-mask: False for columns whose most common value covers more than `threshold` of the rows.
+
+    Use at fit time; store the kept column names and apply the same selection at predict time.
+    """
+    matrix = np.asarray(matrix)
+    if matrix.shape[1] != len(columns):
+        raise ValueError("columns do not match the matrix")
+    keep = np.ones(matrix.shape[1], bool)
+    if matrix.shape[0] == 0:
+        return keep
+    for j in range(matrix.shape[1]):
+        _, counts = np.unique(matrix[:, j], return_counts=True)
+        keep[j] = counts.max() / matrix.shape[0] <= threshold
+    return keep
+
+
+def derive_live(base, prev_states, variant=None):
+    """Drive-time `derive` for one row per robot.
+
+    `base`: DataFrame from `Featurizer.base_rows` (one row per robot, in order). `prev_states[i]`: None at the
+    start of an episode, else the DataFrame returned for robot i by the previous call (its last `history` base
+    rows). Returns (matrix (n, k), columns, categorical, new_prev_states). History is read only from the
+    robot's own earlier base rows, so a robot never sees another robot's or episode's rows.
+    """
+    hist = int((variant or {}).get("history", 0))
+    stacked, new_prev = [], []
+    for i in range(len(base)):
+        cur = base.iloc[[i]]
+        old = prev_states[i] if prev_states[i] is not None else cur.iloc[:0]
+        rows = pd.concat([old, cur], ignore_index=True)
+        rows["episode"] = i
+        rows["step"] = np.arange(len(rows))
+        stacked.append(rows)
+        new_prev.append(rows.tail(hist).reset_index(drop=True) if hist else None)
+    full = pd.concat(stacked, ignore_index=True)
+    matrix, names, categorical = derive(full, variant)
+    last = full.groupby("episode").tail(1).index.to_numpy()  # last row of every robot, in robot order
+    return matrix[last], names, categorical, new_prev
+
+
 class Featurizer:
     """Builds feature rows for a batch of observations (one DINOv2 call for the whole batch)."""
 
@@ -158,6 +376,31 @@ class Featurizer:
                 rows.append(np.concatenate([cls.reshape(-1).astype(np.float32), depths.reshape(-1),
                                             np.asarray(tail, np.float32)]))
             return np.stack(rows), list(prev_states)
+
+    def base_rows(self, observations, prev_states):
+        """Base rows for live observations: DataFrame with the full-resolution pc_/pd_ grids, goal_dist/sin/cos
+        and x, y, yaw (one row per observation), plus episode (= robot index) and step (= rows seen so far).
+
+        `prev_states[i]` is None at an episode start, else the last `history` base rows of robot i (a DataFrame,
+        as returned by `derive_live`). Drive-time history: call `derive_live(base, prev_states, variant)`; it
+        stacks each robot's stored rows with the current one, runs `derive` (the same code as at fit time) and
+        returns the features of the current rows plus the new prev_states. `build_batch` is unchanged.
+        """
+        classes = self.patch_classes(observations)
+        with self.timer("featurize"):
+            n = len(observations)
+            depths = np.stack([patch_depth(o["depth"], self.cap) for o in observations])
+            pc_names, pd_names = base_columns()
+            frame = pd.concat([pd.DataFrame(classes.reshape(n, -1).astype(np.int8), columns=pc_names),
+                               pd.DataFrame(depths.reshape(n, -1), columns=pd_names)], axis=1)
+            extra = []
+            for k, obs in enumerate(observations):
+                dist, bearing = relative(obs["robot_pose"], *obs["goal_point"])
+                x, y, yaw = obs["robot_pose"]
+                step = 0 if prev_states[k] is None else int(prev_states[k]["step"].iloc[-1]) + 1
+                extra.append({"goal_dist": dist, "goal_sin": math.sin(bearing), "goal_cos": math.cos(bearing),
+                              "x": x, "y": y, "yaw": yaw, "episode": k, "step": step})
+            return pd.concat([frame, pd.DataFrame(extra)], axis=1)
 
 
 def build_features(obs, prev_state, perception):
