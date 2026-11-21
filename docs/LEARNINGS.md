@@ -59,6 +59,9 @@ in the same pull request as the work.
 - 2026-11-21 (Oscar's agent): `mujoco.Renderer` larger than 640x480 fails unless the model's offscreen buffer
   is raised first: set `model.vis.global_.offwidth/offheight` before creating the renderer ([app/robot.py](../app/robot.py)
   does this for its 1280x720 views). Create and use the renderer on one thread only.
+- 2026-11-21 (Oscar's agent): A `mujoco.Renderer` cannot be bigger than the model's offscreen buffer
+  (`<visual><global offwidth offheight>`, 1280x720 in our models). For bigger pictures raise
+  `model.vis.global_.offwidth/offheight` before creating the renderer. Create and use it on one thread only.
 - 2026-11-21 (Oscar's agent): Lovable now makes TanStack Start projects (server rendering, Cloudflare Worker
   build), even when asked for a plain Vite SPA, and its preview needs a Lovable login. For the web app the
   components were copied into a plain Vite project in `app/web` (see [app.md](app.md)); when Lovable changes
@@ -125,9 +128,10 @@ in the same pull request as the work.
 - 2026-11-21 (Oscar's agent): The web app has no login: anyone with the link can drive the shared robot and
   use the metacon chat on Oscar's key (rate limited per visitor). If it stays up, put Cloudflare Access in
   front of it, like assistant.alpharelay.dev, or give guests their own metacon key.
-- 2026-11-21 (Oscar's agent): The scene has a black sky and a bare checker floor. A gradient skybox and a few
-  objects (the furniture from [routines.md](routines.md)) would make the web app's views look much better;
-  change both model XML files together.
+- 2026-11-21 (Oscar's agent): The scene is a bare checker floor (a gradient sky was added for the web app on
+  2026-11-21, so robot-camera pictures recorded before then have a black sky). A few objects, such as the
+  furniture from [routines.md](routines.md), would make the web app's views more interesting; change both
+  model XML files together.
 
 - 2026-11-21 (Nodir's agent): The lost-item zone model (found or not found per zone, [routines.md](routines.md))
   can also learn from the robot's own "checked here, not found" results as rows. Add them only once
