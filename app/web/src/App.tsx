@@ -18,6 +18,7 @@ import { SpeakerToggle, TalkButton } from "@/components/jethexa/TalkButton";
 import { useHealth, useRobotState } from "@/hooks/useRobotState";
 import { useIsPhone } from "@/hooks/useIsPhone";
 import { useLiveCall } from "@/hooks/useLiveCall";
+import { useKnock } from "@/hooks/useKnock";
 import { phaseText, useVoiceCall } from "@/hooks/useVoiceCall";
 import { sendCommand, VIEWS, type View } from "@/lib/api";
 
@@ -49,6 +50,8 @@ export function App() {
   const voice = useVoiceCall({ enabled: voiceOn, speakerOn, ask, onError: (m) => toast(m) });
   const liveCall = useLiveCall(live);
   const other = liveCall && !voice.isMine(liveCall.id) ? liveCall : null;
+  const knockError = useCallback((m: string) => toast(m), []);
+  const knock = useKnock(live, speakerOn, knockError); // Find and Call Margarete; the phone layout shows it for now
 
   // The robot reports in the terminal when a walk or turn ends, or when it falls.
   const lastMode = useRef<string | null>(null);
@@ -87,7 +90,7 @@ export function App() {
     return (
       <>
         <PhoneApp conn={conn} views={views} state={state} lines={term.lines} busy={term.busy} chatOff={term.chatOff}
-          voice={voice} other={other} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)} />
+          voice={voice} other={other} knock={knock} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)} />
         <Toaster position="top-center" />
       </>
     );

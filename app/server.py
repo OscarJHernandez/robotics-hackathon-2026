@@ -24,7 +24,15 @@ Voice calls (app/call.py; speech by Voice Control through app/voice.py), one cal
     POST /api/transcribe?call=ID&final=0|1        body: the recording (audio/webm, audio/mp4, ...) -> {"text"}
                           final=0 is a live caption of the recording so far; skipped ({"text": null}) when busy
     POST /api/speak       {"text": ..., "call": id} -> audio/mpeg in the robot's voice
-    GET  /api/live        text/event-stream of the call for every viewer (events listed in app/call.py)
+    GET  /api/live        text/event-stream of the call for every viewer (events listed in app/call.py),
+                          and of the Knock check-in (app/knock.py)
+
+Knock, the robot checks on Margarete (app/knock.py, docs/knock-ui.md), one check-in at a time:
+    POST /api/knock/call    {}  call her through the robot, then search  -> {"ok": "started" | "again"}, or 409
+    POST /api/knock/find    {}  search now                               -> {"ok": "started" | "skip"}, or 409
+    POST /api/knock/stop    {}  stop (the robot stops too), or close the found card
+    POST /api/knock/choice  {"choice": "call_112" | "call_neighbour" | "talk"}  simulated calls
+    GET  /api/knock/audio/<id>.mp3  the call-out in the robot's voice, for every viewer
 """
 
 import argparse
@@ -43,11 +51,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import llm  # noqa: E402
 import voice  # noqa: E402
 from call import Hub, Line  # noqa: E402
+from knock import Knock  # noqa: E402
 from robot import HELP, VIEWS, LiveRobot  # noqa: E402
 
 WEB = Path(__file__).resolve().parent / "web" / "dist"
 # Requests per window (seconds), per visitor. Transcriptions are also capped per call (call.MAX_INTERIM).
-LIMITS = {"chat": (20, 600), "command": (60, 60), "call": (20, 600), "transcribe": (300, 600), "speak": (30, 600)}
+LIMITS = {"chat": (20, 600), "command": (60, 60), "call": (20, 600), "transcribe": (300, 600), "speak": (30, 600),
+          "knock": (60, 600)}
 MAX_STREAMS = 40  # open picture streams across all visitors
 MAX_LISTENERS = 200  # open /api/live streams across all visitors
 MAX_BODY = 64 * 1024
@@ -58,13 +68,15 @@ ROBOT = None
 KEY = ""
 HUB = Hub()
 LINE = Line(HUB)
+KNOCK = None  # Knock, made in main() once the robot runs
 HITS = defaultdict(deque)
 HITS_LOCK = threading.Lock()
 STREAMS = threading.BoundedSemaphore(MAX_STREAMS)
 LISTENERS = threading.BoundedSemaphore(MAX_LISTENERS)
 CHATS = threading.BoundedSemaphore(2)  # metacon runs one model; do not queue up many answers
 POST_ROUTES = {"/api/command": "command", "/api/chat": "chat", "/api/call/start": "call", "/api/call/end": None,
-               "/api/transcribe": "transcribe", "/api/speak": "speak"}
+               "/api/transcribe": "transcribe", "/api/speak": "speak", "/api/knock/call": "knock",
+               "/api/knock/find": "knock", "/api/knock/stop": None, "/api/knock/choice": "knock"}
 
 
 def sse(payload):
@@ -154,6 +166,17 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path.startswith("/api/stream/") and path[12:] in VIEWS:
             self.stream(path[12:])
+        elif path.startswith("/api/knock/audio/") and path.endswith(".mp3"):
+            audio = KNOCK.audio(path[17:-4]) if KNOCK else None
+            if audio is None:
+                self.send_json(404, {"error": "no such sound"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Cache-Control", "private, max-age=600")
+            self.send_header("Content-Length", str(len(audio)))
+            self.end_headers()
+            self.wfile.write(audio)
         elif path.startswith("/api/"):
             self.send_json(404, {"error": "not found"})
         else:
@@ -191,6 +214,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"ok": LINE.end(body.get("call"))})
         elif path == "/api/speak":
             self.speak(body)
+        elif path.startswith("/api/knock/"):
+            self.knock(path[11:], body)
         elif kind == "command":
             try:
                 self.send_json(200, {"ok": True, "command": ROBOT.command(str(body.get("text", "")))})
@@ -253,13 +278,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(audio)
 
+    def knock(self, action, body):
+        if KNOCK is None:
+            self.send_json(503, {"error": "the robot is not running"})
+            return
+        if action == "choice":
+            try:
+                self.send_json(200, {"ok": KNOCK.choose(str(body.get("choice", "")))})
+            except ValueError as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if action == "stop":
+            self.send_json(200, {"ok": KNOCK.stop()})
+            return
+        result = KNOCK.call() if action == "call" else KNOCK.find()
+        if result:
+            self.send_json(200, {"ok": result})
+        else:
+            self.send_json(409, {"error": "a check-in is already running"})
+
     def live(self):
         if not LISTENERS.acquire(blocking=False):
             self.send_json(503, {"error": "too many viewers"})
             return
         try:
             self.send_events_head()
+            card = KNOCK.latest() if KNOCK else None  # the Knock card as it is now (before the replay's seq)
             events, seq = HUB.current()  # a page that opens mid-call sees the call so far
+            events = [e for e in events if e["type"] != "knock"] + ([card] if card else [])
             self.wfile.write(b"retry: 3000\n\n" + b"".join(sse(e) for e in events))
             self.wfile.flush()
             while True:
@@ -361,7 +407,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global ROBOT, KEY
+    global ROBOT, KEY, KNOCK
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--host", default="127.0.0.1")
@@ -377,6 +423,7 @@ def main():
     LINE.sweep()
     ROBOT = LiveRobot()
     ROBOT.wait_ready()
+    KNOCK = Knock(HUB, ROBOT, lambda text: voice.speak(text) if voice.available() else None)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
     print("JetHexa app on http://{}:{} (model {}, front end {})".format(

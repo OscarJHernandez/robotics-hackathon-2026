@@ -1,27 +1,31 @@
-// The page on a phone: a call screen with the robot's camera on top, the conversation in the middle and one big
-// hold-to-talk button at the bottom, like a walkie-talkie. Same state and hooks as the desktop page (App.tsx).
+// The page on a phone: the robot's camera on top, the Margarete card (Knock: Find and Call Margarete,
+// docs/knock-ui.md screens 5-7) and the conversation in the middle, and one big hold-to-talk button at the bottom,
+// like a walkie-talkie. While a check-in runs the card takes the middle; when the robot finds her, the robot eye
+// fills the top and the talk bar gives way to the alert. Same state and hooks as the desktop page (App.tsx).
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Keyboard, Mic } from "lucide-react";
 import type { Conn } from "@/hooks/useRobotState";
 import type { LiveCall } from "@/hooks/useLiveCall";
+import type { Knock } from "@/hooks/useKnock";
 import { phaseText, type Phase } from "@/hooks/useVoiceCall";
 import type { RobotState, View } from "@/lib/api";
 import { HexMark } from "./Brand";
+import { KnockCard, KnockSteps, knockActive } from "./KnockCard";
 import { LiveCallCard } from "./LiveCallCard";
 import { Stream, VIEW_LABEL } from "./Stream";
 import { SpeakerToggle, TalkButton } from "./TalkButton";
 import { statusText, type Line } from "./Terminal";
 
-const SUGGESTIONS = ["Walk to the red pillar", "Turn around", "Walk forward one metre", "Stop"];
+const SUGGESTIONS = ["Walk to the red pillar", "Turn around"];
 
 export interface VoiceProps {
   supported: boolean; phase: Phase; interim: string;
   press: () => void; release: () => void; cancel: () => void;
 }
 
-export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, speakerOn, onToggleSpeaker, onSend }: {
+export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend }: {
   conn: Conn; views: View[]; state: RobotState | null; lines: Line[]; busy: boolean; chatOff: boolean;
-  voice: VoiceProps; other: LiveCall | null; speakerOn: boolean; onToggleSpeaker: () => void;
+  voice: VoiceProps; other: LiveCall | null; knock: Knock; speakerOn: boolean; onToggleSpeaker: () => void;
   onSend: (text: string) => void;
 }) {
   const live = conn === "live";
@@ -32,10 +36,18 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
   const scroll = useRef<HTMLDivElement>(null);
   const lineBusy = !!other && !other.ended && voice.phase === "idle";
   const canTalk = voice.supported && !chatOff;
+  const check = knock.knock;
+  const checking = knockActive(check); // a Knock check-in is on screen
+  const found = check.state === "found";
+
+  // A check-in switches to the robot's own camera once; the person can still pick another view, except when found.
+  useEffect(() => { if (checking && views.includes("eye")) setView("eye"); }, [checking, views]);
+  const shown: View = found && views.includes("eye") ? "eye" : view;
+  const topRight = !live ? "demo" : check.state === "finding" && check.next ? `walking to ${check.next}` : statusText(state);
 
   useEffect(() => {
     scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: "smooth" });
-  }, [lines, voice.interim, voice.phase, other]);
+  }, [lines, voice.interim, voice.phase, other, checking]);
 
   const status = lineBusy ? "Someone else is on a call…"
     : voice.phase === "idle" && busy ? "metacon is answering…" : phaseText(voice.phase, cancelArmed);
@@ -45,8 +57,8 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
   return (
     <div className="phone-app">
       {/* The robot's view */}
-      <div className="relative h-[42dvh] shrink-0 overflow-hidden rounded-b-[28px] shadow-[0_18px_40px_-16px_oklch(0_0_0/70%)]">
-        <div key={view} className="absolute inset-0 crossfade"><Stream view={view} live={live} /></div>
+      <div className={`relative shrink-0 overflow-hidden rounded-b-[28px] shadow-[0_18px_40px_-16px_oklch(0_0_0/70%)] transition-[height] duration-300 ${checking ? "h-[36dvh]" : "h-[42dvh]"}`}>
+        <div key={shown} className="absolute inset-0 crossfade"><Stream view={shown} live={live} /></div>
         <div className="stage-vignette" />
         <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-4 pt-[max(12px,env(safe-area-inset-top))]">
           <HexMark />
@@ -54,19 +66,31 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
           <span className="glass pixel flex h-5 items-center gap-1.5 rounded-full px-2 text-[9px]">
             <span className={live ? "live-dot" : "h-1.5 w-1.5 rounded-full bg-video/50"} />{live ? "LIVE" : "DEMO"}
           </span>
-          <span className="text-shadow-soft ml-auto truncate font-mono text-[11px] text-video/85">{live ? statusText(state) : "demo"}</span>
+          {found ? <span className="text-shadow-soft pixel ml-auto text-[9px] tracking-[0.15em]">Robot eye</span>
+            : <span className="text-shadow-soft ml-auto truncate font-mono text-[11px] text-video/85">{topRight}</span>}
         </div>
-        <div className="absolute inset-x-0 bottom-0 flex gap-1.5 overflow-x-auto px-3 pb-3 [scrollbar-width:none]">
-          {views.map((v) => (
-            <button key={v} onClick={() => setView(v)}
-              className={`glass-btn h-8 shrink-0 px-3 text-xs font-medium ${v === view ? "glass-btn-on" : ""}`}>{VIEW_LABEL[v]}</button>
-          ))}
-        </div>
+        {!found && (
+          <div className="absolute inset-x-0 bottom-0 flex gap-1.5 overflow-x-auto px-3 pb-3 [scrollbar-width:none]">
+            {views.map((v) => (
+              <button key={v} onClick={() => setView(v)}
+                className={`glass-btn h-8 shrink-0 px-3 text-xs font-medium ${v === view ? "glass-btn-on" : ""}`}>{VIEW_LABEL[v]}</button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* The conversation */}
+      {checking ? (
+        /* The check-in: the card, then the steps so far */
+        <div ref={scroll} className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+          {other && !other.ended && <LiveCallCard call={other} />}
+          <KnockCard k={knock} />
+          {!found && <KnockSteps knock={check} />}
+        </div>
+      ) : (
+      /* The Margarete card, then the conversation */
       <div ref={scroll} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
         {other && !other.ended && <LiveCallCard call={other} className="sticky top-0 z-10" />}
+        <div className="pb-1.5"><KnockCard k={knock} /></div>
         {lines.map((l) => <Bubble key={l.id} line={l} />)}
         {voice.phase !== "idle" && voice.phase !== "thinking" && voice.phase !== "speaking" && (
           <div className="flex justify-end">
@@ -84,8 +108,10 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
           </div>
         )}
       </div>
+      )}
 
-      {/* Talk */}
+      {/* Talk (gives way to the alert when the robot has found her; "Talk to her" brings it back) */}
+      {!found && (
       <div className="shrink-0 px-5 pt-2 pb-[max(16px,env(safe-area-inset-bottom))]">
         {typing || !canTalk ? (
           <div className="flex items-center gap-2">
@@ -105,9 +131,9 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
           </div>
         ) : (
           <>
-            <div className={`mb-3 text-center text-sm ${cancelArmed ? "text-term-amber" : voice.phase === "recording" ? "text-term-red" : "text-video/70"}`}>
+            {!checking && <div className={`mb-3 text-center text-sm ${cancelArmed ? "text-term-amber" : voice.phase === "recording" ? "text-term-red" : "text-video/70"}`}>
               {status}
-            </div>
+            </div>}
             <div className="flex items-center justify-between">
               <button onClick={() => setTyping(true)} aria-label="Type instead" className="glass-btn h-12 w-12"><Keyboard className="h-5 w-5" /></button>
               <TalkButton phase={voice.phase} disabled={lineBusy || (busy && voice.phase === "idle")}
@@ -117,6 +143,7 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
           </>
         )}
       </div>
+      )}
     </div>
   );
 }

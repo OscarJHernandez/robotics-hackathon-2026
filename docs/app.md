@@ -8,17 +8,18 @@ just app-build     # once, and after front-end changes: npm install + build app/
 just app           # http://127.0.0.1:8790
 ```
 
-**Planned:** the Knock buttons, Find Margarete and Call Margarete, and their screens on desktop and phone. Spec:
-[knock-ui.md](knock-ui.md); mockup: [knock-ui/mockup.html](knock-ui/mockup.html).
+**Knock** (Find Margarete and Call Margarete) is built for the phone layout; the desktop screens are still to do.
+Spec: [knock-ui.md](knock-ui.md); mockup: [knock-ui/mockup.html](knock-ui/mockup.html). See [Knock](#knock) below.
 
 ## Pieces
 
 | Path | What it is |
 |---|---|
-| `app/robot.py` | `LiveRobot`: one thread steps MuJoCo in real time, steers the robot (goto, forward, turn, stop, reset) and moves the end point (`random`, also the dice buttons) and renders JPEG pictures of an outside view and the robot camera |
+| `app/robot.py` | `LiveRobot`: one thread steps MuJoCo in real time, steers the robot (goto, forward, turn, stop, reset) and moves the end point (`random`, also the dice buttons; walking never moves it) and renders JPEG pictures of an outside view and the robot camera |
 | `app/llm.py` | Chat with the metacon gateway (`http://metacon:4000/v1`, model `qwen3:8b`); the model moves the robot by writing `[[goto 1 0.5]]` in its answer |
 | `app/voice.py` | Speech through Oscar's Voice Control service: transcription of the caller and the robot's spoken replies (voice `Glados-portal`) |
 | `app/call.py` | Voice calls: one caller at a time holds the line; every event of the call goes to all viewers |
+| `app/knock.py` | Knock: one check-in at a time that calls Margarete through the robot and walks zone to zone to find her; every viewer sees the same card |
 | `app/server.py` | Standard-library HTTP server: the API under `/api` (documented at the top of the file) and the built front end |
 | `app/web/` | The front end: React, Vite, Tailwind, built with Lovable (project "JetHexa Live Studio"). Full-screen view with switchable cameras (chase, orbit, overhead, robot eye), a chat bar and a red/green terminal. Without the API it runs a demo mode |
 
@@ -31,6 +32,27 @@ Typing happens in the terminal's own prompt line when it is open (the white chat
 closed). Plain text goes to metacon; `/target`, `/goto X Y`, `/forward M`, `/turn DEG`, `/stop`, `/random`,
 `/reset` go straight to the robot; `/help` and `/clear` work locally. The title bar shows the robot's status, and
 the terminal prints a line when the robot arrives, finishes a turn or falls over.
+
+## Knock
+
+The phone page starts with the **Margarete card** (`KnockCard.tsx`) under the camera: Find Margarete and Call
+Margarete. What follows is the same on every viewer's page, because the server runs the check-in
+([app/knock.py](../app/knock.py)) and publishes the whole card on `GET /api/live` as `{"type": "knock", ...}`:
+
+- **Call**: the robot says "Margarete, it's Thomas. Are you all right?" in its voice (played on every page whose
+  speaker is on), then listens for 20 s with a countdown, Stop and Find her now. Nobody answers yet, so the search
+  starts by itself.
+- **Find**: the card shows the flat as a 3 × 2 zone map with each zone's probability. The robot walks to the zone
+  with the highest probability per metre of walking, turns to face it, looks for 2 s, and on a miss marks it
+  checked and shares its probability out over the others. The camera switches to the robot eye.
+- **Found**: the robot eye fills the top, the card turns red, and Call 112, Call Frau Weber and Talk to her
+  replace the talk bar. The calls are simulated; Talk to her ends the check-in and brings back hold-to-talk.
+
+Until the zone model and the person detector exist, the probabilities are the placeholders from
+[knock-ui.md](knock-ui.md) (the card says "placeholder" instead of "TabPFN") and `KNOCK_FOUND_ZONE` says where she
+is (default `couch`; `none` gives "She doesn't seem to be home"). The zone poses are in `ZONES` in `app/knock.py`
+and use the 2 × 3 grid of [knock-routines.md](knock-routines.md), on the robot's empty floor. Without the server
+the page plays the same screens on timers (demo mode).
 
 ## Voice calls
 

@@ -190,7 +190,8 @@ class LiveRobot:
                         tx, ty = max(-ARENA, min(ARENA, tx)), max(-ARENA, min(ARENA, ty))
                     else:
                         tx, ty = cmd[1], cmd[2]
-                    sim.set_target(tx, ty)
+                    # The pillar stays put: only `random` moves it. (Moving it to every goto end point made a
+                    # misread "walk to the target", e.g. [[forward 1]], put the pillar right in front of the robot.)
                     mode, goal = "goto", (tx, ty)
                 gait, cycle_at = PHASE0, -1.0
 
