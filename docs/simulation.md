@@ -144,6 +144,37 @@ sim.target()            # (x, y) of the pillar
 
 `sim.model` and `sim.data` are the plain MuJoCo `MjModel` and `MjData`, for anything else.
 
+`sim.render(segmentation=True)` gives the geom id at every pixel, int32 (360, 640), and -1 where there is no
+geom (the sky); `sim.model.geom(id).name` says what it is. It is the source of the class labels for camera
+pictures.
+
+## The arena: a closed room with obstacles
+
+[sim/arena.xml](../sim/arena.xml) (and `arena_simple.xml` without meshes) puts the robot in a closed, square
+room of 50 m² (7.07 m a side, centred on the origin) with 8 solid obstacles: bed, couch, cabinet, stool, table,
+armchair, crate and plant pot. The room is in [sim/arena_furniture.xml](../sim/arena_furniture.xml), added
+with MJCF `<include>`, so the robot files stay untouched. The walls are 4.5 m high so they fill the camera's
+picture from anywhere in the room: no sky. Every obstacle is a mocap body, so code moves it like the target.
+
+Use it through `vision/scene.py`, which also makes the floor big enough and matte and sets the lights:
+
+```python
+import sys
+sys.path.insert(0, "vision")
+import numpy as np
+from scene import Arena, CLASSES
+
+arena = Arena()                          # mesh model if downloaded, else simple shapes
+rng = np.random.default_rng(0)
+arena.randomize(rng)                     # new furniture positions and colors, new target
+arena.sample_pose(rng)                   # robot on free floor, usually looking at the target
+arena.wander(rng)                        # walk 1 to 3 s at random, stop mid-step
+rgb = arena.sim.render()
+labels = arena.class_map()               # uint8 (360, 640): 0 floor, 1 wall, 2 obstacle, 3 target, 255 robot
+```
+
+A layout is stored in the model's `stand` keyframe too, so `arena.sim.reset()` keeps it.
+
 ## What is in the model
 
 | Part | Detail |

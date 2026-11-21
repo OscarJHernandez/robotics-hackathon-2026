@@ -43,6 +43,18 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Oscar's agent): Oscar wants the obstacle-avoidance work in a closed, square 50 m² room with walls
+  on the boundary ([sim/arena_furniture.xml](../sim/arena_furniture.xml)), with furniture positions, colors and
+  the target random per episode. The walls are 4.5 m high because the camera is only 15 cm up: with lower walls
+  the far side of the room shows sky, which has no class label.
+- 2026-11-21 (Oscar's agent): `sim.reset()` puts mocap bodies (the target, the arena's furniture) back where the
+  `stand` keyframe has them, so moving them in `data.mocap_pos` alone does not survive a reset. `Arena.apply`
+  writes the layout into `model.key_mpos`/`key_mquat` as well.
+- 2026-11-21 (Oscar's agent): The robot file's floor material is slightly reflective, so the red target shows as
+  a faint mirror image on the floor that segmentation labels as floor. `Arena` sets the floor's reflectance to 0.
+  It also widens the 6 x 6 m floor plane in `model.geom_size` instead of adding a second floor geom, because
+  `foot_contacts()` looks for the geom named `floor`.
+
 - 2026-11-21 (Oscar's agent): Live captions during a voice call work without a streaming speech API: the
   browser records with `MediaRecorder.start(250)` and every 1.5 s sends all chunks so far as one Blob, which is a
   valid WebM (or Safari MP4) file; Voice Control transcribes 3 s of speech in about 0.3 s. These interim requests

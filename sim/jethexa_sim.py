@@ -146,14 +146,25 @@ class JetHexaSim:
         self.data.mocap_pos[self._target] = (x, y, 0.0)
         mujoco.mj_forward(self.model, self.data)
 
-    def render(self, depth=False, camera=CAMERA):
-        """Picture from a camera: RGB uint8 (360, 640, 3), or depth in metres (360, 640)."""
+    def render(self, depth=False, camera=CAMERA, segmentation=False):
+        """Picture from a camera: RGB uint8 (360, 640, 3), or depth in metres (360, 640).
+
+        With `segmentation=True` it returns the geom id at every pixel instead, int32 (360, 640); -1 where
+        there is no geom (the sky). `model.geom(id).name` tells what it is.
+        """
         if self._renderer is None:
             self._renderer = mujoco.Renderer(self.model, height=CAMERA_SIZE[1], width=CAMERA_SIZE[0])
         option = mujoco.MjvOption()
         if camera == CAMERA:
             option.geomgroup[2] = 0  # the camera's own housing would block its view
         self._renderer.update_scene(self.data, camera=camera, scene_option=option)
+        if segmentation:
+            self._renderer.enable_segmentation_rendering()
+            try:
+                ids = self._renderer.render()  # (h, w, 2): object id and object type
+            finally:
+                self._renderer.disable_segmentation_rendering()
+            return np.where(ids[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM), ids[..., 0], -1).astype(np.int32)
         if not depth:
             return self._renderer.render().copy()
         self._renderer.enable_depth_rendering()
