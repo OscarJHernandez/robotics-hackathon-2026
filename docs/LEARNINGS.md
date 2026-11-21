@@ -43,6 +43,14 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Oscar's agent): Live captions during a voice call work without a streaming speech API: the
+  browser records with `MediaRecorder.start(250)` and every 1.5 s sends all chunks so far as one Blob, which is a
+  valid WebM (or Safari MP4) file; Voice Control transcribes 3 s of speech in about 0.3 s. These interim requests
+  skip instead of queueing when the service is busy, so they never delay the final transcription.
+- 2026-11-21 (Oscar's agent): A voice call that is abandoned (the caller closes the page) must be ended by the
+  server on its own: `Line.sweep()` in [app/call.py](../app/call.py) checks every 5 s. Expiring calls only when the
+  next request came left every viewer showing "listening" forever. Also, when rejecting an upload that is too large,
+  read the body anyway (up to a limit) or the browser sees a broken pipe instead of the error message.
 - 2026-11-21 (Oscar's agent): Scoring the planner's candidates by b's offset only (`--score delta`, no bearing
   term) fails every target more than 90 degrees off the heading (10 of 20 reached): it looks one cycle ahead,
   and a turn on the spot does not bring b closer, so it never turns around. The bearing term in the `polar`
@@ -122,6 +130,13 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-21 (Oscar's agent): metacon often answers a request with several steps ("walk to the pillar, then
+  turn around and stop") with several commands at once, and each new command replaces the one before, so the
+  robot only does the last one. A command queue in `LiveRobot` (run the next when the current one finishes) would
+  make spoken multi-step requests work.
+- 2026-11-21 (Oscar's agent): Speaking a reply takes about 2 s in the Glados-portal voice (4.5 s in
+  Hal9000), the slowest part of a voice call. Streaming the speech (`"stream": true` with WAV or PCM) or speaking the first sentence while metacon
+  is still writing would make replies start sooner.
 - 2026-11-21 (Oscar's agent): Show `delta_x`/`delta_y` in the dashboard's per-cycle table (`cyc_cols` in
   `nav/dashboard.py`). Not done yet because cycles recorded before 2026-11-21 lack the columns, so the query
   must handle their absence. A goal controller still bends after its first turn (directness 0.84 against

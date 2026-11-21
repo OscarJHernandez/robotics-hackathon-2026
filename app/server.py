@@ -12,10 +12,19 @@ app/web/dist with `just app-build`) is served from /, the API from /api:
                                      (three-quarter view), overhead (whole floor), eye (robot camera)
     GET  /api/frame/<view>.jpg       one JPEG
     POST /api/command  {"text": "goto 1 0.5"}            -> {"ok": true, "command": "goto 1.00 0.50"}
-    POST /api/chat     {"messages": [{"role", "content"}]} -> text/event-stream, events:
+    POST /api/chat     {"messages": [{"role", "content"}], "call": id?} -> text/event-stream, events:
          {"type": "token", "text": "..."}  piece of the answer
          {"type": "command", "text": "goto 1 0.5", "ok": true, "error": null}  a command the model ran
          {"type": "error", "text": "..."}  {"type": "done"}
+         With the id of the current voice call, the model answers for speech and everyone sees it on /api/live.
+
+Voice calls (app/call.py; speech by Voice Control through app/voice.py), one caller at a time:
+    POST /api/call/start                          -> {"call": id}, or 409 while someone else is on the line
+    POST /api/call/end    {"call": id}
+    POST /api/transcribe?call=ID&final=0|1        body: the recording (audio/webm, audio/mp4, ...) -> {"text"}
+                          final=0 is a live caption of the recording so far; skipped ({"text": null}) when busy
+    POST /api/speak       {"text": ..., "call": id} -> audio/mpeg in the robot's voice
+    GET  /api/live        text/event-stream of the call for every viewer (events listed in app/call.py)
 """
 
 import argparse
@@ -24,6 +33,7 @@ import mimetypes
 import sys
 import threading
 import time
+import urllib.parse
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,19 +41,34 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import llm  # noqa: E402
+import voice  # noqa: E402
+from call import Hub, Line  # noqa: E402
 from robot import HELP, VIEWS, LiveRobot  # noqa: E402
 
 WEB = Path(__file__).resolve().parent / "web" / "dist"
-LIMITS = {"chat": (20, 600), "command": (60, 60)}  # requests per window (seconds), per visitor
+# Requests per window (seconds), per visitor. Transcriptions are also capped per call (call.MAX_INTERIM).
+LIMITS = {"chat": (20, 600), "command": (60, 60), "call": (20, 600), "transcribe": (300, 600), "speak": (30, 600)}
 MAX_STREAMS = 40  # open picture streams across all visitors
+MAX_LISTENERS = 200  # open /api/live streams across all visitors
 MAX_BODY = 64 * 1024
+MAX_AUDIO = 1536 * 1024  # bytes of one recording: about 15 s at the bit rates browsers use, with room to spare
+PING = 15.0  # seconds between keep-alive comments on /api/live (the tunnel drops silent connections)
 
 ROBOT = None
 KEY = ""
+HUB = Hub()
+LINE = Line(HUB)
 HITS = defaultdict(deque)
 HITS_LOCK = threading.Lock()
 STREAMS = threading.BoundedSemaphore(MAX_STREAMS)
+LISTENERS = threading.BoundedSemaphore(MAX_LISTENERS)
 CHATS = threading.BoundedSemaphore(2)  # metacon runs one model; do not queue up many answers
+POST_ROUTES = {"/api/command": "command", "/api/chat": "chat", "/api/call/start": "call", "/api/call/end": None,
+               "/api/transcribe": "transcribe", "/api/speak": "speak"}
+
+
+def sse(payload):
+    return b"data: " + json.dumps(payload).encode() + b"\n\n"
 
 
 def allowed(kind, who):
@@ -76,17 +101,45 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def read_json(self):
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > MAX_BODY:
+    def read_body(self, limit):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0 or length > limit:
+            if limit < length <= 4 * limit:  # read it anyway, so the sender gets the answer, not a broken pipe
+                while length > 0:
+                    chunk = self.rfile.read(min(length, 65536))
+                    if not chunk:
+                        break
+                    length -= len(chunk)
+            elif length > limit:
+                self.close_connection = True  # the unread body must not be taken for the next request
             raise ValueError("body missing or too large")
-        return json.loads(self.rfile.read(length))
+        return self.rfile.read(length)
+
+    def read_json(self):
+        body = json.loads(self.read_body(MAX_BODY))
+        if not isinstance(body, dict):
+            raise ValueError("body must be a JSON object")
+        return body
+
+    def send_events_head(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
 
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/api/health":
             self.send_json(200, {"ok": True, "model": llm.MODEL, "llm": bool(KEY), "commands": HELP,
-                                 "views": list(VIEWS)})
+                                 "views": list(VIEWS), "voice": voice.available()})
+        elif path == "/api/live":
+            self.live()
         elif path == "/api/views":
             self.send_json(200, {"views": list(VIEWS)})
         elif path == "/api/state":
@@ -107,26 +160,117 @@ class Handler(BaseHTTPRequestHandler):
             self.static(path)
 
     def do_POST(self):
-        path = self.path.split("?")[0]
-        if path not in ("/api/command", "/api/chat"):
+        path, _, query = self.path.partition("?")
+        if path not in POST_ROUTES:
             self.send_json(404, {"error": "not found"})
             return
-        kind = path.rsplit("/", 1)[1]
-        if not allowed(kind, self.visitor()):
+        kind = POST_ROUTES[path]
+        if kind and not allowed(kind, self.visitor()):
+            self.close_connection = True
             self.send_json(429, {"error": "too many requests, wait a minute"})
+            return
+        if path == "/api/transcribe":
+            self.transcribe(urllib.parse.parse_qs(query))
+            return
+        if path == "/api/call/start":
+            if not voice.available():
+                self.send_json(503, {"error": "voice is offline"})
+                return
+            call_id = LINE.claim()
+            if call_id:
+                self.send_json(200, {"call": call_id})
+            else:
+                self.send_json(409, {"error": "someone else is on a call with the robot, wait a moment"})
             return
         try:
             body = self.read_json()
         except ValueError as error:
             self.send_json(400, {"error": str(error)})
             return
-        if kind == "command":
+        if path == "/api/call/end":
+            self.send_json(200, {"ok": LINE.end(body.get("call"))})
+        elif path == "/api/speak":
+            self.speak(body)
+        elif kind == "command":
             try:
                 self.send_json(200, {"ok": True, "command": ROBOT.command(str(body.get("text", "")))})
             except ValueError as error:
                 self.send_json(400, {"ok": False, "error": str(error)})
         else:
             self.chat(body)
+
+    def transcribe(self, query):
+        call_id = (query.get("call") or [""])[0]
+        final = (query.get("final") or ["1"])[0] != "0"
+        try:
+            audio = self.read_body(MAX_AUDIO)
+            voice.extension(self.headers.get("Content-Type"))
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+            return
+        if not LINE.active(call_id, interim=not final):
+            self.send_json(409, {"error": "no call in progress"})
+            return
+        try:
+            text = voice.transcribe(audio, self.headers.get("Content-Type"), wait=final)
+        except Exception as error:
+            if final:
+                self.send_json(502, {"error": voice.describe_error(error)})
+            else:  # a live caption that fails is simply skipped
+                self.send_json(200, {"text": None})
+            return
+        if text is None or (not final and not text):
+            self.send_json(200, {"text": None})
+            return
+        LINE.active(call_id)
+        if text:
+            HUB.publish({"type": "heard", "call": call_id, "text": text, "final": final})
+        if not text:
+            self.send_json(400, {"error": "heard nothing, hold the button while you speak"})
+        else:
+            self.send_json(200, {"text": text})
+
+    def speak(self, body):
+        call_id = body.get("call")
+        text = llm.spoken(str(body.get("text") or ""))
+        if not text:
+            self.send_json(400, {"error": "nothing to say"})
+            return
+        if not LINE.active(call_id):
+            self.send_json(409, {"error": "no call in progress"})
+            return
+        HUB.publish({"type": "speaking", "call": call_id, "text": text[:voice.MAX_SPEAK]})
+        try:
+            audio = voice.speak(text)
+        except Exception as error:
+            self.send_json(502, {"error": voice.describe_error(error)})
+            return
+        LINE.active(call_id)
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(audio)))
+        self.end_headers()
+        self.wfile.write(audio)
+
+    def live(self):
+        if not LISTENERS.acquire(blocking=False):
+            self.send_json(503, {"error": "too many viewers"})
+            return
+        try:
+            self.send_events_head()
+            events, seq = HUB.current()  # a page that opens mid-call sees the call so far
+            self.wfile.write(b"retry: 3000\n\n" + b"".join(sse(e) for e in events))
+            self.wfile.flush()
+            while True:
+                events, seq_now = HUB.since(seq, PING)
+                self.wfile.write(b"".join(sse(e) for e in events) if events else b": ping\n\n")
+                self.wfile.flush()
+                seq = seq_now
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+        finally:
+            LISTENERS.release()
 
     def stream(self, camera):
         if not STREAMS.acquire(blocking=False):
@@ -159,16 +303,15 @@ class Handler(BaseHTTPRequestHandler):
         if not messages or messages[-1]["role"] != "user":
             self.send_json(400, {"error": "messages must end with a user message"})
             return
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Accel-Buffering", "no")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.close_connection = True
+        call_id = body.get("call")
+        on_call = bool(call_id) and LINE.active(call_id)
+        self.send_events_head()
 
         def event(payload):
-            self.wfile.write(b"data: " + json.dumps(payload).encode() + b"\n\n")
+            if on_call and payload["type"] in ("token", "command", "error"):
+                LINE.active(call_id)  # an answer in progress keeps the call alive
+                HUB.publish(dict(payload, call=call_id))
+            self.wfile.write(sse(payload))
             self.wfile.flush()
 
         try:
@@ -179,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 try:
                     scanner = llm.CommandScanner()
-                    for piece in llm.stream_chat(messages, ROBOT.state(), KEY):
+                    for piece in llm.stream_chat(messages, ROBOT.state(), KEY, voice=on_call):
                         event({"type": "token", "text": piece})
                         for text in scanner.feed(piece):
                             try:
@@ -213,7 +356,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):
-        if "/api/frame" not in self.path and "/api/state" not in self.path:
+        if not any(quiet in self.path for quiet in ("/api/frame", "/api/state", "/api/health", "final=0")):
             print("[app] {} {}".format(self.visitor(), fmt % args), flush=True)
 
 
@@ -227,6 +370,11 @@ def main():
     KEY = llm.api_key()
     if not KEY:
         print("warning: no metacon key ($METACON_LLM_KEY or Keychain 'metacon-llm'), chat is off", flush=True)
+    if not voice.check():
+        print("warning: voice service not reachable at {}, voice calls are off until it is".format(voice.URL),
+              flush=True)
+    voice.watch()
+    LINE.sweep()
     ROBOT = LiveRobot()
     ROBOT.wait_ready()
     server = ThreadingHTTPServer((args.host, args.port), Handler)

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { sendCommand, streamChat, stripMarkers, type ChatEvent, type ChatMessage, type RobotState } from "@/lib/api";
 import { demoChat } from "@/lib/demo";
 import type { Conn } from "@/hooks/useRobotState";
 
 export type Line =
-  | { id: number; kind: "user"; text: string }
+  | { id: number; kind: "user"; text: string; voice?: boolean }
   | { id: number; kind: "ai"; text: string; pending?: boolean }
   | { id: number; kind: "cmd"; text: string; ok: boolean; error?: string | null | undefined }
   | { id: number; kind: "event"; text: string; tone: "ok" | "warn" }
@@ -39,21 +39,23 @@ export function useMetacon(conn: Conn, llm: boolean) {
     hIdx.current = i; return h[i]!;
   };
 
-  const send = async (raw0: string) => {
+  /** Sends a line; resolves with metacon's reply (markers removed), or "" for commands and failures.
+   *  `call`: the id of the voice call it came from (the server then answers for speech and shows it to everyone). */
+  const send = async (raw0: string, call?: string): Promise<string> => {
     const text = raw0.trim(); hIdx.current = -1;
-    if (!text || busy) return;
-    inputs.current.push(text);
-    if (text === "/clear") { setLines([]); return; }
-    push({ kind: "user", text });
-    if (text === "/help") { push({ kind: "info", text: HELP }); return; }
-    if (text.startsWith("/")) {
+    if (!text || busy) return "";
+    if (!call) inputs.current.push(text);
+    if (text === "/clear") { setLines([]); return ""; }
+    push(call ? { kind: "user", text, voice: true } : { kind: "user", text });
+    if (text === "/help") { push({ kind: "info", text: HELP }); return ""; }
+    if (text.startsWith("/") && !call) {
       const cmd = text.slice(1);
-      if (!live) { push({ kind: "cmd", text: cmd, ok: true }); return; }
+      if (!live) { push({ kind: "cmd", text: cmd, ok: true }); return ""; }
       const r = await sendCommand(cmd);
       push({ kind: "cmd", text: r.command ?? cmd, ok: r.ok, error: r.error });
-      return;
+      return "";
     }
-    if (chatOff) { push({ kind: "info", text: "chat offline — use /help for direct commands" }); return; }
+    if (chatOff) { push({ kind: "info", text: "chat offline — use /help for direct commands" }); return ""; }
     hist.current.push({ role: "user", content: text });
     setBusy(true);
     const aiId = uid++;
@@ -68,7 +70,7 @@ export function useMetacon(conn: Conn, llm: boolean) {
       else if (e.type === "error") { ran = true; push({ kind: "cmd", text: "error", ok: false, error: e.text }); }
     };
     try {
-      if (live) await streamChat(hist.current.slice(-20), onEvent);
+      if (live) await streamChat(hist.current.slice(-20), onEvent, undefined, call);
       else await demoChat(onEvent);
     } catch (e) {
       onEvent({ type: "error", text: e instanceof Error ? e.message : "connection lost" });
@@ -78,12 +80,13 @@ export function useMetacon(conn: Conn, llm: boolean) {
     setLines((p) => p.filter((l) => !(l.id === aiId && !l.text)));
     if (!stripMarkers(raw).trim() && !ran) push({ kind: "info", text: "metacon did not answer, please try again" });
     setBusy(false);
+    return stripMarkers(raw).trim();
   };
 
   return { lines, busy, send, clear, history, chatOff, note };
 }
 
-function statusText(s: RobotState | null) {
+export function statusText(s: RobotState | null) {
   if (!s) return "";
   if (s.mode === "goto") return `walking · ${(s.target_dist ?? 0).toFixed(1)} m to go`;
   if (s.mode === "turn") return `turning · ${Math.round(s.yaw_deg)}°`;
@@ -91,8 +94,8 @@ function statusText(s: RobotState | null) {
   return `idle · x ${s.x.toFixed(2)} y ${s.y.toFixed(2)}`;
 }
 
-export function TerminalPanel({ lines, busy, chatOff, live, state, onSend, onHistory, onClose, onClear }: {
-  lines: Line[]; busy: boolean; chatOff: boolean; live: boolean; state: RobotState | null;
+export function TerminalPanel({ lines, busy, chatOff, live, state, onSend, onHistory, onClose, onClear, mic }: {
+  lines: Line[]; busy: boolean; chatOff: boolean; live: boolean; state: RobotState | null; mic?: ReactNode;
   onSend: (t: string) => void; onHistory: (dir: -1 | 1) => string | null; onClose: () => void; onClear: () => void;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
@@ -119,7 +122,7 @@ export function TerminalPanel({ lines, busy, chatOff, live, state, onSend, onHis
       </div>
       <div ref={scroll} className="flex-1 space-y-1.5 overflow-y-auto p-4 font-mono text-[13px] leading-relaxed">
         {lines.map((l) => {
-          if (l.kind === "user") return <div key={l.id} className="whitespace-pre-wrap text-term-green"><span className="opacity-70">you@jethexa:~$ </span>{l.text}</div>;
+          if (l.kind === "user") return <div key={l.id} className="whitespace-pre-wrap text-term-green"><span className="opacity-70">you@jethexa:~$ </span>{l.voice && <span title="spoken">🎙 </span>}{l.text}</div>;
           if (l.kind === "ai") return <div key={l.id} className="whitespace-pre-wrap text-term-red"><span className="font-semibold">metacon&gt; </span>{l.text}{l.pending && <span className="cursor-blink">▍</span>}</div>;
           if (l.kind === "cmd") return <div key={l.id} className="pl-4 text-term-dim">⚙ {l.text} {l.ok ? <span className="text-term-green">✓</span> : <><span className="text-term-red">✗</span> <span className="text-term-amber">{l.error}</span></>}</div>;
           if (l.kind === "event") return <div key={l.id} className={`pl-4 ${l.tone === "ok" ? "text-term-green/80" : "text-term-amber"}`}>{l.tone === "ok" ? "●" : "▲"} {l.text}</div>;
@@ -139,6 +142,7 @@ export function TerminalPanel({ lines, busy, chatOff, live, state, onSend, onHis
               }
             }}
             className="min-w-0 flex-1 bg-transparent caret-term-green outline-none placeholder:text-term-dim/50" />
+          {mic && <span className="ml-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>{mic}</span>}
         </label>
       </div>
     </section>

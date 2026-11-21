@@ -1,6 +1,6 @@
 // The page. Made with Lovable (originally src/routes/index.tsx in a TanStack Start project),
 // moved into a plain Vite single-page app so the Python server can serve it as static files.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { Brand } from "@/components/jethexa/Brand";
@@ -12,7 +12,13 @@ import { QuickActions } from "@/components/jethexa/QuickActions";
 import { ChatBar } from "@/components/jethexa/ChatBar";
 import { TerminalPanel, useMetacon } from "@/components/jethexa/Terminal";
 import { Stream } from "@/components/jethexa/Stream";
+import { LiveCallCard } from "@/components/jethexa/LiveCallCard";
+import { PhoneApp } from "@/components/jethexa/PhoneApp";
+import { SpeakerToggle, TalkButton } from "@/components/jethexa/TalkButton";
 import { useHealth, useRobotState } from "@/hooks/useRobotState";
+import { useIsPhone } from "@/hooks/useIsPhone";
+import { useLiveCall } from "@/hooks/useLiveCall";
+import { phaseText, useVoiceCall } from "@/hooks/useVoiceCall";
 import { sendCommand, VIEWS, type View } from "@/lib/api";
 
 export function App() {
@@ -26,6 +32,23 @@ export function App() {
   const [mapOpen, setMapOpen] = useState(false);
   const [termOpen, setTermOpen] = useState(false);
   const term = useMetacon(conn, health?.llm ?? false);
+  const phone = useIsPhone();
+
+  // Voice: hold to talk, the reply spoken in the robot's voice, and everyone else's calls shown live.
+  const [speakerOn, setSpeakerOn] = useState(() => { try { return localStorage.getItem("jethexa-speaker") !== "off"; } catch { return true; } });
+  const toggleSpeaker = () => setSpeakerOn((on) => {
+    try { localStorage.setItem("jethexa-speaker", on ? "off" : "on"); } catch { /* private mode */ }
+    return !on;
+  });
+  const { send: termSend } = term;
+  const ask = useCallback((text: string, call: string) => {
+    if (!phone) setTermOpen(true);
+    return termSend(text, call);
+  }, [termSend, phone]);
+  const voiceOn = live && !!health?.voice && !!health?.llm;
+  const voice = useVoiceCall({ enabled: voiceOn, speakerOn, ask, onError: (m) => toast(m) });
+  const liveCall = useLiveCall(live);
+  const other = liveCall && !voice.isMine(liveCall.id) ? liveCall : null;
 
   // The robot reports in the terminal when a walk or turn ends, or when it falls.
   const lastMode = useRef<string | null>(null);
@@ -60,6 +83,27 @@ export function App() {
     else toast.error(r.error ?? "Command failed");
   };
 
+  if (phone) {
+    return (
+      <>
+        <PhoneApp conn={conn} views={views} state={state} lines={term.lines} busy={term.busy} chatOff={term.chatOff}
+          voice={voice} other={other} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)} />
+        <Toaster position="top-center" />
+      </>
+    );
+  }
+
+  const otherBusy = !!other && !other.ended && voice.phase === "idle";
+  const mic = voice.supported ? (
+    <>
+      <SpeakerToggle on={speakerOn} onToggle={toggleSpeaker}
+        className={`h-8 w-8 text-current ${speakerOn ? "opacity-80" : "opacity-40"} hover:opacity-100`} />
+      <TalkButton size="sm" phase={voice.phase} disabled={otherBusy || (term.busy && voice.phase === "idle")}
+        onPress={voice.press} onRelease={voice.release} onCancel={voice.cancel} />
+    </>
+  ) : undefined;
+  const listening = voice.phase === "starting" || voice.phase === "recording" || voice.phase === "understanding";
+
   return (
     <div className="stage">
       <div key={main} className="absolute inset-0 crossfade">
@@ -70,8 +114,8 @@ export function App() {
 
       <header className="absolute inset-x-0 top-0 flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-6">
         <Brand conn={conn} />
-        <div className="max-sm:hidden sm:absolute sm:left-1/2 sm:top-6 sm:-translate-x-1/2">
-          <Caption onPick={say} />
+        <div className="max-sm:hidden sm:absolute sm:left-1/2 sm:top-6 sm:w-[min(560px,calc(100vw-760px))] sm:min-w-[340px] sm:-translate-x-1/2 sm:text-center">
+          {other ? <LiveCallCard call={other} /> : <Caption onPick={say} />}
         </div>
         <div className="flex flex-col items-end gap-3">
           <ViewList views={views} active={main} onPick={setMain} mapOpen={mapOpen} onToggleMap={() => setMapOpen((o) => !o)}
@@ -96,6 +140,12 @@ export function App() {
       </div>
 
       <div className="absolute inset-x-3 bottom-3 mx-auto flex max-w-[900px] flex-col gap-3 sm:bottom-6 md:max-w-[min(900px,calc(100vw-720px))] md:min-w-[520px]">
+        {listening && (
+          <div className="glass rise-in self-center rounded-full px-4 py-2 text-sm">
+            <span className="call-dot mr-2 inline-block align-middle" />
+            {voice.interim ? <>“{voice.interim}”</> : phaseText(voice.phase)}
+          </div>
+        )}
         {termOpen ? (
           <TerminalPanel
             lines={term.lines}
@@ -107,6 +157,7 @@ export function App() {
             onHistory={(d) => term.history(d)}
             onClose={() => setTermOpen(false)}
             onClear={term.clear}
+            mic={mic}
           />
         ) : (
           <ChatBar
@@ -115,6 +166,8 @@ export function App() {
             busy={term.busy}
             termOpen={termOpen}
             onToggleTerm={() => setTermOpen(true)}
+            mic={mic}
+            placeholder={voice.supported ? "Tell metacon what to do, or hold the mic to talk…" : undefined}
           />
         )}
       </div>
