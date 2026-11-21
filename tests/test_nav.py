@@ -142,6 +142,12 @@ class NavTest(unittest.TestCase):
         self.assertGreater(ahead[0], 0.2)  # b straight ahead: walk
         self.assertLess(abs(ahead[1]), 0.1)  # and do not turn
         self.assertGreater(left[1], 0.1)  # b to the left: turn left
+        planner.score = "delta"  # b's offset ahead and sideways instead of distance and bearing
+        ahead, left = planner.act([dict(state, target_dist=1.0, target_sin=0.0, target_cos=1.0),
+                                   dict(state, target_dist=1.0, target_sin=0.5, target_cos=math.sqrt(0.75))])
+        self.assertGreater(ahead[0], 0.2)
+        self.assertLess(abs(ahead[1]), 0.1)
+        self.assertGreater(left[1], 0.0)  # b ahead-left: steer left
 
 
 class FitOnlyRuleTest(unittest.TestCase):

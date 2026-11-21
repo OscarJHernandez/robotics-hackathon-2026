@@ -97,6 +97,20 @@ than 0.01. The gain is on tasks where b starts behind or far to the side: the co
 before walking instead of walking a wide loop (task 7: 0.46 to 0.79, 24 to 18 cycles). Tasks with b roughly
 ahead did not change; the path still bends a little after the turn.
 
+**Planner score** (`--score`, kind `planner` only): the planner's TabPFN model never sees b (it predicts
+motion), so b enters only where candidate commands are scored. `polar` (default) scores distance to b plus a
+cost for not facing it. `delta` scores b's offset from the predicted end pose, ahead and sideways (a metre
+sideways counts double), with no bearing term. Results with 300 examples:
+
+| Score | Reached b | Directness |
+|---|---|---|
+| `polar` (default) | 20 of 20 | 0.89 |
+| `delta` | 10 of 20 | 0.48 |
+
+`delta` reaches every target within 72 degrees of straight ahead, slightly straighter than `polar` on those
+(0.96 against 0.94), and none more than 90 degrees away: with b behind, a turn on the spot does not bring
+b closer, so the one-cycle planner never starts turning. Keep `polar` unless the score gets a facing term.
+
 ## Where the data is
 
 Everything is in **`data/nav/` in the main checkout** (gitignored, never committed). Set `NAV_DATA_DIR`

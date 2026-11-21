@@ -26,6 +26,10 @@ FEATURES = STATE + COMMAND
 MOTION = ["m_fwd", "m_left", "m_dyaw"]
 CANDIDATES = [(s, t) for s in np.linspace(*STRIDE_RANGE, 5) for t in np.linspace(*TURN_RANGE, 9)]
 FACING_COST = 0.08  # metres of distance one radian of bearing error is worth
+# Score "delta": b's offset from the predicted end pose, ahead (delta_x) and to the left (delta_y), with no
+# distance or bearing term; a metre sideways costs SIDE_WEIGHT metres ahead.
+SCORES = ("polar", "delta")
+SIDE_WEIGHT = 2.0
 
 
 def motion_rows(cycles):
@@ -52,7 +56,10 @@ class DynamicsPlanner:
     name = "tabpfn-planner"
     labels = MOTION
 
-    def __init__(self, context, device="cpu", n_estimators=4, seed=0):
+    def __init__(self, context, device="cpu", n_estimators=4, seed=0, score="polar"):
+        if score not in SCORES:
+            raise ValueError("unknown planner score: " + score)
+        self.score = score
         X = context[FEATURES].to_numpy(np.float32)
         self.models = {label: fit_regressor(X, context[label], device, n_estimators, seed) for label in MOTION}
 
@@ -73,7 +80,10 @@ class DynamicsPlanner:
             rf, rl = tf - m[:, 0], tl - m[:, 1]
             c, s = np.cos(m[:, 2]), np.sin(m[:, 2])
             ef, el = c * rf + s * rl, -s * rf + c * rl
-            cost = np.hypot(ef, el) + FACING_COST * np.abs(np.arctan2(el, ef))
+            if self.score == "delta":  # ef, el are delta_x, delta_y seen from the predicted end pose
+                cost = np.hypot(ef, SIDE_WEIGHT * el)
+            else:
+                cost = np.hypot(ef, el) + FACING_COST * np.abs(np.arctan2(el, ef))
             best = cands[int(np.argmin(cost))]
             out.append((float(best[0]), float(best[1])))
         return np.array(out)

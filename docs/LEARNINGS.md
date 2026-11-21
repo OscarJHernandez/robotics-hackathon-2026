@@ -43,6 +43,10 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Oscar's agent): Scoring the planner's candidates by b's offset only (`--score delta`, no bearing
+  term) fails every target more than 90 degrees off the heading (10 of 20 reached): it looks one cycle ahead,
+  and a turn on the spot does not bring b closer, so it never turns around. The bearing term in the `polar`
+  score is what makes it turn. On targets ahead, `delta` was slightly straighter (0.96 against 0.94).
 - 2026-11-21 (Oscar's agent): Giving the `goal` controller b's body-frame offset (`delta_x` ahead, `delta_y`
   left) next to distance and bearing raised directness from 0.77 to 0.84 (`fit()` only, same 150 rows); the
   deltas alone gave 0.73. The gain is on targets behind or beside the robot, where it now turns on the spot
