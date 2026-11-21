@@ -29,6 +29,10 @@ in the same pull request as the work.
 
 ## Hardware and robot
 
+- 2026-11-21 (Nodir's agent): The robot camera sits about 15 cm above the floor, so it cannot see a 75 cm
+  desk or table top. For the lost-item finder, Nodir decided all objects lie on the floor around the
+  furniture (see [routines.md](routines.md)) rather than raising the camera, which would no longer match the
+  real JetHexa.
 - 2026-11-21 (Oscar's agent): The real JetHexa gives less than the sensor list suggests. Its microphone board
   exposes one denoised mono 16 kHz channel plus a wake direction, not six raw channels. The servos report
   position, temperature and voltage, but no load, current or velocity, and the vendor `joint_states` topic
@@ -91,6 +95,9 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-21 (Nodir's agent): The lost-item zone model (found or not found per zone, [routines.md](routines.md))
+  can also learn from the robot's own "checked here, not found" results as rows. Add them only once
+  detection is reliable, because a miss can be a detection failure.
 - 2026-11-21 (Oscar's agent): DINOv3 image features for the nav table are planned but not done: the weights
   are gated on Hugging Face (Oscar has to accept the licence and log in). The camera pictures are already
   recorded per cycle (`just collect --images`), so features can be added later without re-collecting.
