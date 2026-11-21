@@ -311,28 +311,77 @@ class SearchTest(unittest.TestCase):
         b = self.S.beliefs(self.flat, 14.0, 1, None, self.habits, [])  # Tuesday afternoon
         self.assertGreater(b["habits"]["out"], 0.5)
 
-    def test_plan_is_the_best_order_and_after_miss_renormalizes(self):
+    def test_plan_goes_from_the_most_to_the_least_likely_zone(self):
+        probs = {"bedroom": 0.1, "living_room": 0.5, "dining_area": 0.12, "kitchen": 0.2, "hallway": 0.03, "out": 0.05}
+        for i in range(20):  # whatever the floor plan, distance does not change the order
+            order, expected = self.S.plan(make_flat(i), probs)
+            self.assertEqual(order, ["living_room", "kitchen", "dining_area", "bedroom", "hallway"])
+            self.assertAlmostEqual(expected, self.S.expected_metres(make_flat(i), order, probs))
+
+    def test_a_tie_goes_to_the_nearer_zone(self):
+        probs = {c: 0.2 for c in F.ZONE_NAMES}
+        probs["out"] = 0.0
+        self.assertEqual(self.S.plan(self.flat, probs)[0], self.S.nearest_first(self.flat))
+
+    def test_plan_shortest_has_the_fewest_expected_metres(self):
         import itertools
         probs = {"bedroom": 0.1, "living_room": 0.5, "dining_area": 0.1, "kitchen": 0.2, "hallway": 0.05, "out": 0.05}
-        order, expected = self.S.plan(self.flat, probs)
+        order, expected = self.S.plan_shortest(self.flat, probs)
         self.assertEqual(sorted(order), sorted(F.ZONE_NAMES))
         for other in itertools.permutations(F.ZONE_NAMES):
-            cost = sum(probs[z] * self.S.walk(self.flat, list(other), z)[0] for z in F.ZONE_NAMES) \
-                + probs["out"] * self.S.walk(self.flat, list(other), "out")[0]
-            self.assertGreaterEqual(cost, expected - 1e-6)
-        rest = self.S.after_miss(probs, "living_room")
-        self.assertEqual(rest["living_room"], 0.0)
-        self.assertAlmostEqual(sum(rest.values()), 1.0)
-        self.assertAlmostEqual(rest["kitchen"], 0.4)
+            self.assertGreaterEqual(self.S.expected_metres(self.flat, list(other), probs), expected - 1e-6)
+        self.assertLessEqual(expected, self.S.plan(self.flat, probs)[1] + 1e-6)
 
-    def test_a_sure_belief_goes_there_without_a_detour(self):
-        # A zone on the way may be looked at first (the hallway, by the dock), but the walk is no longer.
-        for i in range(20):
-            flat = make_flat(i)
-            for zone in F.ZONE_NAMES:
-                probs = {c: (0.99 if c == zone else 0.002) for c in F.CLASSES}
-                walked, _ = self.S.walk(flat, self.S.plan(flat, probs)[0], zone)
-                self.assertLessEqual(walked, F.distance(flat, "dock", zone) + 0.1)
+    def test_after_a_miss_the_zone_is_ruled_out_or_only_less_likely(self):
+        probs = {"bedroom": 0.1, "living_room": 0.5, "dining_area": 0.1, "kitchen": 0.2, "hallway": 0.05, "out": 0.05}
+        sure = self.S.after_miss(probs, "living_room")  # a look that cannot miss
+        self.assertEqual(sure["living_room"], 0.0)
+        self.assertAlmostEqual(sum(sure.values()), 1.0)
+        self.assertAlmostEqual(sure["kitchen"], 0.4)
+        soft = self.S.after_miss(probs, "living_room", miss_rate=0.2)  # the robot overlooks her 1 time in 5
+        self.assertAlmostEqual(sum(soft.values()), 1.0)
+        self.assertAlmostEqual(soft["living_room"], 0.5 * 0.2 / (1 - 0.5 * 0.8))
+        self.assertAlmostEqual(soft["kitchen"], 0.2 / (1 - 0.5 * 0.8))
+        self.assertTrue(0.0 < soft["living_room"] < probs["living_room"])
+
+    def test_the_mock_observation_never_sees_her_in_the_wrong_zone(self):
+        rng = np.random.default_rng(0)
+        self.assertFalse(any(self.S.observe("kitchen", "bedroom", rng, 0.2) for _ in range(200)))
+        self.assertFalse(any(self.S.observe("kitchen", "out", rng, 0.2) for _ in range(200)))
+        seen = np.mean([self.S.observe("kitchen", "kitchen", rng, 0.2) for _ in range(4000)])
+        self.assertAlmostEqual(seen, 0.8, delta=0.03)
+        self.assertTrue(all(self.S.observe("kitchen", "kitchen", rng, 0.0) for _ in range(50)))
+
+    def test_the_loop_with_a_perfect_sensor_follows_the_plan_and_finds_her(self):
+        probs = {"bedroom": 0.1, "living_room": 0.5, "dining_area": 0.12, "kitchen": 0.2, "hallway": 0.03, "out": 0.05}
+        order = self.S.plan(self.flat, probs)[0]
+        for truth in F.ZONE_NAMES:
+            steps = self.S.run(self.flat, probs, truth, np.random.default_rng(1), miss_rate=0.0)
+            self.assertEqual([s["zone"] for s in steps], order[:order.index(truth) + 1])
+            self.assertTrue(steps[-1]["seen"])
+            self.assertAlmostEqual(steps[-1]["metres"], self.S.walk(self.flat, order, truth)[0])
+            for s in steps:
+                self.assertAlmostEqual(sum(s["belief_after"].values()), 1.0)
+
+    def test_the_loop_comes_back_after_a_false_negative(self):
+        probs = {"bedroom": 0.05, "living_room": 0.7, "dining_area": 0.1, "kitchen": 0.1, "hallway": 0.03, "out": 0.02}
+        came_back = found = 0
+        for seed in range(300):
+            steps = self.S.run(self.flat, probs, "living_room", np.random.default_rng(seed), miss_rate=0.2)
+            zones = [s["zone"] for s in steps]
+            self.assertEqual(zones[0], "living_room")
+            self.assertEqual(sum(s["seen"] for s in steps), int(steps[-1]["seen"]))  # the search ends when she is seen
+            found += steps[-1]["seen"]
+            came_back += steps[-1]["seen"] and zones.count("living_room") > 1
+        self.assertGreater(came_back, 20)  # about 1 search in 5 misses her at first and returns
+        self.assertGreater(found, 290)
+
+    def test_the_loop_ends_with_nobody_home_when_she_is_out(self):
+        probs = {"bedroom": 0.1, "living_room": 0.3, "dining_area": 0.1, "kitchen": 0.1, "hallway": 0.05, "out": 0.35}
+        steps = self.S.run(self.flat, probs, "out", np.random.default_rng(3), miss_rate=0.2)
+        self.assertFalse(any(s["seen"] for s in steps))
+        self.assertGreaterEqual(steps[-1]["belief_after"]["out"], self.S.STOP_OUT)
+        self.assertLess(len(steps), self.S.MAX_LOOKS)
 
 
 if __name__ == "__main__":

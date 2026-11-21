@@ -15,38 +15,38 @@
    "zones_checked": 2.12
   },
   "population": {
-   "metres": 6.72,
-   "zones_checked": 3.07,
+   "metres": 8.74,
+   "zones_checked": 2.13,
    "belief_top1": 0.383,
    "log_loss": 1.513
   },
   "habits": {
-   "metres": 6.69,
-   "zones_checked": 2.98,
+   "metres": 8.54,
+   "zones_checked": 2.09,
    "belief_top1": 0.507,
    "log_loss": 1.343
   },
   "journal": {
-   "metres": 6.38,
-   "zones_checked": 2.82,
+   "metres": 7.81,
+   "zones_checked": 1.87,
    "belief_top1": 0.541,
    "log_loss": 1.213
   },
   "full": {
-   "metres": 5.63,
-   "zones_checked": 2.13,
+   "metres": 6.55,
+   "zones_checked": 1.54,
    "belief_top1": 0.72,
    "log_loss": 0.766
   },
-  "full_no_plan": {
-   "metres": 6.61,
-   "zones_checked": 1.54
-  },
   "oracle": {
-   "metres": 6.14,
-   "zones_checked": 2.56,
+   "metres": 7.56,
+   "zones_checked": 1.78,
    "belief_top1": 0.569,
    "log_loss": 1.097
+  },
+  "shortest": {
+   "metres": 5.63,
+   "zones_checked": 2.13
   }
  },
  "not_heard_yet": {
@@ -65,38 +65,38 @@
    "zones_checked": 2.97
   },
   "population": {
-   "metres": 6.83,
-   "zones_checked": 3.11,
+   "metres": 9.1,
+   "zones_checked": 2.23,
    "belief_top1": 0.367,
    "log_loss": 1.553
   },
   "habits": {
-   "metres": 6.78,
-   "zones_checked": 3.01,
+   "metres": 8.97,
+   "zones_checked": 2.22,
    "belief_top1": 0.486,
    "log_loss": 1.39
   },
   "journal": {
-   "metres": 6.4,
-   "zones_checked": 2.82,
+   "metres": 8.11,
+   "zones_checked": 1.94,
    "belief_top1": 0.532,
    "log_loss": 1.233
   },
   "full": {
-   "metres": 6.4,
-   "zones_checked": 2.82,
+   "metres": 8.11,
+   "zones_checked": 1.94,
    "belief_top1": 0.532,
    "log_loss": 1.233
   },
-  "full_no_plan": {
-   "metres": 8.24,
-   "zones_checked": 1.94
-  },
   "oracle": {
-   "metres": 6.16,
-   "zones_checked": 2.57,
+   "metres": 7.91,
+   "zones_checked": 1.86,
    "belief_top1": 0.541,
    "log_loss": 1.129
+  },
+  "shortest": {
+   "metres": 6.4,
+   "zones_checked": 2.82
   }
  },
  "heard_recently": {
@@ -115,38 +115,38 @@
    "zones_checked": 1.24
   },
   "population": {
-   "metres": 6.61,
-   "zones_checked": 3.03,
+   "metres": 8.36,
+   "zones_checked": 2.02,
    "belief_top1": 0.4,
    "log_loss": 1.47
   },
   "habits": {
-   "metres": 6.6,
-   "zones_checked": 2.96,
+   "metres": 8.1,
+   "zones_checked": 1.95,
    "belief_top1": 0.53,
    "log_loss": 1.293
   },
   "journal": {
-   "metres": 6.35,
-   "zones_checked": 2.82,
+   "metres": 7.51,
+   "zones_checked": 1.81,
    "belief_top1": 0.551,
    "log_loss": 1.191
   },
   "full": {
-   "metres": 4.84,
-   "zones_checked": 1.41,
+   "metres": 4.93,
+   "zones_checked": 1.13,
    "belief_top1": 0.918,
    "log_loss": 0.272
   },
-  "full_no_plan": {
-   "metres": 4.92,
-   "zones_checked": 1.13
-  },
   "oracle": {
-   "metres": 6.13,
-   "zones_checked": 2.55,
+   "metres": 7.19,
+   "zones_checked": 1.69,
    "belief_top1": 0.597,
    "log_loss": 1.063
+  },
+  "shortest": {
+   "metres": 4.84,
+   "zones_checked": 1.41
   }
  },
  "out": {

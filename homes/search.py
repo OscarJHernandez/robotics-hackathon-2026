@@ -1,7 +1,8 @@
 """Bayesian search: journal + habits + floor plan -> where to look for her, in which order.
 
     beliefs(flat, hour, weekday, population, habits, journal, last)   -> P(zone) and P(out), step by step
-    plan(flat, probs)                                                  -> the order to check the zones in
+    plan(flat, probs)                                                  -> the order to check the zones in:
+                                                                          most likely first
     after_miss(probs, zone)                                            -> P(zone) once a zone was checked, nobody there
 
 The belief is counting with Bayes' rule, no model to train:
@@ -14,8 +15,11 @@ The belief is counting with Bayes' rule, no model to train:
 4. Last heard: if the newest record is from this same part of today, she has most likely not moved. Bayes' rule
    with the chance that the record was logged in the wrong zone (10%, to a neighbouring zone).
 
-The floor plan turns the belief into a search: `plan` tries every order of the zones and keeps the one with the
-fewest expected metres walked from the dock until she is found. Needs only numpy.
+The search goes where she most probably is: `plan` checks the zones from the most to the least likely. Distance does
+not change the order (only a tie, within 1 point, goes to the nearer zone). After a miss, `after_miss` gives the
+checked zone's probability to the others, so the next zone is again the most likely one. The floor plan defines the
+zones, the viewing poses and the path; `walk` measures the metres. `plan_shortest` (fewest expected metres, which can
+put a near, less likely zone first) is kept only as a comparison. Needs only numpy.
 """
 
 import itertools
@@ -29,6 +33,9 @@ from residents import slot_of
 # with the lowest log loss on the check-ins of TRAIN residents (counting, not model training).
 WEIGHTS = {"population": 8.0, "habit": 2.0, "outing": 32.0}
 MISPLACED = 0.1  # share of records logged in a neighbouring zone (HEARD_MISPLACED in generate.py)
+MISS_RATE = 0.2  # the mock observation: chance that the robot looks at the zone she is in and does not see her
+STOP_OUT = 0.95  # the loop ends with "nobody home" once the belief in `out` reaches this
+MAX_LOOKS = 12  # and gives up after this many looks
 NIGHT = {"bedroom": 0.85, "kitchen": 0.15}  # no records at night (22:30-07:00): a stated default
 STAGES = ("population", "habits", "journal", "last_heard")
 
@@ -116,8 +123,36 @@ _ORDERS = np.array(list(itertools.permutations(range(1, len(ZONE_NAMES) + 1))))
 
 
 def plan(flat, probs):
-    """The order of zones with the fewest expected metres until she is found, starting at the dock.
-    Returns (order, expected metres). If she is out, every zone gets checked."""
+    """The search order: the most likely zone first, then the next most likely, and so on. A tie (within 1 point)
+    goes to the zone nearer to where the robot is. Returns (order, expected metres until she is found)."""
+    order, at = [], "dock"
+    left = [z["name"] for z in flat["zones"]]
+    while left:
+        at = next_zone(flat, probs, at, among=left)
+        order.append(at)
+        left.remove(at)
+    return order, expected_metres(flat, order, probs)
+
+
+def next_zone(flat, probs, at="dock", among=None):
+    """Where to look next: the most likely zone under the current belief. A tie (within 1 point) goes to the zone
+    nearer to `at`, where the robot is. `among` limits the choice (the zones not checked yet)."""
+    names, dist = distances(flat)
+    among = list(among) if among is not None else names[1:]
+    top = max(probs.get(n, 0.0) for n in among)
+    tied = [n for n in among if probs.get(n, 0.0) >= top - 0.01]
+    return min(tied, key=lambda n: dist[names.index(at), names.index(n)])
+
+
+def expected_metres(flat, order, probs):
+    """Expected metres walked from the dock until she is found (the whole round if she is out)."""
+    total = sum(probs.get(z, 0.0) * walk(flat, order, z)[0] for z in order)
+    return total + probs.get("out", 0.0) * walk(flat, order, "out")[0]
+
+
+def plan_shortest(flat, probs):
+    """For comparison only: the order with the fewest expected metres, which may check a near, less likely zone
+    first. Returns (order, expected metres)."""
     names, dist = distances(flat)
     legs = dist[np.c_[np.zeros(len(_ORDERS), int), _ORDERS[:, :-1]], _ORDERS]
     walked = np.cumsum(legs, axis=1)  # metres walked when arriving at the i-th zone of each order
@@ -125,11 +160,6 @@ def plan(flat, probs):
     expected = (walked * p[_ORDERS]).sum(axis=1) + probs.get("out", 0.0) * walked[:, -1]
     best = int(np.argmin(expected))
     return [names[i] for i in _ORDERS[best]], float(expected[best])
-
-
-def likeliest_first(flat, probs):
-    """The zones from the most to the least likely: uses the belief but not the floor plan."""
-    return sorted((z["name"] for z in flat["zones"]), key=lambda n: -probs.get(n, 0.0))
 
 
 def nearest_first(flat, first=None):
@@ -157,10 +187,51 @@ def walk(flat, order, truth):
     return metres, len(order)
 
 
-def after_miss(probs, checked):
-    """The belief once `checked` was looked at and she was not there: it drops to 0, the rest share its part."""
-    rest = {k: v for k, v in probs.items() if k != checked}
-    total = sum(rest.values())
-    out = {k: v / total for k, v in rest.items()}
-    out[checked] = 0.0
+def after_miss(probs, checked, miss_rate=0.0):
+    """The belief once `checked` was looked at and she was not seen there (Bayes' rule).
+
+    `miss_rate` is the chance that the robot overlooks her when she is in the zone it looks at. With 0 the zone is
+    ruled out and the rest share its part. Above 0 the zone only becomes less likely:
+    P(zone | not seen) = P(zone) * miss_rate / (1 - P(zone) * (1 - miss_rate)), and the others grow by the same
+    factor 1 / (1 - P(zone) * (1 - miss_rate)). So a zone can become the most likely one again later."""
+    seen_chance = probs.get(checked, 0.0) * (1.0 - miss_rate)  # P(she is there and the robot sees her)
+    rest = 1.0 - seen_chance
+    out = {k: v / rest for k, v in probs.items()}
+    out[checked] = probs.get(checked, 0.0) * miss_rate / rest
     return out
+
+
+# --- the loop: proposal -> observation -> update -> next zone, until found ---
+
+def observe(zone, truth, rng, miss_rate=MISS_RATE):
+    """The mock observation: the robot looks at `zone`. True when it sees her. It never sees her where she is not
+    (no false alarms); when she is there it overlooks her with probability `miss_rate` (a false negative)."""
+    return zone == truth and rng.random() >= miss_rate
+
+
+def run(flat, probs, truth, rng, miss_rate=MISS_RATE, max_looks=MAX_LOOKS, stop_out=STOP_OUT, update_rate=None):
+    """The whole search: pick the most likely zone, walk there, look, update the belief, repeat.
+
+    probs: the starting belief (the final step of beliefs()). truth: the zone she is in, or "out".
+    Ends when she is seen, when the belief in `out` reaches `stop_out` (nobody home), or after `max_looks` looks.
+    `update_rate` is the miss rate the robot assumes in its update (default: the true `miss_rate`); 0 makes it
+    treat every miss as certain, which is the mistake the loop is there to avoid.
+    Returns one dict per look: zone, p_before (the zone's probability when it was picked), belief_before, seen,
+    belief_after, metres (walked so far)."""
+    assumed = miss_rate if update_rate is None else update_rate
+    names, dist = distances(flat)
+    belief, at, metres, steps = dict(probs), "dock", 0.0, []
+    while len(steps) < max_looks and belief.get("out", 0.0) < stop_out:
+        open_zones = [n for n in names[1:] if belief.get(n, 0.0) > 1e-9]
+        if not open_zones:  # every zone ruled out: nobody home
+            break
+        zone = next_zone(flat, belief, at, among=open_zones)
+        metres += float(dist[names.index(at), names.index(zone)])
+        seen = bool(observe(zone, truth, rng, miss_rate))
+        after = {c: (1.0 if c == zone else 0.0) for c in belief} if seen else after_miss(belief, zone, assumed)
+        steps.append({"zone": zone, "p_before": belief[zone], "belief_before": belief, "seen": seen,
+                      "belief_after": after, "metres": metres})
+        belief, at = after, zone
+        if seen:
+            break
+    return steps

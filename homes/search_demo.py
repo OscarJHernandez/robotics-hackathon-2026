@@ -12,16 +12,12 @@ import argparse
 import json
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import numpy as np
 
 import search as S  # noqa: E402
+import search_figure  # noqa: E402
 from flats import CLASSES, LABELS  # noqa: E402
 from generate import build  # noqa: E402
-from render import draw  # noqa: E402
 from residents import SLOTS, stated_habits, zone_probs  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "data"
@@ -31,12 +27,12 @@ STRATEGIES = (
     ("random", "Random order"),
     ("nearest", "Nearest zone first (floor plan only)"),
     ("last", "Last heard first, then nearest"),
-    ("population", "Belief: population only"),
-    ("habits", "Belief: + her stated habits"),
-    ("journal", "Belief: + her journal"),
-    ("full", "Belief: + last heard  (the full search)"),
-    ("full_no_plan", "Full belief, likeliest zone first (no floor plan)"),
-    ("oracle", "Her true routine, planned (the best possible)"),
+    ("population", "Most likely first: population only"),
+    ("habits", "Most likely first: + stated habits"),
+    ("journal", "Most likely first: + journal"),
+    ("full", "Most likely first: + last heard  (the search)"),
+    ("oracle", "Most likely first: her true routine (best possible)"),
+    ("shortest", "Comparison: full belief, fewest expected metres"),
 )
 DAYS_DEFAULT = 30  # 4 weeks of journal (days 0-27), then 2 test days
 
@@ -91,16 +87,17 @@ def cases(out, population):
                   "nearest": S.nearest_first(flat), "last": S.nearest_first(flat, last[0] if last else None),
                   "population": S.plan(flat, b["population"])[0], "habits": S.plan(flat, b["habits"])[0],
                   "journal": S.plan(flat, b["journal"])[0], "full": S.plan(flat, b["last_heard"])[0],
-                  "full_no_plan": S.likeliest_first(flat, b["last_heard"]), "oracle": S.plan(flat, b["oracle"])[0]}
+                  "shortest": S.plan_shortest(flat, b["last_heard"])[0], "oracle": S.plan(flat, b["oracle"])[0]}
         rows.append({"flat": flat, "persona": p, "habits": habits, "diary": mine, "hour": float(r.hour),
                      "weekday": int(r.weekday), "slot": int(r.slot), "day": int(r.day), "last": last,
                      "truth": r.zone, "beliefs": b, "orders": orders, "recent": same_part_of_today(r.hour, last),
+                     "here": (float(r.x), float(r.y)),
                      "walks": {k: S.walk(flat, o, r.zone) for k, o in orders.items()}})
     return rows
 
 
 BELIEF_OF = {"population": "population", "habits": "habits", "journal": "journal", "full": "last_heard",
-             "full_no_plan": "last_heard", "oracle": "oracle"}
+             "oracle": "oracle"}
 
 
 def table(rows):
@@ -114,21 +111,21 @@ def table(rows):
     for key, title, group in groups:
         home = [r for r in group if r["truth"] != "out"]
         lines += ["", "{} — {} check-ins, {} with her at home".format(title, len(group), len(home)),
-                  "{:<52}{:>9}{:>15}{:>12}{:>10}".format("Strategy", "metres", "zones checked", "belief top", "log loss")]
+                  "{:<54}{:>15}{:>9}{:>12}{:>10}".format("Strategy", "zones checked", "metres", "belief top", "log loss")]
         result[key] = {"check_ins": len(group), "at_home": len(home)}
         for name, label in STRATEGIES:
             metres = float(np.mean([r["walks"][name][0] for r in home]))
             checked = float(np.mean([r["walks"][name][1] for r in home]))
             entry = {"metres": round(metres, 2), "zones_checked": round(checked, 2)}
             tail = "{:>12}{:>10}".format("", "")
-            if name in BELIEF_OF and name != "full_no_plan":
+            if name in BELIEF_OF:
                 stage = BELIEF_OF[name]
                 hit = float(np.mean([max(r["beliefs"][stage], key=r["beliefs"][stage].get) == r["truth"] for r in group]))
                 loss = float(-np.mean([np.log(max(r["beliefs"][stage][r["truth"]], 1e-6)) for r in group]))
                 entry.update(belief_top1=round(hit, 3), log_loss=round(loss, 3))
                 tail = "{:>11.0f}%{:>10.2f}".format(100 * hit, loss)
             result[key][name] = entry
-            lines.append("{:<52}{:>9.1f}{:>15.2f}{}".format(label, metres, checked, tail))
+            lines.append("{:<54}{:>15.2f}{:>9.1f}{}".format(label, checked, metres, tail))
     said = np.array([r["beliefs"]["last_heard"]["out"] > 0.5 for r in rows])
     is_out = np.array([r["truth"] == "out" for r in rows])
     result["out"] = {"share_out": round(float(is_out.mean()), 3),
@@ -156,7 +153,7 @@ def pick(rows):
         return r["beliefs"]["last_heard"]
 
     wanted = (
-        ("Her habits point the way",
+        ("The stated habits point the way",
          lambda r: not r["recent"] and clear(r) and far(r) and r["truth"] == r["orders"]["full"][0]
          and top(r["beliefs"]["population"]) != r["truth"] and top(r["beliefs"]["habits"]) == r["truth"]),
         ("The journal overrules the stated habit",
@@ -165,9 +162,9 @@ def pick(rows):
         ("Heard a moment ago",
          lambda r: r["recent"] and clear(r, 0.6) and r["last"][0] == r["truth"] == r["orders"]["full"][0]
          and top(r["beliefs"]["journal"]) != r["truth"]),
-        ("The floor plan changes the order",
-         lambda r: not r["recent"] and clear(r) and r["truth"] == r["orders"]["full"][0] != top(final(r))
-         and r["walks"]["full_no_plan"][0] - r["walks"]["full"][0] > 2.0),
+        ("Last heard is old news",
+         lambda r: not r["recent"] and r["last"] is not None and r["last"][0] not in ("out", r["truth"])
+         and clear(r, 0.35) and r["truth"] == r["orders"]["full"][0] and r["last"][1] > 120),
         ("First guess wrong, then the belief is updated",
          lambda r: not r["recent"] and clear(r, 0.35) and r["orders"]["full"][0] == top(final(r))
          and r["truth"] == r["orders"]["full"][1] and final(r)[r["truth"]] > 0.15),
@@ -177,11 +174,51 @@ def pick(rows):
     chosen, used = [], set()
     for title, test in wanted:
         for r in rows:
-            if r["persona"]["resident_id"] not in used and test(r):
+            if r["persona"]["name"] not in used and test(r):  # a different name in every example
                 chosen.append((title, r))
-                used.add(r["persona"]["resident_id"])
+                used.add(r["persona"]["name"])
                 break
     return chosen
+
+
+def story(title, r):
+    """One sentence that says what the example shows, in numbers."""
+    name, b, flat = r["persona"]["name"], r["beliefs"], r["flat"]
+    wk = "1" if r["weekday"] >= 5 else "0"
+    part = "{} {}s".format("weekend" if wk == "1" else "weekday", SLOTS[r["slot"]])
+    habit = r["habits"]["usual"][wk][r["slot"]]
+    order, truth = r["orders"]["full"], r["truth"]
+    pct = lambda stage, z: "{:.0f}%".format(100 * b[stage][z])  # noqa: E731
+    low = lambda z: NAMES[z].lower()  # noqa: E731
+    if title.startswith("The stated habits"):
+        return ("The form says {} on {}, where most people are in the {}. The search trusts the form, "
+                "goes to the {} first and finds {}.".format(low(habit), part, low(top(b["population"])), low(order[0]),
+                                                            name))
+    if title.startswith("The journal"):
+        d = r["diary"]
+        same = d[(d["slot"] == r["slot"]) & ((d["weekday"] >= 5) == (wk == "1"))]
+        n = int((same["zone"] == habit).sum())
+        return ("The form says {}, but {} was there on only {} of {} {}. The journal lowers the {} from {} to {}; "
+                "{} is in the {}.".format(low(habit), name, n, len(same), part, low(habit), pct("habits", habit),
+                                          pct("journal", habit), name, low(truth)))
+    if title.startswith("Heard"):
+        return ("{} was heard in the {} {} ago, in this same part of the day, so the {} jumps from {} to {}."
+                .format(name, low(r["last"][0]), search_figure.ago(r["last"][1]), low(r["last"][0]),
+                        pct("journal", r["last"][0]), pct("last_heard", r["last"][0])))
+    if title.startswith("Last heard"):
+        return ("{} was last heard in the {}, but {} ago, in an earlier part of the day. Bayes' rule gives that little "
+                "weight; the search goes to the most likely zone, the {} ({}), and finds {} there.".format(
+                    name, low(r["last"][0]), search_figure.ago(r["last"][1]), low(order[0]), pct("last_heard", order[0]),
+                    name))
+    if title.startswith("First guess"):
+        after = S.after_miss(b["last_heard"], order[0])
+        return ("The {} is the best bet ({}), but {} is not there. Its share moves to the rest: the {} rises "
+                "from {} to {:.0f}%, and {} is there.".format(low(order[0]), pct("last_heard", order[0]), name,
+                                                              low(order[1]), pct("last_heard", order[1]),
+                                                              100 * after[order[1]], name))
+    return ("{}'s form lists a regular outing on {} {}s, so the belief says {} not home. "
+            "Knock could phone first instead of walking the whole flat.".format(
+                name, DAYS[r["weekday"]], SLOTS[r["slot"]], pct("last_heard", "out")))
 
 
 def describe(title, r):
@@ -218,7 +255,7 @@ def describe(title, r):
         lines.append("  {:<13}{:>10.0f}%{:>8.0f}%{:>9.0f}%{:>11.0f}%".format(
             NAMES[c], *[100 * b[s][c] for s in S.STAGES]))
     order = r["orders"]["full"]
-    lines += ["", "SEARCH ORDER (fewest expected metres from the dock)"]
+    lines += ["", "SEARCH ORDER (most likely zone first)"]
     probs, metres, at = dict(b["last_heard"]), 0.0, "dock"
     names, dist = S.distances(flat)
     for n, name in enumerate(order, start=1):
@@ -232,27 +269,8 @@ def describe(title, r):
     if r["truth"] == "out":
         lines.append("  Nobody home. The belief said out {:.0f}% before the robot started.".format(
             100 * b["last_heard"]["out"]))
-    lines += ["", "Metres walked until found: this search {:.1f} · nearest first {:.1f} · last heard first {:.1f}".format(
-        r["walks"]["full"][0], r["walks"]["nearest"][0], r["walks"]["last"][0])]
-    return lines
-
-
-def figure(title, r, path):
-    lines = describe(title, r)
-    fig, (left, right) = plt.subplots(1, 2, figsize=(14, 7.4), gridspec_kw={"width_ratios": [1.1, 1]})
-    left.axis("off")
-    left.text(0.0, 1.0, "\n".join(lines), va="top", ha="left", family="monospace", fontsize=8.2,
-              transform=left.transAxes)
-    zones = {k: v for k, v in r["beliefs"]["last_heard"].items() if k != "out"}
-    order = r["orders"]["full"]
-    if r["truth"] in order:
-        order = order[:order.index(r["truth"]) + 1]  # the robot stops when it finds her
-    draw(right, r["flat"], title=False, probs=zones, order=order, truth=r["truth"])
-    right.set_title("Belief (darker = more likely), search path from the dock (green),\nand where she really was (star)",
-                    fontsize=9)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    fig.savefig(path, dpi=110)
-    plt.close(fig)
+    lines += ["", "Zones checked until found: this search {} · nearest first {} · last heard first {}".format(
+        r["walks"]["full"][1], r["walks"]["nearest"][1], r["walks"]["last"][1])]
     return lines
 
 
@@ -284,8 +302,8 @@ def main():
     for old in examples.glob("example_*.png"):
         old.unlink()
     for i, (title, r) in enumerate(pick(rows), start=1):
-        text = figure(title, r, examples / "example_{}.png".format(i))
-        print("\n" + "=" * 100 + "\n" + "\n".join(text))
+        search_figure.figure(title, story(title, r), r, examples / "example_{}.png".format(i))
+        print("\n" + "=" * 100 + "\n" + story(title, r) + "\n\n" + "\n".join(describe(title, r)))
     (data / "search_results.json").write_text(json.dumps(
         dict(result, residents_generated=args.residents, days=args.days, seed=args.seed, weights=S.WEIGHTS), indent=1))
     print("\nwrote", examples, "and", data / "search_results.json")
