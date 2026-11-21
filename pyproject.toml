@@ -13,6 +13,9 @@ dependencies = [
 package = false
 
 [dependency-groups]
+app = [
+    "pillow>=12.3.0",
+]
 # Walking from a to b with TabPFN (nav/): `uv run --group ml ...`, used by the just recipes that need it.
 ml = [
     "duckdb>=1.5.6",

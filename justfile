@@ -69,3 +69,11 @@ test-nav:
 # Live controller dashboard at http://127.0.0.1:8770 (rebuilds from the database on every load)
 dashboard port="8770":
     uv run --group ml python nav/live_dashboard.py --port {{ port }}
+
+# Build the web app's front end (app/web, made with Lovable) into app/web/dist
+app-build:
+    cd app/web && npm ci && npm run build
+
+# Run the web app (live simulation + metacon chat) at http://127.0.0.1:8790: just app 8790
+app port="8790":
+    uv run --group app python app/server.py --port {{ port }}
