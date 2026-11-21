@@ -12,3 +12,13 @@ Thumbs.db
 
 # Agent settings that are personal to one machine
 .claude/settings.local.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# MuJoCo
+MUJOCO_LOG.TXT
+# JetHexa meshes: downloaded by sim/fetch_meshes.py, no license, never commit
+sim/meshes/

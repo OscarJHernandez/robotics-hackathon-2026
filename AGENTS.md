@@ -33,4 +33,13 @@ Claude Code users: the `contribute` and `record-learning` skills in `.claude/ski
 
 ## Stack and commands
 
-Not decided yet. When the stack is chosen, record here how to install, run, test and lint the project.
+Python with [MuJoCo](https://mujoco.readthedocs.io/). The simulated JetHexa is in `sim/`; the full guide is
+[docs/simulation.md](docs/simulation.md).
+
+- Install: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`
+- Meshes (once, not committed): `.venv/bin/python sim/fetch_meshes.py`. Without them the sim falls back to
+  simple shapes.
+- Run: `.venv/bin/python sim/demo.py` (no window), or `.venv/bin/mjpython sim/demo.py --view` for the live
+  window (macOS needs `mjpython`; elsewhere use `python`).
+- Test: `.venv/bin/python -m unittest discover -s tests -v`
+- Lint: not set up yet.
