@@ -10,18 +10,26 @@
   --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
   --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
-  --good: #0ca30c; --good-text: #006300; --critical: #d03b3b; --bad-text: #b42f2f;
-  --notreached: #a9a8a1; --wash: rgba(42,120,214,0.08); --code: #f0efec;
+  --good: #0ca30c; --good-text: #006300; --warning: #b77d00; --warn-text: #8a5d00; --critical: #d03b3b; --bad-text: #b42f2f;
+  --notreached: #a9a8a1; --wash: rgba(42,120,214,0.08); --code: #f0efec; --ref: #52514e;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
     --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
     --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
     --s1: #3987e5; --s2: #d95926; --s3: #199e70;
-    --good: #0ca30c; --good-text: #0ca30c; --critical: #e66767; --bad-text: #e66767;
-    --notreached: #6b6a65; --wash: rgba(57,135,229,0.14); --code: #232322;
+    --good: #0ca30c; --good-text: #0ca30c; --warning: #c98500; --warn-text: #e0a020; --critical: #e66767; --bad-text: #e66767;
+    --notreached: #6b6a65; --wash: rgba(57,135,229,0.14); --code: #232322; --ref: #c3c2b7;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  --good: #0ca30c; --good-text: #0ca30c; --warning: #c98500; --warn-text: #e0a020; --critical: #e66767; --bad-text: #e66767;
+  --notreached: #6b6a65; --wash: rgba(57,135,229,0.14); --code: #232322; --ref: #c3c2b7;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--ink);
@@ -40,18 +48,11 @@ section.card { background: var(--surface); border: 1px solid var(--ring); border
 select { font: inherit; color: var(--ink); background: var(--page); border: 1px solid var(--axis);
   border-radius: 6px; padding: 3px 6px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(320px, 40%)), 1fr)); gap: 16px 22px; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-.tile { border: 1px solid var(--ring); border-radius: 8px; padding: 12px 14px; background: var(--page); }
-.tile .label { color: var(--ink-2); font-size: 13px; }
-.tile .value { font-size: 30px; font-weight: 600; margin: 2px 0; }
-.tile .value small { font-size: 13px; font-weight: 400; color: var(--ink-2); }
-.tile .cmp { font-size: 13px; color: var(--ink-2); display: grid; gap: 2px; }
-.tile .cmp span.key { display: inline-block; width: 10px; height: 2px; vertical-align: middle; margin-right: 6px; }
-.delta { font-size: 13px; }
-.delta.good { color: var(--good-text); } .delta.bad { color: var(--bad-text); } .delta.flat { color: var(--ink-2); }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px 22px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--ink-2); margin: 4px 0 8px; }
 .legend .sw { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
 .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
+.legend .box { display: inline-block; width: 12px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
 .chart { width: 100%; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart-title { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
@@ -59,14 +60,19 @@ select { font: inherit; color: var(--ink); background: var(--page); border: 1px 
 svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 svg text.axis-title { fill: var(--ink-2); font-size: 11px; }
 svg text.direct { fill: var(--ink-2); font-size: 11px; }
+svg text.cat { fill: var(--ink-2); font-size: 11.5px; }
+svg text.val { fill: var(--ink); font-size: 11px; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .gridline { stroke: var(--grid); stroke-width: 1; }
 .axisline { stroke: var(--axis); stroke-width: 1; }
 .table-wrap { overflow-x: auto; max-width: 100%; }
 table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
-th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; vertical-align: top; }
 th { color: var(--ink-2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-td.path { white-space: normal; word-break: break-all; min-width: 260px; font-size: 11.5px; color: var(--ink-2); }
+td.q { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink-2); }
+td.q b { color: var(--ink); font-weight: 600; }
+tr.best td { background: var(--wash); }
+tr.base td { color: var(--ink-2); }
 details { margin-top: 10px; } summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 .note { color: var(--ink-2); font-size: 13px; border-left: 3px solid var(--axis); padding: 4px 10px; margin: 8px 0; }
 .eps { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
@@ -76,111 +82,100 @@ details { margin-top: 10px; } summary { cursor: pointer; color: var(--ink-2); fo
 .ep.sel { border-color: var(--s1); box-shadow: 0 0 0 1px var(--s1); }
 .ep .cap { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
 .ep .cap b { color: var(--ink); font-weight: 600; }
-.pill { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--axis); }
+.pill { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--axis); color: var(--ink-2); margin-left: 6px; }
+.pill.best { border-color: var(--s1); color: var(--ink); }
+.kindkey { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 .status-ok::before { content: "\2713 "; color: var(--good-text); }
 .status-no::before { content: "\2717 "; color: var(--bad-text); }
 pre { background: var(--code); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: 12px; margin: 4px 0 12px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 #tip { position: fixed; pointer-events: none; z-index: 10; background: var(--surface); color: var(--ink);
   border: 1px solid var(--ring); border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.4;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.12); display: none; max-width: 280px; font-variant-numeric: tabular-nums; }
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12); display: none; max-width: 300px; font-variant-numeric: tabular-nums; }
 #tip .k { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
 .toc { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; margin: 0 0 16px; }
 .toc a { color: var(--s1); text-decoration: none; }
 .verdict { border-width: 2px; }
-.verdict .answer { font-size: 2rem; font-weight: 700; margin: .2rem 0 .4rem; }
+.verdict .answer { font-size: 1.7rem; font-weight: 700; margin: .2rem 0 .4rem; line-height: 1.25; }
 .verdict.working { border-color: var(--good); } .verdict.working .answer { color: var(--good-text); }
+.verdict.partly { border-color: var(--warning); } .verdict.partly .answer { color: var(--warn-text); }
 .verdict.not_working { border-color: var(--critical); } .verdict.not_working .answer { color: var(--bad-text); }
-.verdict.waiting .answer, .verdict.unclear .answer { color: var(--ink-2); }
-.verdict.unclear { border-color: var(--ring); }
-.checks { list-style: none; padding: 0; font-size: 1.05rem; } .checks li { margin: .35rem 0; }
+.verdict.waiting .answer { color: var(--ink-2); }
+.vs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 10px 0 6px; }
+.vs .tile { border: 1px solid var(--ring); border-radius: 8px; padding: 10px 12px; background: var(--page); }
+.vs .label { color: var(--ink-2); font-size: 13px; }
+.vs .value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vs .value small { font-size: 13px; font-weight: 400; color: var(--ink-2); }
+.vs .cmp { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.checks { list-style: none; padding: 0; font-size: 14px; max-width: 900px; } .checks li { margin: .35rem 0; }
 .checks li.ok::before { content: "\2713  "; color: var(--good-text); font-weight: 700; }
-.checks li.no::before { content: "\2717  "; color: var(--bad-text); font-weight: 700; }
-.more > summary { cursor: pointer; font-weight: 600; margin: 1.5rem 0 1rem; }
-.small { font-size: .85rem; color: var(--ink-2); }
+.checks li.no::before { content: "\2013  "; color: var(--ink-2); font-weight: 700; }
+.small { font-size: .85rem; color: var(--ink-2); max-width: 900px; }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1 id="title"></h1>
+    <h1 id="title">TabPFN controllers: walking from a to b</h1>
     <div class="meta" id="meta"></div>
     <nav class="toc">
-      <a href="#s-kpi">Latest round</a><a href="#s-progress">Progress across rounds</a>
-      <a href="#s-audit">Fine-tuning audit</a><a href="#s-regression">How the regression works</a>
-      <a href="#s-episodes">Episodes</a><a href="#s-inventory">Data inventory</a>
+      <a href="#s-answer">Answer</a><a href="#s-controllers">Controllers</a><a href="#s-compare">Comparison</a>
+      <a href="#s-regression">How the regression works</a><a href="#s-episodes">Episodes</a><a href="#s-inventory">Data inventory</a>
     </nav>
   </header>
 
-  <section class="card verdict" id="s-verdict">
-    <h2>Is the training working?</h2>
-    <p class="answer" id="v-headline"></p>
-    <p class="lead" id="v-detail"></p>
-    <ul class="checks" id="v-checks"></ul>
-    <p class="lead" id="v-base"></p>
-    <p class="small">How this is judged: the robot makes the same 20 test trips (never used for training) with the
-    trained model and with the untrained model, both given the same examples. It counts as progress only if the trained model is faster
-    on most trips and the gain is bigger than the trip-to-trip noise (95% likely range above zero). The page updates itself every 30 s.</p>
+  <section class="card verdict" id="s-answer">
+    <h2>Does TabPFN walk the robot from a to b?</h2>
+    <p class="answer" id="a-headline"></p>
+    <p class="lead" id="a-detail"></p>
+    <div class="vs" id="a-tiles"></div>
+    <ul class="checks" id="a-checks"></ul>
+    <p class="small">How this is judged: every controller walks the same 20 held-out a→b trips (never used as
+      examples), with a 40 s limit per trip and a 0.1 m success circle around b. The best controller is the one with
+      the straightest paths (highest mean directness). The hand-written baseline walks the same trips. A difference
+      counts only when the trip-by-trip 95% likely range excludes zero.</p>
   </section>
 
-  <details class="more"><summary>Details for checking the work (charts, training log, every trip, raw data)</summary>
-  <section class="card" id="s-kpi">
-    <h2>Latest round</h2>
-    <p class="lead" id="kpi-lead"></p>
-    <div class="tiles" id="kpis"></div>
+  <section class="card" id="s-controllers">
+    <h2>Controllers</h2>
+    <p class="lead">A controller is a set of recorded examples handed to TabPFN's built-in <code>fit()</code>; at
+      every 1 s gait cycle the robot calls <code>predict()</code>. No weights are trained. <b>Goal</b> controllers
+      map the goal (distance, bearing, horizon) straight to a command (stride, turn). <b>Planner</b> controllers
+      predict the body motion of 45 candidate commands and pick the one that gets closest to b. Prediction quality
+      is measured on held-out examples; the evaluation columns come from each controller's latest 20 test trips.
+      Best first, by directness.</p>
+    <div class="table-wrap" id="ctl-table"></div>
   </section>
 
-  <section class="card" id="s-progress">
-    <h2>Progress across rounds</h2>
-    <p class="lead">Each round is evaluated on the same 20 held-out a→b tasks. <b>Fine-tuned</b> uses that round's
-      fine-tuned weights; <b>pretrained</b> uses TabPFN's original weights with the same context rows, so the gap
-      between the two lines is what fine-tuning added. The hand-written <b>baseline</b> is evaluated once and drawn
-      as a flat reference.</p>
-    <div class="legend" id="progress-legend"></div>
-    <div class="grid2" id="progress"></div>
-    <details><summary>Show the numbers as a table</summary><div class="table-wrap" id="progress-table"></div></details>
-  </section>
-
-  <section class="card" id="s-audit">
-    <h2>Fine-tuning audit</h2>
-    <p class="lead">One row per round and output. Validation MSE is measured on held-out examples with the same
-      context rows before and after training, so the change comes from the weights alone. Weight change is how far
-      the weights moved from the start checkpoint.</p>
-    <div class="table-wrap" id="training-table"></div>
-    <div class="filters">
-      <label>Round <select id="audit-round"></select></label>
-      <label>Output <select id="audit-output"></select></label>
-    </div>
-    <div class="grid2">
-      <div><div class="chart-title">Training loss per step</div><div class="chart-sub">train/loss logged by the fine-tuner (lower is better)</div><div class="chart" id="loss-chart"></div></div>
-      <div><div class="chart-title">Validation MSE per epoch</div><div class="chart-sub">val/MSE logged by the fine-tuner on its own validation split, rad²</div><div class="chart" id="val-chart"></div></div>
-    </div>
+  <section class="card" id="s-compare">
+    <h2>Comparison</h2>
+    <p class="lead">Each bar is one controller's latest evaluation; the dashed line is the hand-written baseline on
+      the same trips. Directness is the straight-line distance divided by the path walked (1 = perfectly straight;
+      a trip that did not reach b counts as 0).</p>
+    <div class="legend" id="cmp-legend"></div>
+    <div class="grid3" id="compare"></div>
   </section>
 
   <section class="card" id="s-regression">
     <h2>How the regression works</h2>
-    <p class="lead">TabPFN is a regressor: given a goal (distance to b, bearing to b as sine and cosine, horizon in
-      cycles) it predicts the command, one model per output. <b>Start weights</b> are the weights the round began
-      from (TabPFN's original weights in round 0, the previous round's weights after that). Points on the dashed
-      y = x line are perfect predictions.</p>
-    <div class="filters">
-      <label>Round <select id="reg-round"></select></label>
-      <label>Output <select id="reg-output"></select></label>
-    </div>
-    <div class="grid2" id="scatter"></div>
-    <h3 style="margin-top:18px">Steering map: the command each model predicts for a goal</h3>
-    <p class="chart-sub" id="map-sub">Predicted command against the bearing to b (0° = straight ahead, + = b is to the left), one line per goal distance, for the selected round. Both outputs are shown.</p>
+    <p class="lead" id="reg-lead">TabPFN is a regressor with one model per output. Top: on held-out examples (from
+      episodes never given to <code>fit()</code>), what it predicted against what really happened; points on the
+      dashed y = x line are perfect predictions. Below: the steering map, the command the controller picks for a
+      robot at rest with b at each bearing.</p>
+    <div class="filters"><label>Controller <select id="reg-ctl"></select></label><span class="chart-sub" id="reg-info" style="margin:0"></span></div>
+    <div class="grid3" id="scatter"></div>
+    <h3 style="margin-top:18px">Steering map: the command picked for each goal</h3>
+    <p class="chart-sub">Command against the bearing to b (0° = straight ahead, + = b is to the left), robot at rest, one line per distance to b.</p>
     <div id="map"></div>
   </section>
 
   <section class="card" id="s-episodes">
     <h2>Episodes</h2>
-    <p class="lead">The 20 held-out evaluation tasks, seen from above. The dot with an arrow is the start and the
+    <p class="lead">The 20 held-out evaluation trips, seen from above. The dot with an arrow is the start and the
       robot's heading; the red dot is b with its 0.1 m success circle. Green paths reached b, grey paths did not.
-      Click a task to see every command the policy gave it.</p>
+      Click a trip to see every command it received.</p>
     <div class="filters">
-      <label>Policy <select id="ep-policy"></select></label>
-      <label>Round <select id="ep-round"></select></label>
+      <label>Controller <select id="ep-ctl"></select></label>
       <span class="chart-sub" id="ep-summary" style="margin:0"></span>
     </div>
     <div class="legend"><span><span class="sw" style="border-color:var(--good)"></span>reached b</span>
@@ -193,14 +188,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
   <section class="card" id="s-inventory">
     <h2>Data inventory</h2>
-    <p class="lead">Every run in the database. All charts above are computed from these tables; the queries below
-      reproduce them.</p>
+    <p class="lead" id="inv-lead">The runs behind this page: the random-walk runs the examples come from, and the
+      evaluation and demo runs of each controller.</p>
     <div class="table-wrap" id="runs-table"></div>
     <h3 style="margin-top:16px">Query it yourself</h3>
     <p class="chart-sub">Database: <code id="dbpath"></code>. In Python: <code>sys.path.insert(0, 'nav'); from db import query; query(sql)</code>, or <code>duckdb -readonly &lt;path&gt;</code>.</p>
     <div id="sql"></div>
   </section>
-  </details>
 </main>
 <div id="tip" role="tooltip"></div>
 
@@ -208,24 +202,17 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 <script>
 "use strict";
 const D = JSON.parse(document.getElementById("dashboard-data").textContent);
-(function verdictBanner() {
-  const v = D.verdict || {status: "waiting", headline: "Not known yet.", checks: []};
-  document.getElementById("s-verdict").classList.add(v.status);
-  document.getElementById("v-headline").textContent = v.headline;
-  document.getElementById("v-detail").textContent = v.detail || "";
-  const ul = document.getElementById("v-checks");
-  for (const c of v.checks) { const li = document.createElement("li"); li.className = c.ok ? "ok" : "no"; li.textContent = c.text; ul.appendChild(li); }
-  if (v.baseline) document.getElementById("v-base").textContent = "For reference, the hand-written controller reaches b on " +
-    Math.round(100 * v.baseline.success) + "% of the trips, in " + (v.baseline.cycles_reached ?? 0).toFixed(1) + " seconds on average.";
-})();
 const NS = "http://www.w3.org/2000/svg";
-const FT = "tabpfn-finetuned", PT = "tabpfn-pretrained", BL = "baseline";
-const POLICY = {
-  [FT]: {name: "fine-tuned", color: "var(--s1)"},
-  [PT]: {name: "pretrained (same context)", color: "var(--s2)"},
-  [BL]: {name: "baseline (hand-written)", color: "var(--muted)"},
+const KIND = {
+  goal: {name: "goal → command", color: "var(--s1)"},
+  planner: {name: "motion model + planner", color: "var(--s2)"},
 };
+const BASE_NAME = "baseline (hand-written)";
 const DIST_COLORS = ["var(--s1)", "var(--s2)", "var(--s3)"];
+const UNIT = {stride: "rad", turn: "rad", m_fwd: "m", m_left: "m", m_dyaw: "rad"};
+const OUT_NAME = {stride: "stride", turn: "turn (+ = left)", m_fwd: "forward motion per cycle",
+  m_left: "sideways motion per cycle (+ = left)", m_dyaw: "heading change per cycle (+ = left)"};
+const kindOf = k => KIND[k] || {name: k || "–", color: "var(--s3)"};
 
 // ---------- small helpers
 function h(tag, attrs, ...kids) {
@@ -255,7 +242,6 @@ function sig(v, n = 3) {
 const pct = v => isNum(v) ? (100 * v).toFixed(0) + "%" : "–";
 const fx = (v, d) => isNum(v) ? v.toFixed(d) : "–";
 const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-const roundLabel = r => r == null ? "–" : String(r);
 
 const tip = document.getElementById("tip");
 function showTip(ev, html) {
@@ -368,7 +354,7 @@ function intTicks(a, b) {
 function scatterChart(box, o) {
   box.innerHTML = "";
   const W = 400, H = 340, m = {l: 58, r: 14, t: 10, b: 40};
-  if (!o.points.length) { box.append(h("div", {class: "note"}, "No validation examples for this selection.")); return; }
+  if (!o.points.length) { box.append(h("div", {class: "note"}, "No held-out examples for this selection.")); return; }
   const [lo, hi] = o.domain, t = niceTicks(lo, hi, 5);
   const X = v => m.l + (v - t.lo) / (t.hi - t.lo) * (W - m.l - m.r);
   const Y = v => H - m.b - (v - t.lo) / (t.hi - t.lo) * (H - m.t - m.b);
@@ -389,7 +375,7 @@ function scatterChart(box, o) {
   o.points.forEach((p, i) => {
     const c = s("circle", {cx: X(p[0]), cy: Y(p[1]), r: 4, fill: o.color, "fill-opacity": 0.75, stroke: "var(--surface)", "stroke-width": 1.5});
     const hitc = s("circle", {cx: X(p[0]), cy: Y(p[1]), r: 8, fill: "transparent"});
-    hitc.addEventListener("mousemove", ev => showTip(ev, `actual ${sig(p[0], 4)} rad<br>predicted ${sig(p[1], 4)} rad<br>error ${sig(p[1] - p[0], 3)} rad`));
+    hitc.addEventListener("mousemove", ev => showTip(ev, `actual ${sig(p[0], 4)} ${o.unit || ""}<br>predicted ${sig(p[1], 4)} ${o.unit || ""}<br>error ${sig(p[1] - p[0], 3)} ${o.unit || ""}`));
     hitc.addEventListener("mouseleave", hideTip);
     dots.append(c, hitc);
   });
@@ -416,214 +402,206 @@ function fillSelect(sel, values, labels, keep) {
 }
 
 // ---------- data
-const M = D.meta;
-const summary = D.summary;
-const sumOf = (policy, round) => summary.find(r => r.policy === policy && (policy === BL || r.round === round));
-const evalRounds = [...new Set(summary.filter(r => r.policy !== BL && r.round != null).map(r => r.round))].sort((a, b) => a - b);
-const trainRounds = [...new Set(D.training.map(r => r.round))].sort((a, b) => a - b);
-const outputs = [...new Set(D.training.map(r => r.output))].sort();
-const ftRounds = summary.filter(r => r.policy === FT && r.round != null).map(r => r.round);
-const latest = ftRounds.length ? Math.max(...ftRounds) : (evalRounds.length ? Math.max(...evalRounds) : null);
+const M = D.meta, C = D.controllers, B = D.baseline;
+const tested = C.filter(c => c.eval);
+const best = tested.length ? tested[0] : null;
 
 // ---------- header
-document.getElementById("title").textContent = "Navigation training: " + M.model;
 document.getElementById("meta").append(
-  h("span", {}, "Model ", h("b", {}, M.model)),
+  h("span", {}, `${C.length} controller${C.length === 1 ? "" : "s"}${M.filter ? " (showing only " + M.filter + ")" : ""}`),
   h("span", {}, "Database ", h("code", {}, M.db)),
   h("span", {}, "Generated " + M.generated),
   h("span", {}, "Git commit " + (M.git_commits.length ? M.git_commits.join(", ") : "–")),
-  h("span", {}, `${trainRounds.length} training round${trainRounds.length === 1 ? "" : "s"}, ${D.episodes.length} evaluation episodes embedded`));
+  h("span", {}, `${D.episodes.length} evaluation episodes embedded`));
 document.getElementById("dbpath").textContent = M.db;
 
-// ---------- 1. KPI tiles
-(function kpis() {
-  const box = document.getElementById("kpis");
-  const lead = document.getElementById("kpi-lead");
-  if (latest == null) { lead.textContent = "No evaluation runs for this model yet."; return; }
-  const ft = sumOf(FT, latest), pt = sumOf(PT, latest), bl = sumOf(BL, null);
-  lead.innerHTML = `Round <b>${latest}</b>, ${ft ? ft.n : 0} held-out a→b tasks. Large number: fine-tuned policy; the change is against the pretrained weights with the same context rows.`;
-  const defs = [
-    {label: "Success rate", key: "success", fmt: pct, unit: "", higher: true, dfmt: d => (d >= 0 ? "+" : "−") + Math.abs(100 * d).toFixed(0) + " points"},
-    {label: "Mean final distance to b", key: "final_dist", fmt: v => fx(v, 3), unit: "m", higher: false, dfmt: d => (d >= 0 ? "+" : "−") + Math.abs(d).toFixed(3) + " m"},
-    {label: "Mean directness (straight line ÷ path length)", key: "directness", fmt: v => fx(v, 2), unit: "", higher: true, dfmt: d => (d >= 0 ? "+" : "−") + Math.abs(d).toFixed(2)},
-    {label: "Mean cycles to reach b (reached tasks)", key: "cycles_reached", fmt: v => fx(v, 1), unit: "cycles of 1 s", higher: false, dfmt: d => (d >= 0 ? "+" : "−") + Math.abs(d).toFixed(1) + " cycles"},
+// ---------- 1. answer
+(function answerBox() {
+  const a = D.answer;
+  document.getElementById("s-answer").classList.add(a.status);
+  document.getElementById("a-headline").textContent = a.headline;
+  document.getElementById("a-detail").textContent = a.detail || "";
+  const ul = document.getElementById("a-checks");
+  for (const c of a.checks || []) ul.append(h("li", {class: c.ok ? "ok" : "no"}, c.text));
+  if (!best) return;
+  const e = best.eval, b = B || {};
+  const tiles = [
+    {label: "Trips reaching b", v: `${e.reached} / ${e.n}`, unit: pct(e.success), bv: B ? `${b.reached} / ${b.n} (${pct(b.success)})` : "–"},
+    {label: "Mean directness", v: fx(e.directness, 2), unit: "1 = straight line", bv: fx(b.directness, 2)},
+    {label: "Mean time to reach b", v: fx(e.seconds_reached, 1), unit: "s (trips that reached b)", bv: isNum(b.seconds_reached) ? fx(b.seconds_reached, 1) + " s" : "–"},
+    {label: "Mean final distance to b", v: fx(e.final_dist, 3), unit: "m", bv: isNum(b.final_dist) ? fx(b.final_dist, 3) + " m" : "–"},
   ];
-  for (const d of defs) {
-    const v = ft ? ft[d.key] : null, pv = pt ? pt[d.key] : null, bv = bl ? bl[d.key] : null;
-    let delta = h("div", {class: "delta flat"}, "no pretrained comparison");
-    if (isNum(v) && isNum(pv)) {
-      const diff = v - pv, eps = 1e-9;
-      if (Math.abs(diff) < eps) delta = h("div", {class: "delta flat"}, "= same as pretrained");
-      else {
-        const good = (diff > 0) === d.higher;
-        delta = h("div", {class: "delta " + (good ? "good" : "bad")}, (diff > 0 ? "▲ " : "▼ ") + d.dfmt(diff) + " vs pretrained (" + (good ? "better" : "worse") + ")");
-      }
-    }
-    box.append(h("div", {class: "tile"},
-      h("div", {class: "label"}, d.label),
-      h("div", {class: "value"}, d.fmt(v), " ", h("small", {}, d.unit)),
-      delta,
-      h("div", {class: "cmp"},
-        h("div", {}, h("span", {class: "key", style: `background:${POLICY[PT].color}`}), "pretrained: " + d.fmt(pv)),
-        h("div", {}, h("span", {class: "key", style: `background:${POLICY[BL].color}`}), "baseline: " + d.fmt(bv)))));
-  }
+  const box = document.getElementById("a-tiles");
+  for (const t of tiles) box.append(h("div", {class: "tile"},
+    h("div", {class: "label"}, t.label + " · " + best.name),
+    h("div", {class: "value"}, t.v, " ", h("small", {}, t.unit)),
+    h("div", {class: "cmp"}, "baseline: " + t.bv)));
+  if (!best.run_finished) ul.append(h("li", {class: "no"}, `The evaluation of ${best.name} is still running (${e.n} trips so far); these numbers will change.`));
 })();
 
-// ---------- 2. progress across rounds
-(function progress() {
-  const box = document.getElementById("progress");
-  const legend = document.getElementById("progress-legend");
-  for (const p of [FT, PT, BL]) legend.append(h("span", {}, h("span", {class: "sw", style: `border-color:${POLICY[p].color};${p === BL ? "border-top-style:dashed" : ""}`}), POLICY[p].name));
-  const bl = sumOf(BL, null);
+// ---------- 2. controllers table
+function qualityHtml(c) {
+  const outs = c.outputs.length ? c.outputs : Object.keys(c.quality);
+  if (!outs.length || !Object.keys(c.quality).length) return "–";
+  return outs.map(o => {
+    const q = c.quality[o];
+    if (!q) return `${esc(o)}: –`;
+    return `<b>${esc(o)}</b> RMSE ${esc(sig(q.rmse))} ${UNIT[o] || ""} · R² ${esc(fx(q.r2, 3))}`;
+  }).join("<br>");
+}
+(function controllersTable() {
+  const box = document.getElementById("ctl-table");
+  if (!C.length) { box.append(h("div", {class: "note"}, "No controller yet. Build one with just controller --name NAME (needs random-walk data from just collect).")); return; }
+  const rows = C.map(c => Object.assign({__attrs: c === best ? {class: "best"} : {}}, c));
+  if (B) rows.push({__attrs: {class: "base"}, name: BASE_NAME, kind: "hand-written", baseline: true, eval: B, outputs: [], quality: {}});
+  box.append(table([
+    {label: "Controller", html: true, get: r => esc(r.name) + (r === rows.find(x => x.name === (best && best.name) && !x.baseline) ? '<span class="pill best">best</span>' : "")
+      + (r.eval && r.run_finished === false ? '<span class="pill">evaluation running</span>' : "")},
+    {label: "Kind", html: true, get: r => r.baseline ? "hand-written" : `<span class="kindkey" style="background:${kindOf(r.kind).color}"></span>${esc(r.kind)}`},
+    {label: "Examples given to fit()", num: true, title: "examples in the context, of all examples available", get: r => r.baseline ? "–" :
+      `${(r.context_rows ?? 0).toLocaleString()} of ${(r.total_examples ?? 0).toLocaleString()}`},
+    {label: "fit() s", num: true, get: r => r.baseline ? "–" : fx(r.fit_seconds, 1)},
+    {label: "Held-out prediction", html: true, cls: "q", get: r => r.baseline ? "–" : qualityHtml(r)},
+    {label: "Reached b", num: true, get: r => r.eval ? `${r.eval.reached} / ${r.eval.n}` : "not evaluated"},
+    {label: "Directness", num: true, get: r => r.eval ? fx(r.eval.directness, 3) : "–"},
+    {label: "Seconds to b", num: true, title: "mean over trips that reached b", get: r => r.eval ? fx(r.eval.seconds_reached, 1) : "–"},
+    {label: "Final distance (m)", num: true, get: r => r.eval ? fx(r.eval.final_dist, 3) : "–"},
+    {label: "Evaluation run", get: r => r.baseline ? (B.run_id || "–") : (r.run_id || "–")},
+  ], rows));
+  if (B && B.all_runs > 1) box.append(h("div", {class: "note"}, `The baseline is evaluated again with every controller (${B.all_runs} runs). ` +
+    (B.identical ? "All those runs gave the same result, so one row stands for them." : "Its results differ between runs; the row shows the run made with the best controller.")));
+})();
+
+// ---------- 3. comparison chart (horizontal bars, baseline as a reference line)
+function hbarChart(box, o) {
+  box.innerHTML = "";
+  const rows = o.rows;
+  const W = 380, rowH = 26, m = {l: 84, r: 44, t: 6, b: 34};
+  const H = m.t + m.b + rowH * rows.length;
+  const vals = rows.map(r => r.value).filter(isNum).concat(o.ref != null && isNum(o.ref.value) ? [o.ref.value] : []);
+  const t = niceTicks(0, o.max != null ? o.max : Math.max(...vals, 1e-6), 4);
+  const hi = o.max != null ? o.max : t.hi, f = o.tickFmt || tickFmt(t.step);
+  const X = v => m.l + v / hi * (W - m.l - m.r);
+  const g = s("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": o.aria});
+  for (const v of t.ticks) if (v <= hi + 1e-9) {
+    g.append(s("line", {x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, class: "gridline"}));
+    g.append(s("text", {x: X(v), y: H - m.b + 14, "text-anchor": "middle"}, f(v)));
+  }
+  g.append(s("text", {x: (m.l + W - m.r) / 2, y: H - 4, "text-anchor": "middle", class: "axis-title"}, o.xLabel));
+  g.append(s("line", {x1: X(0), x2: X(0), y1: m.t, y2: H - m.b, class: "axisline"}));
+  const labels = s("g", {});
+  rows.forEach((r, i) => {
+    const y = m.t + i * rowH, bh = 14, by = y + (rowH - bh) / 2;
+    g.append(s("text", {x: m.l - 8, y: y + rowH / 2 + 4, "text-anchor": "end", class: "cat"}, r.label));
+    if (isNum(r.value)) {
+      const w = Math.max(0, X(r.value) - X(0)), rr = Math.min(4, w / 2);
+      // flat at the baseline, 4px rounded at the data end
+      g.append(s("path", {d: `M${X(0)},${by}H${X(0) + w - rr}Q${X(0) + w},${by} ${X(0) + w},${by + rr}V${by + bh - rr}Q${X(0) + w},${by + bh} ${X(0) + w - rr},${by + bh}H${X(0)}Z`, fill: r.color}));
+      labels.append(s("text", {x: X(0) + w + 5, y: by + bh / 2 + 4, class: "val"}, o.fmt(r.value)));
+    } else g.append(s("text", {x: X(0) + 5, y: by + bh / 2 + 4, class: "direct"}, "no trip reached b"));
+    const hit = s("rect", {x: 0, y, width: W, height: rowH, fill: "transparent"});
+    hit.addEventListener("mousemove", ev => showTip(ev, r.tip));
+    hit.addEventListener("mouseleave", hideTip);
+    g.append(hit);
+  });
+  if (o.ref && isNum(o.ref.value))
+    g.insertBefore(s("line", {x1: X(o.ref.value), x2: X(o.ref.value), y1: m.t - 2, y2: H - m.b, stroke: "var(--ref)", "stroke-width": 1.5, "stroke-dasharray": "5 4", "pointer-events": "none"}), g.querySelector("rect"));
+  g.insertBefore(labels, g.querySelector("rect"));
+  box.append(g);
+}
+(function compare() {
+  const box = document.getElementById("compare");
+  const kinds = [...new Set(tested.map(c => c.kind))];
+  const legend = document.getElementById("cmp-legend");
+  for (const k of kinds) legend.append(h("span", {}, h("span", {class: "box", style: `background:${kindOf(k).color}`}), kindOf(k).name + " controller"));
+  if (B) legend.append(h("span", {}, h("span", {class: "sw", style: "border-color:var(--ref);border-top-style:dashed"}), BASE_NAME));
+  if (!tested.length) { box.append(h("div", {class: "note"}, "No controller has been evaluated yet.")); return; }
   const defs = [
-    {key: "success", title: "Success rate", y: "tasks reaching b (%)", scale: 100, yDomain: [0, 100], tf: v => fx(v, 0) + "%"},
-    {key: "directness", title: "Directness", y: "straight line ÷ path length", scale: 1, yDomain: [0, 1], tf: v => fx(v, 3)},
-    {key: "cycles_reached", title: "Cycles to reach b", y: "mean cycles, reached tasks", scale: 1, yZero: true, tf: v => fx(v, 1) + " cycles"},
-    {key: "final_dist", title: "Final distance to b", y: "mean distance (m)", scale: 1, yZero: true, tf: v => fx(v, 3) + " m"},
+    {key: "directness", title: "Mean directness", sub: "higher is better", max: 1, fmt: v => fx(v, 2), xLabel: "straight line ÷ path walked"},
+    {key: "success", title: "Trips reaching b", sub: "higher is better", max: 100, scale: 100, fmt: v => fx(v, 0) + "%", tickFmt: v => v + "%", xLabel: "% of the 20 test trips"},
+    {key: "seconds_reached", title: "Mean seconds to reach b", sub: "lower is better · trips that reached b", fmt: v => fx(v, 1) + " s", xLabel: "seconds"},
   ];
-  if (!evalRounds.length) { box.append(h("div", {class: "note"}, "No evaluation runs for this model yet.")); return; }
   for (const d of defs) {
-    const cell = h("div", {}, h("div", {class: "chart-title"}, d.title), h("div", {class: "chart"}));
+    const cell = h("div", {}, h("div", {class: "chart-title"}, d.title), h("div", {class: "chart-sub"}, d.sub + (B && isNum(B[d.key]) ? ` · baseline ${d.fmt(B[d.key] * (d.scale || 1))}` : "")), h("div", {class: "chart"}));
     box.append(cell);
-    const ser = [PT, FT].map(p => ({name: POLICY[p].name, color: POLICY[p].color,
-      points: evalRounds.map(r => { const x = sumOf(p, r); return [r, x && isNum(x[d.key]) ? x[d.key] * d.scale : null]; })}));
-    lineChart(cell.lastChild, {series: ser, xInteger: true, xLabel: "fine-tuning round", xName: "round", yLabel: d.y,
-      yDomain: d.yDomain, yZero: d.yZero, tipFmt: d.tf, height: 200,
-      xDomain: evalRounds.length === 1 ? [evalRounds[0] - 0.5, evalRounds[0] + 0.5] : null,
-      refs: bl && isNum(bl[d.key]) ? [{name: POLICY[BL].name, y: bl[d.key] * d.scale, color: POLICY[BL].color, label: "baseline"}] : []});
+    const rows = tested.map(c => {
+      const v = isNum(c.eval[d.key]) ? c.eval[d.key] * (d.scale || 1) : null;
+      return {label: c.name, value: v, color: kindOf(c.kind).color,
+        tip: `<b>${esc(c.name)}</b> (${esc(c.kind)})<br>${esc(d.title)}: ${esc(isNum(v) ? d.fmt(v) : "–")}` +
+          (B && isNum(B[d.key]) ? `<br>baseline: ${esc(d.fmt(B[d.key] * (d.scale || 1)))}` : "") +
+          `<br>reached ${c.eval.reached} of ${c.eval.n} trips`};
+    });
+    hbarChart(cell.lastChild, {rows, max: d.max, fmt: d.fmt, tickFmt: d.tickFmt, xLabel: d.xLabel, aria: d.title + " per controller",
+      ref: B ? {value: isNum(B[d.key]) ? B[d.key] * (d.scale || 1) : null} : null});
   }
-  const rows = summary.slice().sort((a, b) => (a.round ?? -1) - (b.round ?? -1) || a.policy.localeCompare(b.policy));
-  document.getElementById("progress-table").append(table([
-    {label: "Policy", get: r => POLICY[r.policy] ? POLICY[r.policy].name : r.policy},
-    {label: "Round", get: r => roundLabel(r.round), num: true},
-    {label: "Tasks", get: r => r.n, num: true},
-    {label: "Success", get: r => pct(r.success), num: true},
-    {label: "Final distance (m)", get: r => fx(r.final_dist, 3), num: true},
-    {label: "Directness", get: r => fx(r.directness, 3), num: true},
-    {label: "Cycles to reach b", get: r => fx(r.cycles_reached, 1), num: true},
-    {label: "Fell", get: r => pct(r.fell), num: true},
-    {label: "Run", get: r => r.run_id},
-  ], rows));
-})();
-
-// ---------- 3. fine-tuning audit
-(function audit() {
-  const rows = D.training;
-  const box = document.getElementById("training-table");
-  if (!rows.length) box.append(h("div", {class: "note"}, "No training rows for this model."));
-  else box.append(table([
-    {label: "Round", get: r => r.round, num: true},
-    {label: "Output", get: r => r.output},
-    {label: "Train rows", get: r => (r.train_rows ?? 0).toLocaleString(), num: true},
-    {label: "Val rows", get: r => (r.val_rows ?? 0).toLocaleString(), num: true},
-    {label: "Epochs", get: r => r.epochs, num: true},
-    {label: "Val MSE before → after (rad²)", get: r => `${sig(r.val_mse_before)} → ${sig(r.val_mse_after)}`, num: true},
-    {label: "Change", html: true, num: true, get: r => {
-      if (!isNum(r.val_mse_before) || !r.val_mse_before) return "–";
-      const c = 100 * (r.val_mse_after - r.val_mse_before) / r.val_mse_before;
-      if (Math.abs(c) < 0.05) return `<span class="delta flat">0.0%</span>`;
-      return `<span class="delta ${c < 0 ? "good" : "bad"}">${c < 0 ? "▼" : "▲"} ${Math.abs(c).toFixed(1)}%</span>`;
-    }},
-    {label: "Weight change", get: r => sig(r.weight_change), num: true, title: "how far the weights moved from the start checkpoint"},
-    {label: "Seconds", get: r => fx(r.seconds, 1), num: true},
-    {label: "Checkpoint (start → saved)", cls: "path", get: r => `${r.start_checkpoint || "–"} → ${r.checkpoint || "–"}`},
-  ], rows));
-  if (rows.some(r => r.weight_change === 0))
-    box.append(h("div", {class: "note"}, "A weight change of 0 means the saved weights equal the start weights: the fine-tuner kept its initial weights (for example because early stopping found no better epoch), so before and after MSE match."));
-  const rs = document.getElementById("audit-round"), os = document.getElementById("audit-output");
-  fillSelect(rs, trainRounds); fillSelect(os, outputs);
-  if (outputs.includes("turn")) os.value = "turn";
-  function draw() {
-    const L = D.log[`${rs.value}|${os.value}`] || {};
-    const loss = L["train/loss"] || [];
-    lineChart(document.getElementById("loss-chart"), {series: [{name: "train/loss", color: "var(--s1)", points: loss}],
-      xInteger: true, xLabel: "training step", xName: "step", yLabel: "loss", yZero: true, empty: "No train/loss logged for this round and output."});
-    const val = L["val/MSE"] || [];
-    const ser = [{name: "val/MSE", color: "var(--s1)", points: val.map((p, i) => [i + 1, p[1]])}];
-    lineChart(document.getElementById("val-chart"), {series: ser, xInteger: true, xLabel: "epoch", xName: "epoch",
-      yLabel: "MSE (rad²)", yZero: true, empty: "No val/MSE logged for this round and output.",
-      xDomain: val.length === 1 ? [0.5, 1.5] : null});
-  }
-  rs.addEventListener("change", draw); os.addEventListener("change", draw);
-  if (trainRounds.length) draw();
 })();
 
 // ---------- 4. regression
 (function regression() {
-  const rs = document.getElementById("reg-round"), os = document.getElementById("reg-output");
-  const pr = [...new Set(Object.keys(D.preds).map(k => +k.split("|")[0]))].sort((a, b) => a - b);
-  const rounds = pr.length ? pr : trainRounds;
-  fillSelect(rs, rounds); fillSelect(os, outputs.length ? outputs : ["stride", "turn"]);
-  if ([...os.options].some(o => o.value === "turn")) os.value = "turn";
-  const W = {start: {name: "start weights", color: "var(--s2)"}, finetuned: {name: "fine-tuned weights", color: "var(--s1)"}};
-  function drawScatter() {
+  const sel = document.getElementById("reg-ctl");
+  if (!C.length) { document.getElementById("scatter").append(h("div", {class: "note"}, "No controller yet.")); return; }
+  fillSelect(sel, C.map(c => c.name), C.map(c => `${c.name} (${c.kind})`));
+  sel.value = (best || C[0]).name;
+  function draw() {
+    const c = C.find(x => x.name === sel.value);
+    document.getElementById("reg-info").textContent = `fit() on ${(c.context_rows ?? 0).toLocaleString()} examples · inputs: ${c.features.join(", ") || "–"}`;
     const box = document.getElementById("scatter"); box.innerHTML = "";
-    const a = D.preds[`${rs.value}|${os.value}|start`] || [], b = D.preds[`${rs.value}|${os.value}|finetuned`] || [];
-    const all = a.concat(b).flat();
-    const dom = all.length ? [Math.min(...all), Math.max(...all)] : [0, 1];
-    for (const [key, pts] of [["start", a], ["finetuned", b]]) {
-      const mse = pts.length ? pts.reduce((acc, p) => acc + (p[1] - p[0]) ** 2, 0) / pts.length : null;
-      const cell = h("div", {}, h("div", {class: "chart-title"}, h("span", {class: "dot", style: `display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:${W[key].color}`}), W[key].name),
-        h("div", {class: "chart-sub"}, `${pts.length} validation examples · MSE ${sig(mse)} rad²`), h("div", {class: "chart", style: "max-width:440px"}));
-      box.append(cell);
-      scatterChart(cell.lastChild, {points: pts, domain: dom, color: W[key].color, xLabel: `actual ${os.value} (rad)`,
-        yLabel: `predicted ${os.value} (rad)`, aria: `actual vs predicted ${os.value}, ${W[key].name}`});
-    }
-  }
-  function drawMap() {
-    const box = document.getElementById("map"); box.innerHTML = "";
-    if (!D.policy_map) { box.append(h("div", {class: "note"}, "The policy_map table is not in this database yet (it is written by newer versions of nav/train.py), so the steering map is hidden.")); return; }
-    const outs = [...new Set(Object.keys(D.policy_map).map(k => k.split("|")[1]))].sort().reverse();
-    if (!Object.keys(D.policy_map).some(k => k.startsWith(rs.value + "|"))) { box.append(h("div", {class: "note"}, `No steering map stored for round ${rs.value} (it is only stored when the policy sees nothing but the goal).`)); return; }
-    const dists = [...new Set(Object.values(D.policy_map).flat().map(r => r[0]))].sort((x, y) => x - y).slice(0, 3);
-    const leg = h("div", {class: "legend"}, dists.map((d, i) => h("span", {}, h("span", {class: "sw", style: `border-color:${DIST_COLORS[i]}`}), `goal ${d} m away`)));
-    box.append(leg);
-    const grid = h("div", {class: "grid2"}); box.append(grid);
+    const outs = c.outputs.length ? c.outputs : [...new Set(Object.keys(D.preds).filter(k => k.startsWith(c.name + "|")).map(k => k.split("|")[1]))];
     for (const out of outs) {
-      const rows = ["start", "finetuned"].map(w => D.policy_map[`${rs.value}|${out}|${w}`] || []);
-      const ys = rows.flat().map(r => r[3]);
-      const yDomain = ys.length ? [Math.min(...ys), Math.max(...ys)] : null;
-      for (const [w, data] of [["start", rows[0]], ["finetuned", rows[1]]]) {
-        const cell = h("div", {}, h("div", {class: "chart-title"}, `${out}: ${W[w].name}`), h("div", {class: "chart"}));
-        grid.append(cell);
-        const series = dists.map((d, i) => ({name: `${d} m`, color: DIST_COLORS[i], markers: false, points: data.filter(r => r[0] === d).map(r => [r[1], r[3]])}));
-        lineChart(cell.lastChild, {series, xLabel: "bearing to b (degrees, + = left)", xName: "bearing", xFmt: v => v + "°", xTicks: [-180, -90, 0, 90, 180], xDomain: [-180, 180],
-          yLabel: `predicted ${out} (rad)`, yDomain, height: 210, tipFmt: v => sig(v, 3) + " rad",
-          refs: out === "turn" ? [{name: "no turn", y: 0, color: "var(--axis)"}] : [], empty: "No map rows for these weights."});
-      }
+      const pts = D.preds[`${c.name}|${out}`] || [], q = c.quality[out] || {};
+      const flat = pts.flat(), dom = flat.length ? [Math.min(...flat), Math.max(...flat)] : [0, 1];
+      const unit = UNIT[out] || "";
+      const cell = h("div", {}, h("div", {class: "chart-title"}, OUT_NAME[out] || out),
+        h("div", {class: "chart-sub"}, `${(q.n ?? pts.length).toLocaleString()} held-out examples${q.n > pts.length ? ` (${pts.length} drawn)` : ""} · RMSE ${sig(q.rmse)} ${unit} · R² ${fx(q.r2, 3)}`),
+        h("div", {class: "chart", style: "max-width:440px"}));
+      box.append(cell);
+      scatterChart(cell.lastChild, {points: pts, domain: dom, color: kindOf(c.kind).color, unit,
+        xLabel: `actual ${out} (${unit})`, yLabel: `predicted ${out} (${unit})`, aria: `actual vs predicted ${out}, ${c.name}`});
+    }
+    if (!outs.length) box.append(h("div", {class: "note"}, "No held-out predictions stored for this controller."));
+    drawMap(c);
+  }
+  function drawMap(c) {
+    const box = document.getElementById("map"); box.innerHTML = "";
+    const rowsFor = out => D.policy_map[`${c.name}|${out}`] || [];
+    if (!rowsFor("stride").length && !rowsFor("turn").length) { box.append(h("div", {class: "note"}, "No steering map stored for this controller.")); return; }
+    const dists = [...new Set(rowsFor("turn").concat(rowsFor("stride")).map(r => r[0]))].sort((x, y) => x - y).slice(0, 3);
+    box.append(h("div", {class: "legend"}, dists.map((d, i) => h("span", {}, h("span", {class: "sw", style: `border-color:${DIST_COLORS[i]}`}), `b ${d} m away`))));
+    const grid = h("div", {class: "grid2"}); box.append(grid);
+    for (const [out, label, range] of [["turn", "turn (rad, + = left)", [-0.25, 0.25]], ["stride", "stride (rad)", [0, 0.3]]]) {
+      const data = rowsFor(out);
+      const cell = h("div", {}, h("div", {class: "chart-title"}, out === "turn" ? "Turn picked" : "Stride picked"), h("div", {class: "chart"}));
+      grid.append(cell);
+      const series = dists.map((d, i) => ({name: `b ${d} m away`, color: DIST_COLORS[i], markers: false, points: data.filter(r => r[0] === d).map(r => [r[1], r[2]])}));
+      lineChart(cell.lastChild, {series, xLabel: "bearing to b (degrees, + = left)", xName: "bearing", xFmt: v => v + "°", xTicks: [-180, -90, 0, 90, 180], xDomain: [-180, 180],
+        yLabel: label, yDomain: range, height: 210, tipFmt: v => sig(v, 3) + " rad",
+        refs: out === "turn" ? [{name: "no turn", y: 0, color: "var(--axis)"}] : [], empty: "No map rows for this output."});
     }
   }
-  const draw = () => { drawScatter(); drawMap(); };
-  rs.addEventListener("change", draw); os.addEventListener("change", drawScatter);
+  sel.addEventListener("change", draw);
   draw();
 })();
 
 // ---------- 5. episodes
 (function episodes() {
-  const ps = document.getElementById("ep-policy"), rs = document.getElementById("ep-round");
-  const policies = [FT, PT, BL].filter(p => D.episodes.some(e => e.policy === p));
-  for (const p of [...new Set(D.episodes.map(e => e.policy))]) if (!policies.includes(p)) policies.push(p);
-  fillSelect(ps, policies, policies.map(p => POLICY[p] ? POLICY[p].name : p));
-  if (policies.includes(FT)) ps.value = FT;
+  const sel = document.getElementById("ep-ctl");
+  const names = tested.map(c => c.name).filter(n => D.episodes.some(e => e.controller === n));
+  if (D.episodes.some(e => e.controller === "baseline")) names.push("baseline");
   const detail = document.getElementById("cycle-detail");
-  function roundsFor(p) { return [...new Set(D.episodes.filter(e => e.policy === p).map(e => e.round))].sort((a, b) => (a ?? -1) - (b ?? -1)); }
-  function syncRounds() {
-    const r = roundsFor(ps.value);
-    fillSelect(rs, r.map(v => v == null ? "none" : v), r.map(v => v == null ? "– (evaluated once)" : String(v)), true);
-    rs.disabled = r.length <= 1;
-  }
+  if (!names.length) { document.getElementById("eps").append(h("div", {class: "note"}, "No evaluation episodes yet.")); return; }
+  fillSelect(sel, names, names.map(n => n === "baseline" ? BASE_NAME : `${n} (${(C.find(c => c.name === n) || {}).kind})`));
+  sel.value = names[0];
   function draw() {
     const box = document.getElementById("eps"); box.innerHTML = ""; detail.innerHTML = "";
-    const rv = rs.value === "none" ? null : +rs.value;
-    const eps = D.episodes.filter(e => e.policy === ps.value && e.round === rv).sort((a, b) => (a.task ?? a.episode) - (b.task ?? b.episode));
+    const eps = D.episodes.filter(e => e.controller === sel.value).sort((a, b) => (a.task ?? a.episode) - (b.task ?? b.episode));
     const ok = eps.filter(e => e.reached).length;
     document.getElementById("ep-summary").textContent = eps.length ? `${ok} of ${eps.length} reached b · run ${eps[0].run_id}` : "";
     if (!eps.length) { box.append(h("div", {class: "note"}, "No episodes for this selection.")); return; }
     for (const e of eps) {
-      const btn = h("button", {class: "ep", type: "button", "aria-label": `task ${e.task}, ${e.reached ? "reached" : "not reached"}, ${e.cycles} cycles, final distance ${fx(e.final_dist, 2)} m`});
-      btn.append(pathPlot(e), h("div", {class: "cap"}, h("b", {}, `Task ${e.task ?? e.episode}`), " ",
+      const btn = h("button", {class: "ep", type: "button", "aria-label": `trip ${e.task}, ${e.reached ? "reached" : "not reached"}, ${e.cycles} cycles, final distance ${fx(e.final_dist, 2)} m`});
+      btn.append(pathPlot(e), h("div", {class: "cap"}, h("b", {}, `Trip ${e.task ?? e.episode}`), " ",
         h("span", {class: e.reached ? "status-ok" : "status-no"}, e.reached ? "reached" : (e.fell ? "fell" : "not reached")),
-        h("br"), `${e.cycles} cycles · final ${fx(e.final_dist, 3)} m`));
+        h("br"), `${fx(e.seconds, 1)} s · directness ${fx(e.directness, 2)}`));
       btn.addEventListener("click", () => { box.querySelectorAll(".ep.sel").forEach(x => x.classList.remove("sel")); btn.classList.add("sel"); showCycles(e); });
       box.append(btn);
     }
@@ -638,7 +616,6 @@ document.getElementById("dbpath").textContent = M.db;
     const k = (S - 2 * pad) / span;
     const X = v => S / 2 + (v - cx) * k, Y = v => S / 2 - (v - cy) * k;
     const g = s("svg", {viewBox: `0 0 ${S} ${S}`, role: "img", "aria-hidden": "true"});
-    // 0.5 m scale bar
     const bar = [1, 0.5, 0.25, 0.2, 0.1].find(b => b <= span / 2) || 0.1;
     g.append(s("line", {x1: S - pad - bar * k, x2: S - pad, y1: S - 4, y2: S - 4, class: "axisline", "stroke-width": 2}));
     g.append(s("text", {x: S - pad, y: S - 8, "text-anchor": "end", style: "font-size:9px"}, `${bar} m`));
@@ -659,7 +636,7 @@ document.getElementById("dbpath").textContent = M.db;
   function showCycles(e) {
     detail.innerHTML = "";
     const rows = D.cycles[`${e.run_id}|${e.episode}`] || [];
-    detail.append(h("h3", {}, `Task ${e.task} · ${POLICY[e.policy] ? POLICY[e.policy].name : e.policy} · round ${roundLabel(e.round)} · ${e.reached ? "reached b" : "did not reach b"}`),
+    detail.append(h("h3", {}, `Trip ${e.task} · ${e.controller === "baseline" ? BASE_NAME : e.controller} · ${e.reached ? "reached b" : "did not reach b"}`),
       h("div", {class: "chart-sub"}, `run ${e.run_id}, episode ${e.episode}. Start (${fx(e.start_x, 2)}, ${fx(e.start_y, 2)}) m, heading ${fx(e.start_yaw * 180 / Math.PI, 0)}°; b at (${fx(e.target_x, 2)}, ${fx(e.target_y, 2)}) m, ${fx(e.start_dist, 2)} m away. ${e.cycles} cycles, ${fx(e.seconds, 1)} s, path ${fx(e.path_length, 2)} m, directness ${fx(e.directness, 2)}, final distance ${fx(e.final_dist, 3)} m.`));
     if (!rows.length) { detail.append(h("div", {class: "note"}, "No cycle rows for this episode.")); return; }
     const wrap = h("div", {class: "table-wrap", style: "max-height:420px;overflow-y:auto"});
@@ -667,7 +644,7 @@ document.getElementById("dbpath").textContent = M.db;
       {label: "Cycle", get: r => r[0], num: true},
       {label: "Time (s)", get: r => fx(r[1], 1), num: true},
       {label: "Distance to b (m)", get: r => fx(r[2], 3), num: true},
-      {label: "Goal distance (m)", get: r => fx(r[3], 3), num: true, title: "policy input: distance to b, capped at what the horizon can reach"},
+      {label: "Goal distance (m)", get: r => fx(r[3], 3), num: true, title: "controller input: distance to b, capped at what the horizon can reach"},
       {label: "Goal bearing (°, + = left)", get: r => fx(r[4], 1), num: true},
       {label: "Horizon (cycles)", get: r => fx(r[5], 0), num: true},
       {label: "Stride (rad)", get: r => fx(r[6], 3), num: true},
@@ -678,23 +655,20 @@ document.getElementById("dbpath").textContent = M.db;
     detail.append(wrap);
     detail.scrollIntoView({behavior: "smooth", block: "nearest"});
   }
-  ps.addEventListener("change", () => { syncRounds(); draw(); });
-  rs.addEventListener("change", draw);
-  if (!policies.length) { document.getElementById("eps").append(h("div", {class: "note"}, "No evaluation episodes for this model.")); return; }
-  syncRounds();
-  if (latest != null && [...rs.options].some(o => o.value === String(latest))) rs.value = String(latest);
+  sel.addEventListener("change", draw);
   draw();
 })();
 
 // ---------- 6. inventory
 (function inventory() {
+  if (M.hidden_runs > 0) document.getElementById("inv-lead").append(` ${M.hidden_runs} other run${M.hidden_runs === 1 ? "" : "s"} in the database belong${M.hidden_runs === 1 ? "s" : ""} to no current controller and ${M.hidden_runs === 1 ? "is" : "are"} not shown.`);
   document.getElementById("runs-table").append(table([
     {label: "Run", get: r => r.run_id}, {label: "Kind", get: r => r.kind}, {label: "Policy", get: r => r.policy || "–"},
-    {label: "Model", get: r => r.model || "–"}, {label: "Round", get: r => roundLabel(r.round), num: true},
+    {label: "Controller", get: r => r.model || "–"},
     {label: "Started", get: r => (r.started_at || "–").slice(0, 19)}, {label: "Finished", get: r => (r.finished_at || "running or interrupted").slice(0, 22)},
     {label: "Episodes", get: r => (r.n_episodes ?? 0).toLocaleString(), num: true}, {label: "Cycles", get: r => (r.n_cycles ?? 0).toLocaleString(), num: true},
     {label: "Git commit", get: r => r.git_commit || "–"},
-  ], D.runs.map(r => Object.assign({__attrs: r.model === M.model ? {} : {style: "color:var(--ink-2)"}}, r))));
+  ], D.runs));
   const box = document.getElementById("sql");
   for (const q of D.sql) box.append(h("div", {class: "chart-sub", style: "margin-top:8px"}, q.title), h("pre", {}, h("code", {}, q.sql)));
 })();
