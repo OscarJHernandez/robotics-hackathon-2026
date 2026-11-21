@@ -46,11 +46,16 @@ class JetHexaSim:
         self._renderer = None
         self._ctrl = {}
         self._qpos = {}
+        self._qvel = {}
         for leg in LEGS:
             for role in ROLES:
                 name = joint_name(leg, role)
                 self._ctrl[name] = self.model.actuator("act_" + name).id
                 self._qpos[name] = int(self.model.joint(name).qposadr[0])
+                self._qvel[name] = int(self.model.joint(name).dofadr[0])
+        self._floor = self.model.geom("floor").id
+        self._feet = dict((self.model.geom("foot_" + leg).id, leg) for leg in LEGS)
+        self._target = int(self.model.body("target").mocapid[0])
         self.reset()
         self.stand = dict((name, float(self.data.ctrl[i])) for name, i in self._ctrl.items())
 
@@ -88,6 +93,59 @@ class JetHexaSim:
         """1.0 when the body is level, 0 on its side, -1 upside down."""
         return float(self.data.body("body").xmat.reshape(3, 3)[2, 2])
 
+    def body_yaw(self):
+        """Heading in radians, in (-pi, pi]: 0 faces +x and it grows when the robot turns left."""
+        xmat = self.data.body("body").xmat.reshape(3, 3)
+        return float(math.atan2(xmat[1, 0], xmat[0, 0]))
+
+    def joint_velocities(self):
+        """Joint speeds in rad/s, as {joint name: speed}. The real servos do not report this."""
+        return dict((name, float(self.data.qvel[adr])) for name, adr in self._qvel.items())
+
+    def actuator_forces(self):
+        """Servo torques in N m, as {joint name: torque}. The real servos do not report this."""
+        return dict((name, float(self.data.actuator_force[i])) for name, i in self._ctrl.items())
+
+    def imu(self):
+        """IMU at the body centre, in the body's frame.
+
+        Returns {"gyro": (x, y, z) in rad/s, "accel": (x, y, z) in m/s^2 (about +9.81 in z at rest),
+        "roll": radians, "pitch": radians}. The values are from the start of the last physics step.
+        """
+        w, x, y, z = (float(v) for v in self.data.sensor("imu_quat").data)
+        return {
+            "gyro": tuple(float(v) for v in self.data.sensor("imu_gyro").data),
+            "accel": tuple(float(v) for v in self.data.sensor("imu_accel").data),
+            "roll": math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y)),
+            "pitch": math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x)))),
+        }
+
+    def foot_contacts(self):
+        """Force of the floor on each foot in newtons, as {leg: force}. 0 when the foot is in the air."""
+        forces = dict((leg, 0.0) for leg in LEGS)
+        wrench = np.zeros(6)
+        for i in range(self.data.ncon):
+            contact = self.data.contact[i]
+            if contact.geom1 == self._floor:
+                leg = self._feet.get(contact.geom2)
+            elif contact.geom2 == self._floor:
+                leg = self._feet.get(contact.geom1)
+            else:
+                leg = None
+            if leg is not None:
+                mujoco.mj_contactForce(self.model, self.data, i, wrench)
+                forces[leg] += float(wrench[0])
+        return forces
+
+    def target(self):
+        """The target marker's (x, y) in metres."""
+        return tuple(float(v) for v in self.data.mocap_pos[self._target][:2])
+
+    def set_target(self, x, y):
+        """Move the target marker (a red pillar without collisions) to (x, y) on the floor."""
+        self.data.mocap_pos[self._target] = (x, y, 0.0)
+        mujoco.mj_forward(self.model, self.data)
+
     def render(self, depth=False, camera=CAMERA):
         """Picture from a camera: RGB uint8 (360, 640, 3), or depth in metres (360, 640)."""
         if self._renderer is None:
@@ -110,11 +168,13 @@ class JetHexaSim:
             self._renderer = None
 
 
-def tripod_targets(stand, t, period=1.0, swing=0.25, lift=0.35):
-    """Joint targets at time `t` for walking forward with an open-loop tripod gait.
+def tripod_targets(stand, t, period=1.0, swing=0.25, lift=0.35, turn=0.0):
+    """Joint targets at time `t` for walking with an open-loop tripod gait.
 
     Each tripod spends half the period on the floor pushing back and half in the air swinging
-    forward. `swing` is the coxa amplitude and `lift` the femur lift, both in radians.
+    forward. `swing` is the coxa amplitude and `lift` the femur lift, both in radians. `turn`
+    (radians) steers: the left legs swing by `swing - turn` and the right legs by `swing + turn`,
+    so a positive `turn` turns the robot left (its yaw grows). With `swing=0` it turns on the spot.
     """
     targets = dict(stand)
     for group, offset in ((TRIPOD_A, 0.0), (TRIPOD_B, 0.5)):
@@ -128,7 +188,8 @@ def tripod_targets(stand, t, period=1.0, swing=0.25, lift=0.35):
         for leg in group:
             # A positive coxa angle turns a left foot backward and a right foot forward.
             side = -1.0 if leg.startswith("L") else 1.0
-            targets[joint_name(leg, "coxa")] = stand[joint_name(leg, "coxa")] + side * swing * sweep
+            amplitude = swing + side * turn
+            targets[joint_name(leg, "coxa")] = stand[joint_name(leg, "coxa")] + side * amplitude * sweep
             targets[joint_name(leg, "femur")] = stand[joint_name(leg, "femur")] + lift * raise_leg
     return targets
 

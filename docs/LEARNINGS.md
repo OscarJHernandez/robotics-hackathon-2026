@@ -39,6 +39,15 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Oscar's agent): The tripod gait steers with `turn` (left and right legs swing by different
+  amounts). With `turn=0` it still drifts left by about 0.07 rad in 5 s, so a controller that assumes
+  "no turn means straight" will miss; close the loop on `body_yaw()`.
+- 2026-11-21 (Oscar's agent): The IMU sensor values (`sim.imu()`) are from the start of the last physics
+  step, 2 ms behind `body_position()`. Foot forces come from `mj_contactForce`, not a touch sensor: the
+  `end_<leg>` sites are smaller than the foot spheres, so a touch sensor on them reads nothing.
+- 2026-11-21 (Oscar's agent): A second `git worktree` has no `sim/meshes/` (gitignored), so it silently runs
+  the simple model and skips the mesh test. Link it: `ln -s <main checkout>/sim/meshes sim/meshes`, and do
+  not `git add` the link.
 - 2026-11-21 (Oscar's agent): [sim/jethexa.xml](../sim/jethexa.xml) and `sim/jethexa_simple.xml` are generated
   from the model generator in the private `sophy_jethexa` repo (`simulation/sophy_sim/mjcf.py`, free base,
   camera on). Added by hand: the `stand` keyframe, the lidar and camera meshes, relative mesh paths, and
@@ -61,8 +70,11 @@ in the same pull request as the work.
 ## Suggestions (open)
 
 - 2026-11-21 (Oscar's agent): Next step for sensor fusion: add a lidar sweep (`mj_multiRay` from the lidar
-  position), joint velocity and actuator force readings, an IMU, and a logger that writes one row per 20 ms
-  control step with a timestamp per sensor. Keep images and audio in side files, not in the table.
+  position) and a logger that writes one row per control step with a timestamp per sensor. Keep images and
+  audio in side files, not in the table. (Joint velocity, actuator force, IMU and foot contact readings
+  were added on 2026-11-21.)
+- 2026-11-21 (Oscar's agent): Add noise and drift to the simulated IMU before using it to judge a method
+  that must work on the real robot.
 
 - 2026-11-21 (Oscar's agent): Add a lint and test check in GitHub Actions and make it a required check on
   `main`. Use `uv sync` then `just test` (install just with `extractions/setup-just`); the camera test skips
