@@ -73,8 +73,14 @@ in the same pull request as the work.
   target" as a small step, `[[forward 0.13]]` to `[[forward 0.5]]`, while "go to the target" gave `[[target]]`; the
   0.13 came from the prompt's walking speed. So on voice calls the robot stopped short. The prompt now says any
   request to go to, towards or closer to the pillar is `[[target]]` and never forward or goto, and no longer gives
-  the speed: 66 of 66 answers right across 11 phrasings, voice and text. Check a prompt change with several
-  phrasings against metacon, not one.
+  the speed: 66 of 66 answers right across 11 phrasings, voice and text, but only with an empty chat history.
+  Check a prompt change with several phrasings against metacon, not one, and also with old answers in the history.
+- 2026-11-21 (Oscar's agent): qwen3:8b copies commands from its own earlier answers over the system prompt: after
+  the prompt fix above, a page that still held one old "[[forward 0.13]]" answer got `forward 0.13` again 3 of 3
+  times, and a reminder after the history did not help. Removing the commands from past answers made it stop
+  writing commands at all. What works: send only the newest user message as a message, and put the earlier turns,
+  without their commands, in the system prompt as background (`earlier_text` in [app/llm.py](../app/llm.py)).
+  Follow-ups ("now turn around", "do that again") still work.
 - 2026-11-21 (Oscar's agent): In the web app every `goto` and `forward` used to move the red pillar to its end
   point, so when metacon answered "walk to the target" with `[[forward 1]]` (likely with spoken words on the phone)
   the pillar jumped to just in front of the robot. Walking no longer moves the pillar (only `random` does), and the
