@@ -65,18 +65,241 @@ class TabPFNPolicy:
         return np.stack([np.clip(stride, *STRIDE_RANGE), np.clip(turn, *TURN_RANGE)], axis=1)
 
 
-def choose_context(table, max_rows=None, seed=0, bins=6):
-    """All rows, or at most `max_rows` spread evenly over bins of the expert's turn and stride."""
-    if not max_rows or len(table) <= max_rows:
-        return table
-    turn_bin = np.digitize(table["y_turn"], np.linspace(*TURN_RANGE, bins + 1)[1:-1])
-    stride_bin = np.digitize(table["y_stride"], np.linspace(*STRIDE_RANGE, 4)[1:-1])
-    key = turn_bin * 10 + stride_bin
-    rng = np.random.default_rng(seed)
-    groups = [np.flatnonzero(key == k) for k in np.unique(key)]
-    quota = max(1, max_rows // len(groups))
-    keep = np.concatenate([rng.choice(g, min(len(g), quota), replace=False) for g in groups])
+# ---------------------------------------------------------------------------------------------
+# DAgger v2: gated student, shield, mode-aware context, baselines. Still fit()/predict() only.
+# ---------------------------------------------------------------------------------------------
+
+STOP_STRIDE = 0.02
+TURN_MAGNITUDE = TURN_RANGE[1]
+FREE_BINS = (0.5, 1.0)  # metres: < 0.5, 0.5 to 1, > 1
+MODE_NAMES = ("walk", "stop_left", "stop_right")
+
+
+def mode_labels(y_stride, y_turn):
+    """0 = walk, 1 = stop and turn left, 2 = stop and turn right (stop when stride < 0.02; left when turn >= 0)."""
+    stride, turn = np.asarray(y_stride, float), np.asarray(y_turn, float)
+    return np.where(stride >= STOP_STRIDE, 0, np.where(turn >= 0, 1, 2)).astype(int)
+
+
+def _matrix(rows, columns):
+    return np.asarray(rows[columns] if hasattr(rows, "columns") else rows, np.float32)
+
+
+class GatedPolicy:
+    """TabPFN classifier picks the mode (walk / stop-left / stop-right); two regressors, fitted on walk rows only,
+    give stride and turn when walking. Stop modes use fixed commands. All fit()/predict(): no weights change."""
+    name = "tabpfn-gated"
+
+    def __init__(self, columns, categorical, device="auto", n_estimators=4, model_version="v3.5", seed=0):
+        self.columns = list(columns)
+        self.categorical_idx = [self.columns.index(c) for c in categorical if c in self.columns]
+        self.device, self.n_estimators, self.model_version, self.seed = device, n_estimators, model_version, seed
+        self.classifier = None
+        self.models = {}
+        self.fit_seconds = 0.0
+        self.context_rows = 0
+        self.last_proba = None  # (n, 3) mode probabilities of the last act_batch
+
+    def _kwargs(self):
+        from tabpfn.constants import ModelVersion
+        return dict(device=self.device, n_estimators=self.n_estimators, random_state=self.seed,
+                    categorical_features_indices=self.categorical_idx or None, fit_mode="fit_with_cache",
+                    ignore_pretraining_limits=True), ModelVersion(self.model_version)
+
+    def _make_classifier(self):
+        from tabpfn import TabPFNClassifier
+        kw, version = self._kwargs()
+        return TabPFNClassifier.create_default_for_version(version, **kw)
+
+    def _make_regressor(self):
+        from tabpfn import TabPFNRegressor
+        kw, version = self._kwargs()
+        return TabPFNRegressor.create_default_for_version(version, **kw)
+
+    def fit(self, context):
+        require_token(self.model_version)
+        X = np.asarray(context[self.columns], np.float32)
+        modes = mode_labels(context["y_stride"], context["y_turn"])
+        walk = modes == 0
+        start = time.perf_counter()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.classifier = self._make_classifier()
+            self.classifier.fit(X, modes)
+            for label in LABELS:
+                model = self._make_regressor()
+                model.fit(X[walk], np.asarray(context[label], np.float32)[walk])
+                self.models[label] = model
+        self.fit_seconds = time.perf_counter() - start
+        self.context_rows = len(X)
+        return self.fit_seconds
+
+    def act_batch(self, rows):
+        X = _matrix(rows, self.columns)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            raw = np.asarray(self.classifier.predict_proba(X))
+            stride = self.models["y_stride"].predict(X)
+            turn = self.models["y_turn"].predict(X)
+        proba = np.zeros((len(X), 3))
+        for j, cls in enumerate(self.classifier.classes_):
+            proba[:, int(cls)] = raw[:, j]
+        self.last_proba = proba
+        mode = proba.argmax(axis=1)
+        out = np.stack([np.clip(stride, *STRIDE_RANGE), np.clip(turn, *TURN_RANGE)], axis=1)
+        out[mode == 1] = (0.0, TURN_MAGNITUDE)
+        out[mode == 2] = (0.0, -TURN_MAGNITUDE)
+        return out
+
+
+class Shield:
+    """Wraps a policy: too close to an obstacle straight ahead means stride 0 and a turn toward the freer side.
+
+    `rows` should be a DataFrame holding free_ahead and free_left/free_right (or free_s0..free_s6). A plain array
+    is read in the wrapped policy's `columns` order, which then must contain those columns."""
+    name = "student + shield"
+
+    def __init__(self, policy, free_ahead_min=0.35):
+        self.policy, self.free_ahead_min = policy, free_ahead_min
+        self.columns = getattr(policy, "columns", None)
+        self.shielded = 0  # rows overridden by the last act_batch
+
+    def __getattr__(self, name):  # fit, fit_seconds, last_proba ... come from the wrapped policy
+        return getattr(self.__dict__["policy"], name)
+
+    @staticmethod
+    def _sides(rows):
+        have = set(rows.columns)
+        if {"free_left", "free_right"} <= have:
+            return rows["free_left"].to_numpy(float), rows["free_right"].to_numpy(float)
+        if all(f"free_s{i}" in have for i in range(7)):
+            left = rows[["free_s0", "free_s1", "free_s2"]].to_numpy(float).mean(axis=1)
+            right = rows[["free_s4", "free_s5", "free_s6"]].to_numpy(float).mean(axis=1)
+            return left, right
+        raise KeyError("Shield needs free_left/free_right or free_s0..free_s6 columns")
+
+    def act_batch(self, rows):
+        if not hasattr(rows, "columns"):
+            import pandas as pd
+            rows = pd.DataFrame(np.asarray(rows), columns=self.columns)
+        out = np.array(self.policy.act_batch(rows), float)
+        close = rows["free_ahead"].to_numpy(float) < self.free_ahead_min
+        left, right = self._sides(rows)
+        out[close, 0] = 0.0
+        weak = close & (np.abs(out[:, 1]) < 0.1)
+        out[weak, 1] = np.where(left[weak] >= right[weak], TURN_MAGNITUDE, -TURN_MAGNITUDE)
+        self.shielded = int(close.sum())
+        return out
+
+
+def _group_keys(table):
+    mode = mode_labels(table["y_stride"], table["y_turn"])
+    free = np.digitize(np.asarray(table["free_ahead"], float), FREE_BINS)
+    return mode * 3 + free
+
+
+def context_summary(table):
+    """Rows per group (mode x free-ahead bin) as {"walk/<0.5m": n, ...}, plus "student_rows"."""
+    labels = ["<0.5m", "0.5-1m", ">1m"]
+    key = _group_keys(table)
+    out = {f"{MODE_NAMES[k // 3]}/{labels[k % 3]}": int((key == k).sum()) for k in np.unique(key)}
+    if "used_expert" in table.columns:
+        out["student_rows"] = int((~table["used_expert"].astype(bool)).sum())
+    return out
+
+
+def _fill(table, keep, max_rows, rng):
     rest = np.setdiff1d(np.arange(len(table)), keep)
     if len(keep) < max_rows and len(rest):
         keep = np.concatenate([keep, rng.choice(rest, min(len(rest), max_rows - len(keep)), replace=False)])
     return table.iloc[np.sort(keep)]
+
+
+def choose_context(table, max_rows=None, seed=0, bins=6, quotas="turn_stride"):
+    """All rows, or at most `max_rows` chosen by a quota scheme.
+
+    "turn_stride" (default): even over bins of the expert's turn and stride.
+    "mode_x_free": rows the student drove (used_expert False) are always kept; the rest get an equal quota per
+    non-empty group of mode (walk / stop-left / stop-right) x free-ahead bin (<0.5, 0.5-1, >1 m); the remainder
+    is filled at random."""
+    if quotas not in ("turn_stride", "mode_x_free"):
+        raise ValueError(f"unknown quotas {quotas!r}")
+    if not max_rows or len(table) <= max_rows:
+        return table
+    rng = np.random.default_rng(seed)
+    if quotas == "mode_x_free":
+        if "used_expert" in table.columns:
+            student = (~table["used_expert"].astype(bool)).to_numpy()
+        else:
+            student = np.zeros(len(table), bool)
+        keep = np.flatnonzero(student)
+        if len(keep) > max_rows:
+            keep = rng.choice(keep, max_rows, replace=False)
+        room = max_rows - len(keep)
+        pool = np.flatnonzero(~student)
+        key = _group_keys(table)[pool]
+        groups = [pool[key == k] for k in np.unique(key)]
+        if room > 0 and groups:
+            quota = max(1, room // len(groups))
+            keep = np.concatenate([keep] + [rng.choice(g, min(len(g), quota), replace=False) for g in groups])
+        return _fill(table, keep, max_rows, rng)
+    turn_bin = np.digitize(table["y_turn"], np.linspace(*TURN_RANGE, bins + 1)[1:-1])
+    stride_bin = np.digitize(table["y_stride"], np.linspace(*STRIDE_RANGE, 4)[1:-1])
+    key = turn_bin * 10 + stride_bin
+    groups = [np.flatnonzero(key == k) for k in np.unique(key)]
+    quota = max(1, max_rows // len(groups))
+    keep = np.concatenate([rng.choice(g, min(len(g), quota), replace=False) for g in groups])
+    return _fill(table, keep, max_rows, rng)
+
+
+def summary_columns(columns):
+    """The non-patch columns (no pc_/pd_ prefix): for the summary-only TabPFN baseline."""
+    return [c for c in columns if not c.startswith(("pc_", "pd_"))]
+
+
+class KNNPolicy:
+    """k-nearest-neighbours baseline on standardized columns (multi-output stride and turn)."""
+    name = "knn"
+
+    def __init__(self, columns, k=10):
+        self.columns, self.k = list(columns), k
+        self.model = None
+        self.mean = self.std = None
+        self.fit_seconds = 0.0
+        self.context_rows = 0
+
+    def fit(self, context):
+        from sklearn.neighbors import KNeighborsRegressor
+        X = np.asarray(context[self.columns], float)
+        start = time.perf_counter()
+        self.mean = X.mean(axis=0)
+        std = X.std(axis=0)
+        self.std = np.where(std > 1e-9, std, 1.0)
+        self.model = KNeighborsRegressor(n_neighbors=min(self.k, len(X)))
+        self.model.fit((X - self.mean) / self.std, np.asarray(context[list(LABELS)], float))
+        self.fit_seconds = time.perf_counter() - start
+        self.context_rows = len(X)
+        return self.fit_seconds
+
+    def act_batch(self, rows):
+        X = (np.asarray(_matrix(rows, self.columns), float) - self.mean) / self.std
+        pred = self.model.predict(X)
+        return np.stack([np.clip(pred[:, 0], *STRIDE_RANGE), np.clip(pred[:, 1], *TURN_RANGE)], axis=1)
+
+
+def make_student(student_cfg, columns, categorical, seed=0):
+    """Build the student from config: kind tabpfn | gated | knn, optional shield {free_ahead_min}."""
+    kind = student_cfg.get("kind", "tabpfn")
+    if kind == "tabpfn":
+        policy = TabPFNPolicy.from_config(student_cfg, columns, categorical, seed)
+    elif kind == "gated":
+        policy = GatedPolicy(columns, categorical, student_cfg["device"], student_cfg["n_estimators"],
+                             student_cfg["model_version"], seed)
+    elif kind == "knn":
+        policy = KNNPolicy(columns, student_cfg.get("k", 10))
+    else:
+        raise ValueError(f"unknown student kind {kind!r}")
+    shield = student_cfg.get("shield")
+    if shield is not None:
+        policy = Shield(policy, **shield)
+    return policy
