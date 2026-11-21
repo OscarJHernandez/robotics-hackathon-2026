@@ -82,15 +82,27 @@ def _table(rng, base, flat, conc):
     return collapse({z: w[i] for i, z in enumerate(MIX_ZONES)}, flat)
 
 
-def sample_persona(rng, idx, flat):
-    """One random resident living in `flat`. `idx` is 0-based; she is called r<idx+1>."""
+def windows(n=3):
+    """The n slot windows (start, end minutes) of the 07:00-22:30 day. n = 3 is morning, afternoon, evening."""
+    if n == 3:
+        return SLOT_WINDOWS
+    edges = np.linspace(SLOT_WINDOWS[0][0], SLOT_WINDOWS[-1][1], n + 1)
+    return tuple((float(edges[i]), float(edges[i + 1])) for i in range(n))
+
+
+def sample_persona(rng, idx, flat, n_slots=3):
+    """One random resident living in `flat`. `idx` is 0-based; she is called r<idx+1>.
+
+    With n_slots > 3 the day is cut into finer slots; each gets its own draw around the mix of the part of the day it
+    falls in (morning, afternoon, evening), so she moves around inside those parts."""
     kinds = list(ARCHETYPES)
     weights = np.array([ARCHETYPES[k]["weight"] for k in kinds])
     arch = kinds[int(rng.choice(len(kinds), p=weights / weights.sum()))]
     A = ARCHETYPES[arch]
     conc = float(rng.uniform(*A["conc"]))
     tables = {"0": [], "1": []}  # "0" weekday, "1" weekend: one zone distribution per slot
-    for slot in range(3):
+    for fine, (a, b) in enumerate(windows(n_slots)):
+        slot = slot_of(int((a + b) / 2))  # the part of the day: 0 morning, 1 afternoon, 2 evening
         tables["0"].append(_table(rng, A["mix"][slot], flat, conc))
         base = dict(A["mix"][slot])
         if slot == 0:
@@ -108,16 +120,18 @@ def sample_persona(rng, idx, flat):
         days = range(5) if arch == "day_care" else rng.choice(5, size=int(rng.integers(1, 3)), replace=False)
         for wd in days:
             out_p[int(wd)][0] = float(rng.uniform(0.85, 0.95))
+    part = [slot_of(int((a + b) / 2)) for a, b in windows(n_slots)]
+    out_p = [[row[c] for c in part] for row in out_p]
     return {
         "resident_id": idx + 1, "resident": "r{}".format(idx + 1), "name": FIRST_NAMES[int(rng.integers(len(FIRST_NAMES)))],
         "archetype": arch, "flat_id": flat["flat_id"], "resident_split": "test" if idx % 5 == 4 else "train",
-        "start_weekday": int(rng.integers(7)), "conc": conc, "tables": tables, "out_p": out_p,
+        "start_weekday": int(rng.integers(7)), "conc": conc, "n_slots": n_slots, "tables": tables, "out_p": out_p,
     }
 
 
-def slot_of(minute):
-    """0, 1, 2 for the three daytime slots; None at night (before 07:00 or from 22:30)."""
-    for s, (a, b) in enumerate(SLOT_WINDOWS):
+def slot_of(minute, n=3):
+    """Slot index of a minute of the day (0 .. n-1); None at night (before 07:00 or from 22:30)."""
+    for s, (a, b) in enumerate(windows(n)):
         if a <= minute < b:
             return s
     return None
@@ -128,7 +142,7 @@ def draw_day(p, day, rng):
     weekday = (p["start_weekday"] + day) % 7
     table = p["tables"]["1" if weekday >= 5 else "0"]
     codes = []
-    for slot in range(3):
+    for slot in range(len(table)):
         if rng.random() < p["out_p"][weekday][slot]:
             codes.append(OUT)
         else:

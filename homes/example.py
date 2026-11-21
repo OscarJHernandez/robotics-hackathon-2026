@@ -19,7 +19,7 @@ from check import cold_proba, fit_classifier, restrict  # noqa: E402
 from flats import CLASSES, distance, signature, zone_names  # noqa: E402
 from generate import VOICE_FEATURES, _history, build, feature_frame  # noqa: E402
 from prior import ColdStartPrior  # noqa: E402
-from residents import SLOTS, zone_probs  # noqa: E402
+from residents import zone_probs  # noqa: E402
 
 DATA = Path(__file__).resolve().parent / "data"
 CODE = {c: i for i, c in enumerate(CLASSES)}
@@ -39,7 +39,7 @@ def main():
     flats = {f["flat_id"]: f for f in json.loads((DATA / "flats.json").read_text())}
     flat = flats[rid]
     prior = ColdStartPrior.load(DATA / "cold_prior.json")
-    p = build(residents=rid, days=7, seed=0)["personas"][rid - 1]  # same seeds: the persona of resident rid
+    p = build(residents=rid, days=7, seed=0, records_per_day=len(json.loads(pd.read_parquet(DATA / "residents.parquet").iloc[rid - 1]["tables"])["0"]))["personas"][rid - 1]  # same seeds: the persona of resident rid
     assert p["resident_split"] == "test", "pick a held-out resident (every 5th: 5, 10, 15 ...)"
 
     q = checkins[(checkins.resident_id == rid) & (checkins.kind == "checkin")].reset_index(drop=True)
@@ -58,7 +58,7 @@ def main():
     print("\n=== HER ROUTINE (hidden table the generator draws from; the model never sees it) ===")
     print("{} ({}), type '{}'. P(zone) per weekday and slot, 'out' = not home:".format(p["name"], p["resident"], p["archetype"]))
     for wd in (1, 5):  # a Tuesday and a Saturday
-        for s, name in enumerate(SLOTS):
+        for s, name in enumerate(range(len(p["tables"]["0"]))):
             probs = {z: round(v, 2) for z, v in sorted(zone_probs(p, wd, s).items(), key=lambda kv: -kv[1]) if v >= 0.02}
             print("  {} {:9s} {}".format(DAYS[wd], name, probs))
     print("  other weekdays differ only in 'out':", {DAYS[d]: [round(x, 2) for x in p["out_p"][d]] for d in range(7)
@@ -70,8 +70,8 @@ def main():
     print(j.round(2).to_string(index=False))
 
     print("\n=== THE QUESTION (a test check-in: she doesn't answer, where is she?) ===")
-    print("day {} ({}), {:02d}:{:02d} ({} slot), last heard in the {}, {:.0f} min earlier".format(
-        row["day"], DAYS[row["weekday"]], int(row["hour"]), int(row["hour"] % 1 * 60), SLOTS[row["slot"]] if row["slot"] < 3 else "night",
+    print("day {} ({}), {:02d}:{:02d} (slot {}), last heard in the {}, {:.0f} min earlier".format(
+        row["day"], DAYS[row["weekday"]], int(row["hour"]), int(row["hour"] % 1 * 60), row["slot"] if row["slot"] < len(p["tables"]["0"]) else "night",
         row["last_heard_zone"], row["min_since_heard"]))
     print("TRUTH:", row["zone"])
 

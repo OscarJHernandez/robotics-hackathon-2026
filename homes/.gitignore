@@ -5,3 +5,6 @@ data/*.csv
 data/flats.json
 data/maps/flat_*.png
 data/check_log.txt
+data_r12/*.csv
+data_r12/flats.json
+data_r12/check_log.txt

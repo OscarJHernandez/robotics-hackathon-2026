@@ -1,0 +1,191 @@
+{
+ "seconds": 12.4,
+ "residents": 2125,
+ "train_residents": 1700,
+ "diary_rows": 127500,
+ "train_rows": 102000,
+ "diary_rows_per_resident": 60.0,
+ "checkins": {
+  "checkin": 85000,
+  "help": 21250
+ },
+ "class_share_train": {
+  "kitchen": 0.3131,
+  "couch": 0.1657,
+  "bed": 0.1576,
+  "out": 0.1479,
+  "armchair": 0.1112,
+  "bathroom": 0.088,
+  "entrance": 0.0165
+ },
+ "rows_per_slot_train": {
+  "0": 8500,
+  "1": 8500,
+  "2": 8500,
+  "3": 8500,
+  "4": 8500,
+  "5": 8500,
+  "6": 8500,
+  "7": 8500,
+  "8": 8500,
+  "9": 8500,
+  "10": 8500,
+  "11": 8500
+ },
+ "test_checkins_all_residents": {
+  "rows": 85000,
+  "zone_differs_from_last_heard": 0.328,
+  "last_heard_top1": 0.672,
+  "usual_place_top1": 0.44,
+  "share_out": 0.153
+ },
+ "by_archetype": {
+  "armchair_reader": {
+   "rows": 8720,
+   "zone_differs_from_last_heard": 0.292,
+   "last_heard_top1": 0.708,
+   "usual_place_top1": 0.525,
+   "share_out": 0.098
+  },
+  "day_care": {
+   "rows": 10080,
+   "zone_differs_from_last_heard": 0.303,
+   "last_heard_top1": 0.697,
+   "usual_place_top1": 0.498,
+   "share_out": 0.314
+  },
+  "early_riser": {
+   "rows": 9520,
+   "zone_differs_from_last_heard": 0.332,
+   "last_heard_top1": 0.668,
+   "usual_place_top1": 0.442,
+   "share_out": 0.188
+  },
+  "frail": {
+   "rows": 7640,
+   "zone_differs_from_last_heard": 0.356,
+   "last_heard_top1": 0.644,
+   "usual_place_top1": 0.371,
+   "share_out": 0.079
+  },
+  "kitchen_person": {
+   "rows": 10640,
+   "zone_differs_from_last_heard": 0.322,
+   "last_heard_top1": 0.678,
+   "usual_place_top1": 0.453,
+   "share_out": 0.13
+  },
+  "night_owl": {
+   "rows": 10400,
+   "zone_differs_from_last_heard": 0.323,
+   "last_heard_top1": 0.677,
+   "usual_place_top1": 0.448,
+   "share_out": 0.099
+  },
+  "restless": {
+   "rows": 7880,
+   "zone_differs_from_last_heard": 0.371,
+   "last_heard_top1": 0.629,
+   "usual_place_top1": 0.373,
+   "share_out": 0.093
+  },
+  "standard": {
+   "rows": 20120,
+   "zone_differs_from_last_heard": 0.335,
+   "last_heard_top1": 0.665,
+   "usual_place_top1": 0.414,
+   "share_out": 0.172
+  }
+ },
+ "by_slot": {
+  "0": {
+   "rows": 7100,
+   "zone_differs_from_last_heard": 0.38,
+   "last_heard_top1": 0.62,
+   "usual_place_top1": 0.471,
+   "share_out": 0.14
+  },
+  "1": {
+   "rows": 7140,
+   "zone_differs_from_last_heard": 0.317,
+   "last_heard_top1": 0.683,
+   "usual_place_top1": 0.467,
+   "share_out": 0.138
+  },
+  "2": {
+   "rows": 7141,
+   "zone_differs_from_last_heard": 0.325,
+   "last_heard_top1": 0.675,
+   "usual_place_top1": 0.45,
+   "share_out": 0.14
+  },
+  "3": {
+   "rows": 7162,
+   "zone_differs_from_last_heard": 0.317,
+   "last_heard_top1": 0.683,
+   "usual_place_top1": 0.466,
+   "share_out": 0.145
+  },
+  "4": {
+   "rows": 7159,
+   "zone_differs_from_last_heard": 0.393,
+   "last_heard_top1": 0.607,
+   "usual_place_top1": 0.36,
+   "share_out": 0.259
+  },
+  "5": {
+   "rows": 7185,
+   "zone_differs_from_last_heard": 0.297,
+   "last_heard_top1": 0.703,
+   "usual_place_top1": 0.371,
+   "share_out": 0.248
+  },
+  "6": {
+   "rows": 6902,
+   "zone_differs_from_last_heard": 0.295,
+   "last_heard_top1": 0.705,
+   "usual_place_top1": 0.365,
+   "share_out": 0.253
+  },
+  "7": {
+   "rows": 7006,
+   "zone_differs_from_last_heard": 0.301,
+   "last_heard_top1": 0.699,
+   "usual_place_top1": 0.364,
+   "share_out": 0.251
+  },
+  "8": {
+   "rows": 7100,
+   "zone_differs_from_last_heard": 0.303,
+   "last_heard_top1": 0.697,
+   "usual_place_top1": 0.363,
+   "share_out": 0.263
+  },
+  "9": {
+   "rows": 7054,
+   "zone_differs_from_last_heard": 0.386,
+   "last_heard_top1": 0.614,
+   "usual_place_top1": 0.535,
+   "share_out": 0.0
+  },
+  "10": {
+   "rows": 7093,
+   "zone_differs_from_last_heard": 0.316,
+   "last_heard_top1": 0.684,
+   "usual_place_top1": 0.52,
+   "share_out": 0.0
+  },
+  "11": {
+   "rows": 6958,
+   "zone_differs_from_last_heard": 0.311,
+   "last_heard_top1": 0.689,
+   "usual_place_top1": 0.547,
+   "share_out": 0.0
+  }
+ },
+ "zones_per_flat": {
+  "3": 536,
+  "4": 823,
+  "5": 766
+ }
+}
