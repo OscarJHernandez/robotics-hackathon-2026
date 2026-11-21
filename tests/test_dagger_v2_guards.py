@@ -118,7 +118,7 @@ class TransferTest(unittest.TestCase):
 
 class QueueTest(unittest.TestCase):
     def test_two_acquires_and_stale_takeover(self):
-        from nav.dagger.queue import Busy, JobLock
+        from nav.dagger.joblock import Busy, JobLock
         with tempfile.TemporaryDirectory() as tmp:
             logs = []
             a = JobLock("hostx", tmp, log=logs.append)
@@ -140,7 +140,7 @@ class QueueTest(unittest.TestCase):
             b.release()
 
     def test_context_manager(self):
-        from nav.dagger.queue import lock
+        from nav.dagger.joblock import lock
         with tempfile.TemporaryDirectory() as tmp:
             with lock("e", "h", tmp):
                 self.assertTrue((Path(tmp) / "h.lock").exists())

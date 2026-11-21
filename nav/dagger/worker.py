@@ -194,7 +194,7 @@ def main():
     args = parser.parse_args()
     if args.no_lock:
         return run_main(args)
-    from .queue import Busy, JobLock
+    from .joblock import Busy, JobLock
     job_lock = JobLock()
     try:
         job_lock.acquire(args.run)
