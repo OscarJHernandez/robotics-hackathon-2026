@@ -6,6 +6,7 @@ python -m nav.dagger.merge --run NAME --timings     # timings.json and a table p
 
 import argparse
 import json
+import re
 from collections import Counter, defaultdict
 
 import numpy as np
@@ -69,11 +70,12 @@ def timings(run, log=print):
     rows = defaultdict(lambda: {"procs": 0, "rollout_s": 0.0, "steps": 0, "rows": 0, "episodes": 0,
                                 "fit_s": 0.0, "setup_s": 0.0, "phases": defaultdict(float), "start": None, "end": None})
     for path in sorted((run_dir(run) / "logs").glob("*.jsonl")):
-        if path.stem.endswith("-worker"):
+        match = re.search(r"-r(\d+)-p\d+$", path.stem)
+        if not match:  # worker and loop logs: no per-process timings
             continue
+        round_ = match.group(1)
         for line in path.read_text().splitlines():
             event = json.loads(line)
-            round_ = event["log"].split("-r")[-1].split("-p")[0]
             key = (event["host"], round_)
             row = rows[key]
             row["start"] = row["start"] or event["time"]
@@ -104,8 +106,9 @@ def timings(run, log=print):
         "host", "round", "procs", "episodes", "steps", "rollout_s", "steps/s", "fit_s"))
     for r in out:
         top = ", ".join("{} {:.0%}".format(k, v) for k, v in list(r["phase_share"].items())[:4])
-        log("{:10s} {:>5s} {:>5d} {:>8d} {:>8d} {:>10.1f} {:>8} {:>7.1f}  {}".format(
-            r["host"], r["round"], r["procs"], r["episodes"], r["steps"], r["rollout_s"], r["steps_per_s"], r["fit_s"], top))
+        log("{:10s} {:>5s} {:>5d} {:>8d} {:>8d} {:>10.1f} {:>8s} {:>7.1f}  {}".format(
+            r["host"], r["round"], r["procs"], r["episodes"], r["steps"], r["rollout_s"],
+            "-" if r["steps_per_s"] is None else str(r["steps_per_s"]), r["fit_s"], top))
     return out
 
 
