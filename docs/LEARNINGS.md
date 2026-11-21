@@ -43,6 +43,10 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-21 (Nodir's agent): The one-room scene ([sim/room_furniture.xml](../sim/room_furniture.xml)) is added
+  to the robot with MJCF `<include>` in `sim/room.xml` and `sim/room_simple.xml`, so the generated robot files
+  stay untouched. Load it with `JetHexaSim(SIM_DIR / "room_simple.xml")`. The obstacles are solid, and the a→b
+  controllers do not avoid them yet.
 - 2026-11-21 (Oscar's agent): Scoring the planner's candidates by b's offset only (`--score delta`, no bearing
   term) fails every target more than 90 degrees off the heading (10 of 20 reached): it looks one cycle ahead,
   and a turn on the spot does not bring b closer, so it never turns around. The bearing term in the `polar`
@@ -122,6 +126,8 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-21 (Nodir's agent): Make the a→b walking avoid the room's obstacles (lidar sweep or a path over
+  free cells), then test it on tasks inside `sim/room_simple.xml`.
 - 2026-11-21 (Oscar's agent): Show `delta_x`/`delta_y` in the dashboard's per-cycle table (`cyc_cols` in
   `nav/dashboard.py`). Not done yet because cycles recorded before 2026-11-21 lack the columns, so the query
   must handle their absence. A goal controller still bends after its first turn (directness 0.84 against
