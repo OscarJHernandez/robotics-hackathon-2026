@@ -1,0 +1,69 @@
+<!-- The arena: one closed, square room of 50 m² (7.071 m x 7.071 m, centred on the origin) with walls on the
+     boundary and 8 obstacles. Included by arena.xml and arena_simple.xml.
+
+     Walls are 4.5 m high so they fill the robot camera's picture from anywhere in the room (no sky).
+     Every obstacle is a mocap body: vision/scene.py moves and turns it from code (Arena.randomize), the same
+     way the target pillar is moved. Obstacles are solid. Geom names start with "wall_" or "obs_"; that prefix
+     is how a pixel gets its class label, so keep it when you add shapes. Nothing here is red (the target is). -->
+<mujoco>
+  <visual><headlight ambient="0.3 0.3 0.3" diffuse="0.2 0.2 0.2" specular="0 0 0"/></visual>
+  <default>
+    <default class="wall"><geom type="box" rgba="0.92 0.9 0.86 1" group="0"/></default>
+    <default class="obstacle"><geom type="box" group="0"/></default>
+  </default>
+  <worldbody>
+    <!-- Even light from above and from four sides, without shadows, so every wall and furniture side is lit.
+         (vision/scene.py switches off the robot file's lamp at the origin, which lights only the middle.) -->
+    <light directional="true" pos="0 0 4" dir="0 0 -1" diffuse="0.45 0.45 0.45" specular="0 0 0" castshadow="false"/>
+    <light directional="true" pos="0 0 4" dir="1 0.2 -0.6" diffuse="0.25 0.25 0.25" specular="0 0 0" castshadow="false"/>
+    <light directional="true" pos="0 0 4" dir="-1 -0.2 -0.6" diffuse="0.25 0.25 0.25" specular="0 0 0" castshadow="false"/>
+    <light directional="true" pos="0 0 4" dir="0.2 1 -0.6" diffuse="0.25 0.25 0.25" specular="0 0 0" castshadow="false"/>
+    <light directional="true" pos="0 0 4" dir="-0.2 -1 -0.6" diffuse="0.25 0.25 0.25" specular="0 0 0" castshadow="false"/>
+
+    <!-- Walls: inner faces at x, y = +-3.5355 m (3.5355 * 2 squared = 50 m²), 5 cm thick, 4.5 m high. -->
+    <geom name="wall_e" class="wall" pos="3.5605 0 2.25"  size="0.025 3.5855 2.25"/>
+    <geom name="wall_w" class="wall" pos="-3.5605 0 2.25" size="0.025 3.5855 2.25"/>
+    <geom name="wall_n" class="wall" pos="0 3.5605 2.25"  size="3.5855 0.025 2.25"/>
+    <geom name="wall_s" class="wall" pos="0 -3.5605 2.25" size="3.5855 0.025 2.25"/>
+
+    <!-- Obstacle 0: bed. -->
+    <body name="obs_0" mocap="true" pos="-2.4 2.6 0">
+      <geom name="obs_0_base" class="obstacle" pos="0 0 0.2" size="0.9 0.5 0.2" rgba="0.55 0.65 0.85 1"/>
+      <geom name="obs_0_head" class="obstacle" pos="-0.86 0 0.4" size="0.04 0.5 0.4" rgba="0.45 0.55 0.75 1"/>
+    </body>
+    <!-- Obstacle 1: couch with a backrest. -->
+    <body name="obs_1" mocap="true" pos="-2.4 -2.8 0">
+      <geom name="obs_1_seat" class="obstacle" pos="0 0 0.2" size="0.8 0.35 0.2" rgba="0.75 0.5 0.3 1"/>
+      <geom name="obs_1_back" class="obstacle" pos="0 -0.28 0.5" size="0.8 0.07 0.1" rgba="0.65 0.42 0.25 1"/>
+    </body>
+    <!-- Obstacle 2: cabinet. -->
+    <body name="obs_2" mocap="true" pos="2.9 2.9 0">
+      <geom name="obs_2_box" class="obstacle" pos="0 0 0.6" size="0.4 0.25 0.6" rgba="0.5 0.38 0.25 1"/>
+    </body>
+    <!-- Obstacle 3: stool. -->
+    <body name="obs_3" mocap="true" pos="1.2 -1.4 0">
+      <geom name="obs_3_seat" class="obstacle" type="cylinder" pos="0 0 0.22" size="0.18 0.22" rgba="0.3 0.6 0.6 1"/>
+    </body>
+    <!-- Obstacle 4: table. Four legs and a top at 0.75 m; the robot fits between the legs. -->
+    <body name="obs_4" mocap="true" pos="1.6 1.5 0">
+      <geom name="obs_4_top" class="obstacle" pos="0 0 0.74" size="0.5 0.35 0.02" rgba="0.7 0.6 0.4 1"/>
+      <geom name="obs_4_leg1" class="obstacle" type="cylinder" pos="0.45 0.3 0.36" size="0.025 0.36" rgba="0.55 0.45 0.3 1"/>
+      <geom name="obs_4_leg2" class="obstacle" type="cylinder" pos="-0.45 0.3 0.36" size="0.025 0.36" rgba="0.55 0.45 0.3 1"/>
+      <geom name="obs_4_leg3" class="obstacle" type="cylinder" pos="0.45 -0.3 0.36" size="0.025 0.36" rgba="0.55 0.45 0.3 1"/>
+      <geom name="obs_4_leg4" class="obstacle" type="cylinder" pos="-0.45 -0.3 0.36" size="0.025 0.36" rgba="0.55 0.45 0.3 1"/>
+    </body>
+    <!-- Obstacle 5: armchair. -->
+    <body name="obs_5" mocap="true" pos="-0.8 -2.9 0">
+      <geom name="obs_5_seat" class="obstacle" pos="0 0 0.2" size="0.3 0.3 0.2" rgba="0.45 0.6 0.45 1"/>
+      <geom name="obs_5_back" class="obstacle" pos="-0.26 0 0.5" size="0.04 0.3 0.1" rgba="0.38 0.5 0.38 1"/>
+    </body>
+    <!-- Obstacle 6: crate. -->
+    <body name="obs_6" mocap="true" pos="-1.5 0.9 0">
+      <geom name="obs_6_box" class="obstacle" pos="0 0 0.25" size="0.25 0.25 0.25" rgba="0.6 0.5 0.7 1"/>
+    </body>
+    <!-- Obstacle 7: plant pot. -->
+    <body name="obs_7" mocap="true" pos="2.9 -2.6 0">
+      <geom name="obs_7_pot" class="obstacle" type="cylinder" pos="0 0 0.3" size="0.15 0.3" rgba="0.35 0.35 0.4 1"/>
+    </body>
+  </worldbody>
+</mujoco>

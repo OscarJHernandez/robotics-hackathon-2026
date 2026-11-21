@@ -1,0 +1,5 @@
+<!-- The JetHexa in the arena: a closed 50 m² square room with obstacles. See arena_furniture.xml. -->
+<mujoco model="jethexa_arena">
+  <include file="jethexa.xml"/>
+  <include file="arena_furniture.xml"/>
+</mujoco>
