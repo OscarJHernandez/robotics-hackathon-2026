@@ -119,28 +119,60 @@ def run_shard(job):
 
 def run_plan(run, round_, plan, beta, procs=1, n_envs=16, threads=None, context=None, config=None, smoke=False,
              dino_device=None, heartbeat=30.0):
-    """Deal `plan` out to `procs` processes (round robin) and wait for all. Returns their results."""
-    procs = max(1, min(procs, len(plan)))
+    """Deal `plan` out to `procs` processes (round robin) and wait for all. Returns their results.
+
+    The process count is lowered to what fits in available memory next to the reserve (guard.py).
+    """
+    from .guard import available_gb, fit_procs, reserve_gb
+    wanted = max(1, min(procs, len(plan)))
+    procs = fit_procs(wanted)
+    if procs < wanted:
+        print("memory: {:.1f} GB available, reserve {:.1f} GB -> {} processes instead of {}".format(
+            available_gb(), reserve_gb(), procs, wanted), flush=True)
     threads = threads or max(1, (os.cpu_count() or 1) // procs)
     jobs = [{"run": run, "round": round_, "beta": beta, "plan": plan[k::procs], "proc": k, "procs": procs,
              "n_envs": n_envs, "threads": threads, "context": str(context) if context else None,
              "config": str(config) if config else None, "smoke": smoke, "dino_device": dino_device,
              "heartbeat": heartbeat} for k in range(procs)]
-    if procs == 1:
-        return [run_shard(jobs[0])]
+    # Always in child processes, also for one: then the memory guard covers TabPFN's fit() as well.
     return run_jobs(run_shard, jobs)
 
 
-def run_jobs(fn, jobs):
+class MemoryLow(RuntimeError):
+    pass
+
+
+def run_jobs(fn, jobs, log=print, reserve=None, every=5.0):
     """Run fn(job) for every job in its own process and return the results in order.
 
-    A process that dies (killed by the out-of-memory guard, for example) raises BrokenProcessPool here
-    instead of hanging forever like multiprocessing.Pool.map. Parts already written stay on disk, and
-    merge.py lists the missing episodes.
+    - A process that dies raises BrokenProcessPool here instead of hanging forever like Pool.map.
+    - Children exit by themselves if this parent dies (`guard.die_with_parent`): no orphans.
+    - A memory guard stops every child when available memory drops under the reserve, and this raises
+      MemoryLow. Parts already written stay on disk; merge.py lists the missing episodes.
     """
     from concurrent.futures import ProcessPoolExecutor
-    with ProcessPoolExecutor(len(jobs), mp_context=mp.get_context("spawn")) as executor:
-        return list(executor.map(fn, jobs))
+    from concurrent.futures.process import BrokenProcessPool
+
+    from .guard import MemoryGuard, die_with_parent
+
+    executor = ProcessPoolExecutor(len(jobs), mp_context=mp.get_context("spawn"), initializer=die_with_parent)
+
+    def stop_children(available):
+        for process in list(getattr(executor, "_processes", {}).values()):
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+    with MemoryGuard(stop_children, reserve=reserve, every=every, log=log) as guard:
+        try:
+            return list(executor.map(fn, jobs))
+        except BrokenProcessPool:
+            if guard.tripped:
+                raise MemoryLow("stopped: available memory fell under {:.1f} GB".format(guard.reserve)) from None
+            raise
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
 
 def main():

@@ -243,10 +243,13 @@ class StudentTest(unittest.TestCase):
 
 
 def _job(value):
-    """For WorkerPoolTest: value 0 kills its own process, as the out-of-memory guard would."""
+    """For WorkerPoolTest: value 0 kills its own process, as the out-of-memory guard would; -1 sleeps."""
     import os
+    import time
     if value == 0:
         os._exit(9)
+    if value == -1:
+        time.sleep(60)
     return value * 2
 
 
@@ -259,6 +262,23 @@ class WorkerPoolTest(unittest.TestCase):
         self.assertEqual(run_jobs(_job, [1, 2, 3]), [2, 4, 6])
         with self.assertRaises(BrokenProcessPool):
             run_jobs(_job, [1, 0, 3])
+
+    def test_memory_guard_stops_the_workers(self):
+        import time
+
+        from nav.dagger.worker import MemoryLow, run_jobs
+        start = time.time()
+        with self.assertRaises(MemoryLow):  # a reserve larger than any machine: the guard must trip
+            run_jobs(_job, [-1, -1], log=lambda m: None, reserve=1e6, every=0.5)
+        self.assertLess(time.time() - start, 20)  # stopped, not waiting for the 60 s jobs
+
+    def test_process_count_fits_memory(self):
+        from nav.dagger.guard import available_gb, fit_procs, reserve_gb
+        self.assertEqual(fit_procs(32, available=40, reserve=8, per_proc=2.5), 12)
+        self.assertEqual(fit_procs(8, available=40, reserve=8, per_proc=2.5), 8)
+        self.assertEqual(fit_procs(8, available=5, reserve=8, per_proc=2.5), 1)  # never 0
+        self.assertGreater(available_gb(), 0)
+        self.assertGreaterEqual(reserve_gb(total=121), 12.0)  # 10% of a large machine
 
 
 @unittest.skipUnless(HAVE_ML, "needs the ml packages")
