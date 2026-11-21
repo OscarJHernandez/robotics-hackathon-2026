@@ -4,85 +4,116 @@ We work on a simulated [Hiwonder JetHexa](https://www.hiwonder.com/products/jeth
 [MuJoCo](https://mujoco.readthedocs.io/). You need no robot and no GPU. It was tested on macOS (Apple Silicon)
 with Python 3.12 and MuJoCo 4.0.1.
 
-## Install
+## Install the two tools
 
-From the repo root, with Python 3.10 or newer:
+You need [uv](https://docs.astral.sh/uv/) (installs Python and the packages) and [just](https://just.systems/)
+(runs the project's commands). You do not need to install Python yourself: uv downloads the right version.
+
+macOS (with [Homebrew](https://brew.sh/)):
 
 ```bash
-python3 -m venv .venv
+brew install uv just
+```
+
+Linux, or macOS without Homebrew:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ```bash
-source .venv/bin/activate
+uv tool install rust-just
+```
+
+Windows (PowerShell):
+
+```bash
+winget install --id=astral-sh.uv -e
 ```
 
 ```bash
-pip install -r requirements.txt
+winget install --id=Casey.Just -e
 ```
 
-Then download the robot's meshes (2.4 MB, from Hiwonder's GitHub repo, once):
+Open a new terminal afterwards so the commands are found. Check with `uv --version` and `just --version`.
+
+## Set up the project
+
+From the repo root:
 
 ```bash
-python sim/fetch_meshes.py
+just setup
 ```
 
-On Windows, activate with `.venv\Scripts\activate` instead. The other commands below assume the environment
-is active.
+This installs Python 3.12 if needed, creates the virtual environment in `.venv/` with the exact package
+versions in `uv.lock`, and downloads the robot's meshes (2.4 MB, from Hiwonder's GitHub repo). Run it again
+any time; it only does what is missing.
 
 The meshes make the robot look like the real JetHexa. They are not stored in this repo because Hiwonder
 publishes them without a license. Without them everything still runs, with the robot drawn as capsules and
 boxes ([sim/jethexa_simple.xml](../sim/jethexa_simple.xml)); the physics is the same.
 
+## Commands
+
+Run `just` on its own to list them.
+
+| Command | What it does |
+|---|---|
+| `just setup` | First-time setup: Python, `.venv/`, packages and meshes |
+| `just sim` | Walk for 5 s without a window and print where the robot ended up |
+| `just sim --seconds 10` | The same, for 10 s |
+| `just view` | Watch the robot walk in a live 3D window (20 s; `just view 60` for 60 s) |
+| `just inspect` | Open the model in MuJoCo's viewer to move the joints by hand |
+| `just snapshot` | Save a picture of the robot after walking to `walk.png` (`just snapshot other.png`) |
+| `just test` | Run the tests |
+| `just sync` | Update `.venv/` after someone changed the packages |
+| `just meshes` | Download the meshes again |
+
 ## Check that it works
 
 ```bash
-python sim/demo.py
+just sim
 ```
 
-The robot walks for 5 simulated seconds without opening a window. You should see a line like:
+You should see a line like:
 
 ```text
 MuJoCo 4.0.1: walked 5.0 s, body at x=0.544 m, y=0.024 m, height=0.080 m
 ```
 
-Run the tests:
+Then watch it:
 
 ```bash
-python -m unittest discover -s tests -v
+just view
 ```
 
-## Watch the robot
+In `just inspect` the robot starts with its legs straight out. To put it in the standing pose, open
+"Simulation" on the left and press "Load key". The joint sliders are under "Control" on the right.
 
-Live 3D window with the robot walking:
+## Run your own code
+
+Put your script anywhere in the repo and run it with `uv run`, which uses `.venv/` without activating it:
 
 ```bash
-mjpython sim/demo.py --view --seconds 20
+uv run python my_script.py
 ```
 
-On macOS this must be `mjpython` (it is installed with MuJoCo); plain `python` fails there. On Linux and Windows
-use `python sim/demo.py --view --seconds 20`.
+On macOS a script that opens a live window (`mujoco.viewer.launch_passive`) must run under `mjpython`:
+`uv run mjpython my_script.py`.
 
-To open the model and move the joints by hand (sliders are under "Control" on the right), use MuJoCo's own
-viewer. It works with plain `python` on every system:
+Add a package with `uv add <name>` (for example `uv add pandas`). This updates `pyproject.toml` and `uv.lock`;
+commit both so teammates get it with `just sync`. Do not use `pip install`.
 
-```bash
-python -m mujoco.viewer --mjcf=sim/jethexa.xml
-```
-
-The robot starts with its legs straight out. To put it in the standing pose, open "Simulation" on the left and
-press "Load key".
-
-Save a picture without opening a window:
-
-```bash
-python sim/demo.py --snapshot walk.png
-```
+To use the environment in an editor, point it at `.venv/bin/python` (`.venv\Scripts\python.exe` on Windows).
 
 ## Use it from Python
 
-Run from the `sim/` folder, or add it to `PYTHONPATH`:
+Add `sim/` to the import path, then:
 
 ```python
+import sys
+sys.path.insert(0, "sim")
+
 from jethexa_sim import JetHexaSim, tripod_targets
 
 sim = JetHexaSim()                       # starts in the standing pose
@@ -129,12 +160,14 @@ depth = sim.render(depth=True)           # metres, float array (360, 640)
 
 ## Problems
 
-- **"JetHexa meshes not found, using simple shapes":** run `python sim/fetch_meshes.py`.
-- **`python -m mujoco.viewer --mjcf=sim/jethexa.xml` fails with a missing mesh file:** same fix, or open
-  `sim/jethexa_simple.xml`.
-
-- **The window does not open on macOS, or you get an error about `launch_passive`:** use `mjpython`, not
-  `python`.
+- **`just: command not found` or `uv: command not found`:** install them (see the top), then open a new
+  terminal.
+- **"JetHexa meshes not found, using simple shapes":** run `just meshes`.
+- **`just inspect` fails with a missing mesh file:** same fix.
+- **No MuJoCo package for your machine during `just setup`:** MuJoCo 4 ships for Apple Silicon Macs, Linux
+  (x86-64 and ARM) and Windows (x86-64) only, with Python 3.10 to 3.13. Intel Macs are not supported.
+- **The window does not open on macOS, or you get an error about `launch_passive`:** use `just view`, or run
+  your script with `uv run mjpython`, not `python`.
 - **`ARB_clip_control unavailable` warning when rendering depth on macOS:** harmless.
-- **Rendering fails on a Linux machine without a screen:** set `MUJOCO_GL=egl` (with a GPU) or
-  `MUJOCO_GL=osmesa` (without) before the command. This was not tested here.
+- **Rendering fails on a Linux machine without a screen:** run with `MUJOCO_GL=egl` (with a GPU) or
+  `MUJOCO_GL=osmesa` (without) in front, for example `MUJOCO_GL=egl just sim`. This was not tested here.

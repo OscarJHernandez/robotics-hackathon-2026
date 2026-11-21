@@ -1,0 +1,13 @@
+[project]
+name = "robotics-hackathon-2026"
+version = "0.1.0"
+description = "Simulated Hiwonder JetHexa hexapod in MuJoCo"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "mujoco>=3.2",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+# Scripts are run from the repo; nothing is built or installed as a package.
+package = false

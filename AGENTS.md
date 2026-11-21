@@ -33,13 +33,49 @@ Claude Code users: the `contribute` and `record-learning` skills in `.claude/ski
 
 ## Stack and commands
 
-Python with [MuJoCo](https://mujoco.readthedocs.io/). The simulated JetHexa is in `sim/`; the full guide is
-[docs/simulation.md](docs/simulation.md).
+The project is Python with the [MuJoCo](https://mujoco.readthedocs.io/) simulator. The simulated JetHexa robot is in
+`sim/`; the full guide is [docs/simulation.md](docs/simulation.md).
 
-- Install: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`
-- Meshes (once, not committed): `.venv/bin/python sim/fetch_meshes.py`. Without them the sim falls back to
-  simple shapes.
-- Run: `.venv/bin/python sim/demo.py` (no window), or `.venv/bin/mjpython sim/demo.py --view` for the live
-  window (macOS needs `mjpython`; elsewhere use `python`).
-- Test: `.venv/bin/python -m unittest discover -s tests -v`
-- Lint: not set up yet.
+### Python and the virtual environment: always uv
+
+- [uv](https://docs.astral.sh/uv/) manages Python and the virtual environment. The environment is `.venv/` in the
+  repo root, created by `uv sync` (or `just setup`) from `pyproject.toml` and `uv.lock`.
+- Run Python through uv: `uv run python <script>`. It syncs `.venv/` first, so there is no need to activate it.
+- Add a package with `uv add <name>` (dev-only tools: `uv add --dev <name>`); remove with `uv remove <name>`.
+  Commit `pyproject.toml` and `uv.lock` together.
+- Never use `pip install`, `python -m venv`, `virtualenv`, conda or a `requirements.txt`. Never commit `.venv/`.
+- Python is pinned to 3.12 in `.python-version`; uv downloads it if missing. MuJoCo has no wheels for Python 3.14
+  or newer, which is why `pyproject.toml` caps it.
+
+### Commands: just
+
+Project commands live in the `justfile` and run with [just](https://just.systems/). If you add a recurring
+command, add it there with a one-line comment above it (the comment is what `just --list` shows).
+
+| Command | What it does |
+|---|---|
+| `just setup` | First-time setup: `uv sync` plus the robot meshes |
+| `just sync` | `uv sync`: make `.venv/` match `uv.lock` |
+| `just meshes` | Download the JetHexa meshes into `sim/meshes/` (gitignored, no license: never commit) |
+| `just sim [--seconds N] [--snapshot file.png]` | Walk without a window and print the end position |
+| `just view [seconds]` | Live 3D window (uses `mjpython` on macOS, which a live window needs) |
+| `just inspect` | MuJoCo's viewer on `sim/jethexa.xml`, to move joints by hand |
+| `just snapshot [file.png]` | Save a picture of the robot after walking |
+| `just test` | Run the tests (`unittest`; the camera test skips without OpenGL) |
+
+Lint: not set up yet.
+
+If `just` is not installed, `uvx --from rust-just just <command>` runs it without installing.
+
+### Code layout
+
+| Path | Contents |
+|---|---|
+| `sim/jethexa.xml` | The robot with Hiwonder's meshes (needs `just meshes`) |
+| `sim/jethexa_simple.xml` | The same robot with simple shapes; used automatically when the meshes are missing |
+| `sim/jethexa_sim.py` | `JetHexaSim`: load, set joint targets, step, read joints and body, render camera; demo tripod gait |
+| `sim/demo.py` | What `just sim`, `just view` and `just snapshot` run |
+| `sim/fetch_meshes.py` | Mesh download, pinned to one Hiwonder commit and checked by SHA-256 |
+| `tests/` | Tests |
+
+Keep both model XML files in step: a change to joints, actuators, sensors or physics goes in both.
