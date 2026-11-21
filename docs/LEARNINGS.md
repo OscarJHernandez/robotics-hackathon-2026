@@ -69,6 +69,12 @@ in the same pull request as the work.
   gave 55% best possible top-1 against 51% for "usual place at this hour"; 1 an hour gave 59% against 51%.
   Columns that never change in the context rows (like `answered_robot` in heard rows) teach TabPFN nothing, so
   leave them out of `fit()`.
+- 2026-11-21 (Oscar's agent): metacon (qwen3:8b) read "walk/move towards the target" and "get closer to the
+  target" as a small step, `[[forward 0.13]]` to `[[forward 0.5]]`, while "go to the target" gave `[[target]]`; the
+  0.13 came from the prompt's walking speed. So on voice calls the robot stopped short. The prompt now says any
+  request to go to, towards or closer to the pillar is `[[target]]` and never forward or goto, and no longer gives
+  the speed: 66 of 66 answers right across 11 phrasings, voice and text. Check a prompt change with several
+  phrasings against metacon, not one.
 - 2026-11-21 (Oscar's agent): In the web app every `goto` and `forward` used to move the red pillar to its end
   point, so when metacon answered "walk to the target" with `[[forward 1]]` (likely with spoken words on the phone)
   the pillar jumped to just in front of the robot. Walking no longer moves the pillar (only `random` does), and the
