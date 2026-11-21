@@ -86,7 +86,7 @@ def extract(model, images):
     """Patch features of RGB uint8 pictures (n, h, w, 3): float32 array (n, 26, 46, 384)."""
     import torch
     device = next(model.parameters()).device
-    x = torch.from_numpy(np.ascontiguousarray(images)).to(device).permute(0, 3, 1, 2).float() / 255.0
+    x = torch.from_numpy(np.array(images)).to(device).permute(0, 3, 1, 2).float() / 255.0
     x = torch.nn.functional.interpolate(x, size=(ROWS * PATCH, COLS * PATCH), mode="bilinear", align_corners=False)
     mean = torch.tensor(MEAN, device=device).view(1, 3, 1, 1)
     std = torch.tensor(STD, device=device).view(1, 3, 1, 1)
