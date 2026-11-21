@@ -135,7 +135,7 @@ class NavTest(unittest.TestCase):
                              prev_stride=0.0, prev_turn=0.0, fwd_1=0.0, left_1=0.0, dyaw_1=0.0))
         table = motion_rows(pd.DataFrame(rows))
         self.assertAlmostEqual(float(table["m_dyaw"].iloc[0]), 2 * rows[0]["turn"], places=6)
-        planner = DynamicsPlanner(table[FEATURES + ["m_fwd", "m_left", "m_dyaw"]], n_estimators=1)
+        planner = DynamicsPlanner(table[FEATURES + ["m_fwd", "m_left", "m_dyaw"]], n_estimators=1, score="polar")
         state = dict(prev_stride=0.0, prev_turn=0.0, fwd_1=0.0, left_1=0.0, dyaw_1=0.0)
         ahead, left = planner.act([dict(state, target_dist=1.0, target_sin=0.0, target_cos=1.0),
                                    dict(state, target_dist=1.0, target_sin=1.0, target_cos=0.0)])

@@ -53,13 +53,31 @@ The legs follow the tripod gait in `sim/jethexa_sim.py`. Once per gait cycle (1 
 - `stride`: how far the legs swing, 0 to 0.3 rad (0.3 is about 0.13 m per cycle)
 - `turn`: the difference between left and right swing, -0.25 to 0.25 rad (positive turns left)
 
+### In plain words: how the robot walks straight to b
+
+1. **TabPFN learns how the robot moves.** From the recorded random walks it learns "if the legs do this for
+   one second, the body ends up here". It never sees the target. Training is only `fit()` on 300 examples.
+2. **Every second, the planner tries 45 possible commands** (5 stride lengths × 9 turn amounts) and asks
+   TabPFN where each would leave the robot.
+3. **Each predicted spot gets a score** from where b would then be, seen from the robot:
+   - `delta_x`: how far b is straight ahead,
+   - `delta_y`: how far b is off to the side (counted double, because sideways error is what makes a path curve),
+   - plus a penalty for not facing b, so that with b behind it the robot turns around first.
+4. **The command with the lowest score is sent to the legs.** Then it repeats.
+
+The result: the robot turns on the spot until it faces b, then walks almost straight to it. Directness rose
+from 0.89 to 0.96 on the 20 test tasks, as straight as the hand-written baseline.
+
+Why each part is needed (measured, see the tables below): without the sideways term the path curves (0.89);
+without the facing penalty the robot cannot turn around and misses every target behind it (10 of 20 reached).
+
 ### Two kinds of controller
 
 Both get their examples from the random walks in the database, and both only call `fit()` and `predict()`.
 
 | Kind | TabPFN predicts | How the command is chosen | Examples given to `fit()` |
 |---|---|---|---|
-| `planner` (default) | the body's motion over the next cycle (forward, sideways, turn) from the last motion and a candidate command | 45 candidate commands are scored; the one whose predicted end pose is closest to b, facing it, wins | 300 recorded cycles |
+| `planner` (default) | the body's motion over the next cycle (forward, sideways, turn) from the last motion and a candidate command | 45 candidate commands are scored (`--score`, default `hybrid`); the one whose predicted end pose leaves b least off to the side and most nearly ahead wins | 300 recorded cycles |
 | `goal` | the command, from b's distance and bearing plus b's offset ahead and to the left | used directly | 150 hindsight examples |
 
 **Hindsight examples** (`--kind goal`): in random walks a command is held for 1 to 8 cycles. Wherever the
@@ -81,8 +99,9 @@ not from the episode's `target_x`/`target_y`.
 
 | Controller | Examples in `fit()` | Reached b | Directness |
 |---|---|---|---|
-| `planner` | 300 | 20 of 20 | **0.89** |
-| `planner` | 2,000 | 20 of 20 | 0.89 (9 times slower) |
+| `planner`, score `hybrid` (default) | 300 | 20 of 20 | **0.96** |
+| `planner`, score `polar` | 300 | 20 of 20 | 0.89 |
+| `planner`, score `polar` | 2,000 | 20 of 20 | 0.89 (9 times slower) |
 | `goal`, groups `goal,delta` (default) | 150 | 20 of 20 | 0.84 |
 | `goal`, groups `goal` | 150 | 20 of 20 | 0.77 |
 | `goal`, groups `delta` | 150 | 20 of 20 | 0.73 |
@@ -98,15 +117,15 @@ before walking instead of walking a wide loop (task 7: 0.46 to 0.79, 24 to 18 cy
 ahead did not change; the path still bends a little after the turn.
 
 **Planner score** (`--score`, kind `planner` only): the planner's TabPFN model never sees b (it predicts
-motion), so b enters only where candidate commands are scored. `polar` (default) scores distance to b plus a
-cost for not facing it. `delta` scores b's offset from the predicted end pose, ahead and sideways (a metre
+motion), so b enters only where candidate commands are scored. `hybrid` is the default. `polar` (the old
+default) scores distance to b plus a small cost for not facing it. `delta` scores b's offset from the predicted end pose, ahead and sideways (a metre
 sideways counts double), with no bearing term. `hybrid` is `delta` plus a cost for not facing b, scaled by
 the distance to b (`HYBRID_FACING` in `nav/dynamics.py`). Results with 300 examples:
 
 | Score | Reached b | Directness | Mean cycles |
 |---|---|---|---|
-| `hybrid` | 20 of 20 | **0.96** | 9.8 |
-| `polar` (default) | 20 of 20 | 0.89 | 9.1 |
+| `hybrid` (default) | 20 of 20 | **0.96** | 9.8 |
+| `polar` | 20 of 20 | 0.89 | 9.1 |
 | `delta` | 10 of 20 | 0.48 | n/a |
 | hand-written baseline | 20 of 20 | 0.96 | 9.8 |
 

@@ -6,8 +6,9 @@ Instead of predicting the command directly (policy.py), TabPFN predicts what a c
                                                                         (forward m, left m, yaw rad)
 
 Each cycle the planner asks TabPFN about a grid of 45 candidate commands for every robot in one
-batch and picks the command whose predicted end pose is closest to b (with a small cost for not
-facing b). The examples are plain recorded cycles: no relabelling is needed.
+batch and picks the command whose predicted end pose is best for reaching b. The default score
+("hybrid") is b's offset from that pose, ahead and sideways, plus a cost for not facing b. The
+examples are plain recorded cycles: no relabelling is needed.
 
 TabPFN is used only through `fit()` and `predict()` (rule in AGENTS.md). Build one with
 `just controller --kind planner`.
@@ -32,6 +33,7 @@ FACING_COST = 0.08  # metres of distance one radian of bearing error is worth
 # a b that is behind first makes delta_y larger; with SIDE_WEIGHT 2 the facing cost must be at least about
 # 1 m per radian per metre of distance for the turn to pay off within one cycle.
 SCORES = ("polar", "delta", "hybrid")
+DEFAULT_SCORE = "hybrid"  # directness 0.96 against polar's 0.89 on the 20 held-out tasks
 SIDE_WEIGHT = 2.0
 HYBRID_FACING = 1.5
 
@@ -60,7 +62,7 @@ class DynamicsPlanner:
     name = "tabpfn-planner"
     labels = MOTION
 
-    def __init__(self, context, device="cpu", n_estimators=4, seed=0, score="polar"):
+    def __init__(self, context, device="cpu", n_estimators=4, seed=0, score=DEFAULT_SCORE):
         if score not in SCORES:
             raise ValueError("unknown planner score: " + score)
         self.score = score

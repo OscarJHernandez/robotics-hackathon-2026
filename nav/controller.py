@@ -28,7 +28,7 @@ import pandas as pd
 
 from common import data_dir, git_commit, make_goal
 from db import connect, query
-from dynamics import FEATURES, SCORES, DynamicsPlanner, motion_rows, sample_rows
+from dynamics import DEFAULT_SCORE, FEATURES, SCORES, DynamicsPlanner, motion_rows, sample_rows
 from evaluate import evaluate
 from hindsight import DEFAULT_GROUPS, hindsight_rows
 from policy import BaselinePolicy, TabPFNNavPolicy, sample_context
@@ -36,7 +36,8 @@ from policy import BaselinePolicy, TabPFNNavPolicy, sample_context
 KINDS = ("planner", "goal")
 MAX_VAL_ROWS = 1000
 # Examples given to fit() by default. More did not help on the 20 held-out tasks (2026-11-21):
-# planner 300 and 2000 both reached directness 0.89 (2000 is 9x slower); goal 150: 0.77, 3000: 0.72.
+# planner 300 and 2000 both reached directness 0.89 with the polar score (2000 is 9x slower); 300 with the
+# hybrid score: 0.96. goal 150: 0.77 (0.84 with the delta inputs), 3000: 0.72.
 DEFAULT_CONTEXT = {"planner": 300, "goal": 150}
 
 
@@ -44,7 +45,7 @@ def folder(name):
     return data_dir() / "controllers" / name
 
 
-def make_policy(kind, context, groups=DEFAULT_GROUPS, device="cpu", seed=0, score="polar"):
+def make_policy(kind, context, groups=DEFAULT_GROUPS, device="cpu", seed=0, score=DEFAULT_SCORE):
     if kind == "goal":
         return TabPFNNavPolicy(context, groups=groups, device=device, seed=seed)
     if kind == "planner":
@@ -59,7 +60,7 @@ def load(name, device="cpu"):
         raise SystemExit("no controller named '{}': build it with `just controller --name {}`".format(name, name))
     info = json.loads((path / "controller.json").read_text())
     return make_policy(info["kind"], pd.read_parquet(path / "context.parquet"), tuple(info["groups"]), device,
-                       info["seed"], info.get("score", "polar"))
+                       info["seed"], info.get("score") or "polar")  # built before scores existed: polar
 
 
 def split_by_episode(table, fraction, seed):
@@ -91,7 +92,7 @@ def insert(table, frame):
 
 
 def build(name, kind="planner", context_rows=None, groups=DEFAULT_GROUPS, device="cpu", seed=0, run_eval=True,
-          score="polar"):
+          score=DEFAULT_SCORE):
     context_rows = context_rows or DEFAULT_CONTEXT[kind]
     cycles = query("SELECT c.* FROM cycles c JOIN runs r USING (run_id) WHERE r.kind = 'collect'")
     if cycles.empty:
@@ -160,7 +161,7 @@ def main():
     parser.add_argument("--kind", choices=KINDS, default="planner")
     parser.add_argument("--context-rows", type=int, help="examples given to TabPFN's fit() (default: planner 300, goal 150)")
     parser.add_argument("--groups", default=",".join(DEFAULT_GROUPS), help="feature groups (kind goal only)")
-    parser.add_argument("--score", choices=SCORES, default="polar",
+    parser.add_argument("--score", choices=SCORES, default=DEFAULT_SCORE,
                         help="how the planner scores candidates (kind planner only): polar = distance + bearing, "
                              "delta = b's offset ahead and sideways, hybrid = delta + facing b")
     parser.add_argument("--device", default="cpu")
