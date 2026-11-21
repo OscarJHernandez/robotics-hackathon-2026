@@ -27,11 +27,15 @@ CLEARANCE_HEIGHT = 0.25  # metres: shapes whose bottom is above this (the table 
 LAYOUT_ATTEMPTS = 20
 
 
-def scene_layout(arena, scene_id):
-    """Put the layout of `scene_id` into `arena` (same layout for the same id). Returns the layout."""
+def scene_layout(arena, scene_id, target_clearance=None, target_wall=None):
+    """Put the layout of `scene_id` into `arena` (same layout for the same id). Returns the layout.
+
+    `target_clearance` / `target_wall` (metres from obstacles / walls to the target) default to the scene's own.
+    """
+    extra = {k: v for k, v in (("target_clearance", target_clearance), ("target_wall", target_wall)) if v is not None}
     for attempt in range(LAYOUT_ATTEMPTS):
         try:
-            return arena.randomize(np.random.default_rng([int(scene_id), attempt]))
+            return arena.randomize(np.random.default_rng([int(scene_id), attempt]), **extra)
         except RuntimeError:  # furniture did not fit; try the next draw
             continue
     raise RuntimeError("no layout for scene {}".format(scene_id))
@@ -39,7 +43,8 @@ def scene_layout(arena, scene_id):
 
 class SimEnv:
     def __init__(self, scene_id=0, seed=0, arena=None, simple=None, goal_radius=0.25, max_steps=300,
-                 min_start_dist=1.0, segmentation=False, expert=None, timer=None):
+                 min_start_dist=1.0, segmentation=False, expert=None, timer=None, target_clearance=None,
+                 target_wall=None):
         self.arena = arena or Arena(simple)
         self.sim = self.arena.sim
         model = self.sim.model
@@ -53,6 +58,7 @@ class SimEnv:
         self.expert = expert  # used by reset() to make sure the start can reach the goal
         self.timer = timer or Timer()
         self.scene_id, self.seed = scene_id, seed
+        self.target_clearance, self.target_wall = target_clearance, target_wall
         self.layout = None
         self._footprints = None
 
@@ -64,7 +70,7 @@ class SimEnv:
         if seed is not None:
             self.seed = seed
         with self.timer("reset"):
-            self.layout = scene_layout(self.arena, self.scene_id)
+            self.layout = scene_layout(self.arena, self.scene_id, self.target_clearance, self.target_wall)
             self.goal = tuple(self.layout["target"])
             self._footprints = None
             rng = np.random.default_rng([int(self.scene_id), int(self.seed), 7])

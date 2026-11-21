@@ -129,6 +129,17 @@ class Featurizer:
             if not probe.is_file():
                 raise SystemExit("no patch probe at {}: run just vision-data, vision-features, vision-probe "
                                  "(or copy data/vision/ from the laptop)".format(probe))
+            expected = features_cfg.get("probe_sha256")
+            if expected:
+                import hashlib
+                digest = hashlib.sha256()
+                with open(probe, "rb") as f:
+                    for block in iter(lambda: f.read(1 << 20), b""):
+                        digest.update(block)
+                if digest.hexdigest() != expected:
+                    raise SystemExit("patch probe {} has SHA-256 {} but dagger.yaml pins {}: wrong or damaged "
+                                     "copy; copy it again (nav.dagger.transfer) or update features.probe_sha256"
+                                     .format(probe, digest.hexdigest(), expected))
         return cls(features_cfg["perception"], probe, device, features_cfg["patch_pool"], features_cfg["depth_cap"],
                    features_cfg["use_prev_command"], timer)
 

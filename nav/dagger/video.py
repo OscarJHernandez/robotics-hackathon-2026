@@ -133,7 +133,8 @@ def film(run, round_, episode, config, probe, dino, out):
     env_cfg = config["env"]
     expert = Expert.from_config(config["expert"], env_cfg["goal_radius"])
     env = SimEnv(simple=env_cfg["simple"], goal_radius=env_cfg["goal_radius"], max_steps=env_cfg["max_steps"],
-                 min_start_dist=env_cfg["min_start_dist"], expert=expert)
+                 min_start_dist=env_cfg["min_start_dist"], expert=expert,
+                 target_clearance=env_cfg.get("target_clearance"), target_wall=env_cfg.get("target_wall"))
     env.reset(int(rows["scene_id"][0]), int(rows["seed"][0]))
     filmer = Filmer(env, probe, dino)
     footprints, goal = env.footprints(), env.goal

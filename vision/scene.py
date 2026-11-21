@@ -88,8 +88,11 @@ class Arena:
 
     # ---- layouts -------------------------------------------------------------------------------------
 
-    def randomize(self, rng):
-        """New furniture positions and colors and a new target. Returns the layout (also in `self.layout`)."""
+    def randomize(self, rng, target_clearance=TARGET_CLEARANCE, target_wall=0.3):
+        """New furniture positions and colors and a new target. Returns the layout (also in `self.layout`).
+
+        The target is at least `target_clearance` m from every obstacle footprint and `target_wall` m from every wall.
+        """
         placed = []
         for obstacle in sorted(self.obstacles, key=lambda o: -o["radius"]):  # big ones first: easier to fit
             limit = HALF - obstacle["radius"] - 0.05
@@ -106,10 +109,10 @@ class Arena:
         placed.sort(key=lambda p: p["name"])
         layout = {"obstacles": placed, "target": None}
         self.layout = layout
-        limit = HALF - 0.3
+        limit = HALF - target_wall
         while True:
             tx, ty = rng.uniform(-limit, limit, size=2)
-            if self.is_free(tx, ty, TARGET_CLEARANCE):
+            if all(math.hypot(tx - o["x"], ty - o["y"]) > o["radius"] + target_clearance for o in placed):
                 break
         layout["target"] = (float(tx), float(ty))
         self.apply(layout)

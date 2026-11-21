@@ -21,6 +21,8 @@ env:
   max_steps: 300       # gait cycles (1 s each) before a timeout
   goal_radius: 0.25    # metres from the target pillar
   min_start_dist: 1.0  # metres between start and target
+  target_clearance: 0.35  # metres between the target pillar and any obstacle footprint
+  target_wall: 0.45       # metres between the target pillar and any wall
   simple: null         # null: mesh model when sim/meshes exists, else simple shapes
 
 expert:
@@ -33,6 +35,7 @@ expert:
 features:
   perception: probe    # probe: frozen DINOv2 + patch probe on the RGB picture; truth: simulator segmentation
   probe: full60/probe-mlp256.pt   # under data/vision/
+  probe_sha256: d92669a89e37b65e10f2cb4e6d7723035d52c90618eac68fa05f6884a1dd5e02  # null: do not check
   patch_pool: 1        # 1 = all 26 x 46 patches; 2 = 13 x 23 blocks (majority class, mean depth)
   depth_cap: 10.0      # metres
   use_prev_command: false

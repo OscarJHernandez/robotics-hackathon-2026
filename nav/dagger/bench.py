@@ -39,7 +39,8 @@ def _rollout_job(job):
     start = time.time()
     expert = Expert.from_config(config["expert"], env_cfg["goal_radius"])
     envs = [SimEnv(simple=env_cfg["simple"], goal_radius=env_cfg["goal_radius"], max_steps=env_cfg["max_steps"],
-                   min_start_dist=env_cfg["min_start_dist"], segmentation=job["perception"] == "truth",
+                   min_start_dist=env_cfg["min_start_dist"],
+                   target_clearance=env_cfg.get("target_clearance"), target_wall=env_cfg.get("target_wall"), segmentation=job["perception"] == "truth",
                    expert=expert, timer=timer) for _ in range(job["n_envs"])]
     features = dict(config["features"], perception=job["perception"])
     featurizer = Featurizer.from_config(features, vision_dir(), job.get("dino_device"), timer)
@@ -147,7 +148,8 @@ def main():
 
     started = time.time()
     from .env import SimEnv
-    env = SimEnv(simple=config["env"]["simple"])
+    env = SimEnv(simple=config["env"]["simple"], target_clearance=config["env"].get("target_clearance"),
+                 target_wall=config["env"].get("target_wall"))
     env.reset(0, 0)
     env.close()
     log.event("preflight", "arena built and rendered RGB + depth in {:.1f} s (MUJOCO_GL={})".format(
