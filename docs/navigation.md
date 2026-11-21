@@ -60,11 +60,22 @@ Both get their examples from the random walks in the database, and both only cal
 | Kind | TabPFN predicts | How the command is chosen | Examples given to `fit()` |
 |---|---|---|---|
 | `planner` (default) | the body's motion over the next cycle (forward, sideways, turn) from the last motion and a candidate command | 45 candidate commands are scored; the one whose predicted end pose is closest to b, facing it, wins | 300 recorded cycles |
-| `goal` | the command, from b's distance and bearing | used directly | 150 hindsight examples |
+| `goal` | the command, from b's distance and bearing plus b's offset ahead and to the left | used directly | 150 hindsight examples |
 
 **Hindsight examples** (`--kind goal`): in random walks a command is held for 1 to 8 cycles. Wherever the
 robot ended up is treated as if it had been the target: "from here, to reach that point in K cycles, use
 this command" (`nav/hindsight.py`).
+
+**Goal inputs** (`--groups`, default `goal,delta`):
+
+| Group | Columns | Meaning |
+|---|---|---|
+| `goal` | `goal_dist`, `goal_sin`, `goal_cos`, `horizon` | b's distance and bearing, and the cycles to get there |
+| `delta` | `delta_x`, `delta_y` | b in the robot's body frame: metres ahead and metres to the left |
+
+Both are capped at what 8 cycles can reach (1.04 m), pulled in along the bearing, because the hindsight
+examples never go farther. In hindsight examples the deltas are worked out from the relabelled end point,
+not from the episode's `target_x`/`target_y`.
 
 ### Results (2026-11-21, 20 held-out tasks, 6,000 recorded cycles)
 
@@ -72,12 +83,19 @@ this command" (`nav/hindsight.py`).
 |---|---|---|---|
 | `planner` | 300 | 20 of 20 | **0.89** |
 | `planner` | 2,000 | 20 of 20 | 0.89 (9 times slower) |
-| `goal` | 150 | 20 of 20 | 0.77 |
-| `goal` | 3,000 | 20 of 20 | 0.72 |
+| `goal`, groups `goal,delta` (default) | 150 | 20 of 20 | 0.84 |
+| `goal`, groups `goal` | 150 | 20 of 20 | 0.77 |
+| `goal`, groups `delta` | 150 | 20 of 20 | 0.73 |
+| `goal`, groups `goal` | 3,000 | 20 of 20 | 0.72 |
 | hand-written baseline | n/a | 20 of 20 | 0.96 |
 
 Directness is straight-line distance / path length (1.0 = a straight line). The planner walks straighter
 because it predicts what a command does instead of copying the curved arcs of random walking.
+
+Adding `delta_x`/`delta_y` to the goal controller made 10 of the 20 tasks straighter and none worse by more
+than 0.01. The gain is on tasks where b starts behind or far to the side: the controller now turns on the spot
+before walking instead of walking a wide loop (task 7: 0.46 to 0.79, 24 to 18 cycles). Tasks with b roughly
+ahead did not change; the path still bends a little after the turn.
 
 ## Where the data is
 

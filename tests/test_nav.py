@@ -40,6 +40,20 @@ class NavTest(unittest.TestCase):
         self.assertEqual(far["horizon"], MAX_HORIZON)
         self.assertAlmostEqual(far["goal_dist"], MAX_HORIZON * MAX_STEP)
         self.assertEqual(make_goal(0.05, 0.0)["horizon"], 1)
+        # delta_x/delta_y: the same capped goal in the body frame (ahead, left)
+        self.assertAlmostEqual(math.hypot(far["delta_x"], far["delta_y"]), MAX_HORIZON * MAX_STEP)
+        ahead = make_goal(0.5, 0.0)
+        self.assertAlmostEqual(ahead["delta_x"], 0.5)
+        self.assertAlmostEqual(ahead["delta_y"], 0.0)
+        self.assertGreater(make_goal(0.5, 0.4)["delta_y"], 0.0)  # b to the left
+        self.assertLess(make_goal(0.5, -0.4)["delta_y"], 0.0)
+
+    def test_feature_groups(self):
+        from hindsight import feature_columns
+        self.assertEqual(feature_columns(("goal",), None), ["goal_dist", "goal_sin", "goal_cos", "horizon"])
+        self.assertEqual(feature_columns(("goal", "delta"), None)[-2:], ["delta_x", "delta_y"])
+        with self.assertRaises(ValueError):
+            feature_columns(("nope",), None)
 
     def test_walker_records_a_cycle(self):
         from common import JetHexaSim, Walker
@@ -97,7 +111,13 @@ class NavTest(unittest.TestCase):
         two = table[(table["cycle"] == 0) & (table["horizon"] == 2.0)].iloc[0]
         self.assertAlmostEqual(two["goal_dist"], 0.2)
         self.assertAlmostEqual(two["goal_cos"], 1.0)
+        self.assertAlmostEqual(two["delta_x"], 0.2)
+        self.assertAlmostEqual(two["delta_y"], 0.0)
         self.assertEqual((two["stride"], two["turn"]), (0.3, 0.0))
+        # the deltas are the relabelled end point in the start pose's frame: cycle 2 ends 0.05 ahead, 0.05 left
+        last = table[table["cycle"] == 2].iloc[0]
+        self.assertAlmostEqual(last["delta_x"], 0.05)
+        self.assertAlmostEqual(last["delta_y"], 0.05)
 
     def test_planner_picks_the_command_that_heads_for_b(self):
         import numpy as np

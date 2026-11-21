@@ -12,18 +12,22 @@ import math
 
 import pandas as pd
 
-from common import MAX_HORIZON, relative
+from common import MAX_HORIZON, to_body
 
 GOAL = ["goal_dist", "goal_sin", "goal_cos", "horizon"]
+# The goal in the robot's body frame: metres ahead and metres to the left. delta_y is the sideways
+# error the controller has to steer out.
+DELTA = ["delta_x", "delta_y"]
 HISTORY = ["prev_stride", "prev_turn", "fwd_1", "left_1", "dyaw_1", "fwd_3", "left_3", "dyaw_3",
            "droll_1", "dpitch_1"]
 LOCATION = ["x", "y", "sin_yaw", "cos_yaw"]
 TIME = ["t_rel", "cycle"]
 LABELS = ["stride", "turn"]
-# Only the goal by default. "history" (previous command, recent motion) leaks the label in
+# The goal, polar and body-frame, by default. "history" (previous command, recent motion) leaks the label in
 # random-walk data, where a command is held for several cycles: the model learns "repeat the
 # previous command". It stays available as an opt-in group.
-DEFAULT_GROUPS = ("goal",)
+DEFAULT_GROUPS = ("goal", "delta")
+GROUPS = {"goal": GOAL, "delta": DELTA, "history": HISTORY, "location": LOCATION, "time": TIME}
 
 
 def robot_columns(frame):
@@ -34,10 +38,9 @@ def robot_columns(frame):
 def feature_columns(groups, frame):
     columns = []
     for group in groups:
-        columns += {"goal": GOAL, "history": HISTORY, "location": LOCATION, "time": TIME}.get(group) or (
-            robot_columns(frame) if group == "robot" else [])
-        if group not in ("goal", "history", "location", "time", "robot"):
+        if group not in GROUPS and group != "robot":
             raise ValueError("unknown feature group: " + group)
+        columns += GROUPS[group] if group in GROUPS else robot_columns(frame)
     return columns
 
 
@@ -56,9 +59,11 @@ def hindsight_rows(cycles):
                 end = t + k - 1
                 if end >= len(ep) or bad[end] or stride[end] != stride[t] or turn[end] != turn[t]:
                     break
-                dist, bearing = relative(pose, xs[end], ys[end])
+                # The goal is the relabelled end point, not the episode's target_x/target_y.
+                fwd, left = to_body(pose, xs[end], ys[end])
                 row = start.to_dict()
-                row.update({"goal_dist": dist, "goal_sin": math.sin(bearing), "goal_cos": math.cos(bearing),
-                            "horizon": float(k), "kind": "hindsight"})
+                row.update({"goal_dist": math.hypot(fwd, left), "goal_sin": math.sin(math.atan2(left, fwd)),
+                            "goal_cos": math.cos(math.atan2(left, fwd)), "horizon": float(k),
+                            "delta_x": fwd, "delta_y": left, "kind": "hindsight"})
                 out.append(row)
     return pd.DataFrame(out)

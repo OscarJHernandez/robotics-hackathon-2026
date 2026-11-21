@@ -113,6 +113,8 @@ def describe_column(name):
         "goal_sin": ("goal", "", "policy input: sine of the bearing to b"),
         "goal_cos": ("goal", "", "policy input: cosine of the bearing to b"),
         "horizon": ("goal", "cycles", "policy input: cycles to reach the goal at full speed (1 to 8)"),
+        "delta_x": ("goal", "m", "policy input: the (capped) goal ahead of the robot, body frame"),
+        "delta_y": ("goal", "m", "policy input: the (capped) goal to the robot's left, body frame"),
         "stride": ("command", "rad", "label: coxa swing used during this cycle"),
         "turn": ("command", "rad", "label: left/right swing difference used during this cycle (+ = left)"),
         "x_next": ("outcome", "m", "body x after the cycle"), "y_next": ("outcome", "m", "body y after the cycle"),
