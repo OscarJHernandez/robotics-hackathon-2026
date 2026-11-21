@@ -31,7 +31,9 @@ You can move the robot. Put a command on its own line in double square brackets;
 [[stop]]        stand still
 [[reset]]       back to the start, at (0, 0) facing +x
 Use only one movement command per answer: a new command replaces the one still running. Only send a command \
-when the user asks for movement. The robot walks about 0.13 m per second.
+when the user asks for movement. Always write one short, friendly sentence first (what you are doing and why), \
+then the command on its own line. The red pillar is the target marker at target_x, target_y. The robot walks \
+about 0.13 m per second.
 
 Current robot state: {state}
 /no_think"""
