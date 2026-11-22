@@ -336,8 +336,15 @@ class LidarShield:
     under 0.26 m), while every student crash happened at 0.15 to 0.31 m."""
     name = "student + lidar shield"
 
-    def __init__(self, policy, columns, min_range=0.27, fov_deg=90):
+    def __init__(self, policy, columns, min_range=0.27, fov_deg=90, front_range=None, front_deg=45,
+                 turn="away"):
+        """`front_range` (optional): a larger threshold for the cone within +-`front_deg` of straight ahead, since
+        a step walks up to 0.13 m forward. `turn`: "away" from the nearest ray, or "freer" = toward the side
+        (left or right half) with the larger mean clearance."""
         self.policy, self.min_range, self.fov = policy, min_range, fov_deg
+        self.front_range, self.front_deg, self.turn = front_range, front_deg, turn
+        if turn not in ("away", "freer"):
+            raise ValueError("turn must be 'away' or 'freer'")
         self.columns = list(columns)
         self._rays = [i for i, c in enumerate(self.columns) if c.startswith("lr_")]
         if not self._rays:
@@ -358,10 +365,19 @@ class LidarShield:
         front = np.where(self._front, ranges, np.inf)
         nearest = front.argmin(axis=1)
         close = front[np.arange(len(X)), nearest] < self.min_range
+        if self.front_range is not None:
+            cone = np.abs(self._bearing) <= self.front_deg
+            close |= np.where(cone, ranges, np.inf).min(axis=1) < self.front_range
         out[close, 0] = 0.0
-        away = -np.sign(self._bearing[nearest[close]])  # obstacle on the left (+) -> turn right (-)
-        away = np.where(away == 0, 1.0, away)
-        out[close, 1] = away * TURN_MAGNITUDE
+        if self.turn == "freer":
+            left = (self._bearing > 10) & (self._bearing < 170)
+            right = (self._bearing < -10) & (self._bearing > -170)
+            sign = np.where(ranges[:, left].mean(axis=1) >= ranges[:, right].mean(axis=1), 1.0, -1.0)
+            out[close, 1] = sign[close] * TURN_MAGNITUDE
+        else:
+            away = -np.sign(self._bearing[nearest[close]])  # obstacle on the left (+) -> turn right (-)
+            away = np.where(away == 0, 1.0, away)
+            out[close, 1] = away * TURN_MAGNITUDE
         self.shielded = int(close.sum())
         return out
 

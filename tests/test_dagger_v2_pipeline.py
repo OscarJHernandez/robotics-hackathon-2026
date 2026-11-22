@@ -205,3 +205,23 @@ class LidarShieldTest(unittest.TestCase):
         self.assertEqual(out[2, 0], 0.0)
         self.assertGreater(out[2, 1], 0)
         np.testing.assert_allclose(out[3], [0.3, 0.05])
+
+
+@unittest.skipUnless(HAVE_ML, "needs the ml packages")
+class LidarShieldFrontTest(unittest.TestCase):
+    def test_front_cone_and_freer_side(self):
+        from nav.dagger.policy import LidarShield
+
+        class Walk:
+            def act_batch(self, X):
+                return np.tile([0.3, 0.0], (len(X), 1))
+
+        cols = ["lr_{}".format(i) for i in range(36)]
+        X = np.full((2, 36), 3.0)
+        X[0, 0] = 0.40          # 0.40 m straight ahead: under the 0.42 front threshold
+        X[0, 27:34] = 0.6       # the right side is crowded -> turn left (freer)
+        X[1, 0] = 0.50          # 0.50 m ahead: no trigger
+        out = LidarShield(Walk(), cols, min_range=0.27, front_range=0.42, turn="freer").act_batch(X)
+        self.assertEqual(out[0, 0], 0.0)
+        self.assertGreater(out[0, 1], 0)
+        np.testing.assert_allclose(out[1], [0.3, 0.0])
