@@ -38,10 +38,14 @@ def _yaw_quat(yaw):
 
 
 class Arena:
-    def __init__(self, simple=None):
+    def __init__(self, simple=None, clutter=False):
+        """`clutter`: load sim/arena_clutter.xml (the arena plus the 12 clutter bodies of sim/clutter.xml, parked
+        outside the room), the app's plain twin and homes/sim_bridge.FlatEnv. Training and vision data use the plain
+        arena (the default): randomize() places every obs_ body, so the clutter would change every layout."""
         if simple is None:
             simple = not meshes_available()
-        self.sim = JetHexaSim(SIM_DIR / ("arena_simple.xml" if simple else "arena.xml"))
+        name = "arena_clutter" if clutter else "arena"
+        self.sim = JetHexaSim(SIM_DIR / ("{}_simple.xml".format(name) if simple else "{}.xml".format(name)))
         model = self.sim.model
         # The robot file's floor is 6 x 6 m; make it cover the room. (A second floor geom would break
         # foot_contacts(), which looks for the geom named "floor".)

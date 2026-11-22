@@ -41,13 +41,18 @@ class FlatEnv(SimEnv):
     away when she is out; the goal the robot walks to is set separately with `set_goal`."""
 
     def __init__(self, flat, person=None, render=False, **kw):
+        if kw.get("arena") is None:  # the arena with the clutter bodies (parked outside), as the app's plain twin
+            from scene import Arena  # vision/scene.py (nav.dagger.env puts it on the path)
+            kw["arena"] = Arena(kw.get("simple"), clutter=True)
         super().__init__(**kw)
         self.render_pictures = render
         self.load(flat, person)
 
     def load(self, flat, person=None):
+        """The flat's furniture and clutter; every obstacle body it does not list is parked outside the room."""
         self.flat = flat
         self.layout = F.arena_layout(flat)
+        self.layout["obstacles"] += F.parked_layout(flat, [o["name"] for o in self.arena.obstacles])
         self.arena.apply(self.layout)
         self._footprints = None
         self.sim.set_target(*(person or AWAY))

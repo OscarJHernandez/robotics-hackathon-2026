@@ -2,9 +2,12 @@
 
   just student-bench --flats 40 --budget-calls 80                    the real student, through the TabPFN API
   just student-bench --flats 1 --max-legs 2 --policy fake --no-baseline    a dry run: no TabPFN, no credits
+  just student-bench --flats 10 --levels clean,medium,messy --driver baseline-only    A* + a-to-b in the app's mess
+                                                                                       levels (local, no API)
 
 Legs: in each of N random flats (homes/flats.py), "home" (as built) and "scattered" (the loose pieces moved,
-`flats.scatter`), the robot walks dock -> viewing spot -> next viewing spot, zones in a random order, as the search
+`flats.scatter`), or with `--levels` the app's mess levels (clean, medium, messy: `flats.scatter(flat, rng, level)`,
+with clutter), the robot walks dock -> viewing spot -> next viewing spot, zones in a random order, as the search
 does. Each leg is its own episode in a plain FlatEnv (homes/sim_bridge.py: the training arena with the flat's
 furniture, which is what the app's plain twin shows the student; tests/test_student_twin.py), starting at the leg's
 start point facing the way the robot would face there.
@@ -40,6 +43,7 @@ for _p in (REPO / "homes", REPO / "app"):
 
 LIDAR = (36, 0.15, 8.0)
 CONDITIONS = ("home", "scattered")
+LEVELS = ("clean", "medium", "messy")  # homes/flats.py LEVELS: the app's mess levels
 
 
 def make_legs(flats, conditions=CONDITIONS, seed=0, max_legs=None):
@@ -50,7 +54,12 @@ def make_legs(flats, conditions=CONDITIONS, seed=0, max_legs=None):
         home = F.random_flat(np.random.default_rng([seed, k, 0]), k)
         order = [int(i) for i in np.random.default_rng([seed, k, 1]).permutation(len(home["zones"]))]
         for condition in conditions:
-            flat = home if condition == "home" else F.scatter(home, np.random.default_rng([seed, k, 2]))
+            if condition == "home":
+                flat = home
+            elif condition == "scattered":  # the loose pieces moved (scatter's default level, medium, with clutter)
+                flat = F.scatter(home, np.random.default_rng([seed, k, 2]))
+            else:
+                flat = F.scatter(home, np.random.default_rng([seed, k, 2]), condition)
             zones = [flat["zones"][i] for i in order]
             at, name = flat["dock"], "dock"
             yaw = math.atan2(-at["y"], -at["x"])
@@ -164,8 +173,9 @@ def run_baseline(legs, controller="default", simple=None, max_steps=80, stuck_st
 def summarize(outcomes):
     """{(driver, condition): {"legs", "goal", "goal_ci", "collision", "stuck", "timeout", "not_run", "cycles"}}."""
     out = {}
+    conditions = [c for c in CONDITIONS + LEVELS if any(o["condition"] == c for o in outcomes)]
     for d in sorted({o["driver"] for o in outcomes}):
-        for c in CONDITIONS + ("all",):
+        for c in conditions + ["all"]:
             rows = [o for o in outcomes if o["driver"] == d and (c == "all" or o["condition"] == c) and o["reason"] != "not_run"]
             if not rows:
                 continue
@@ -188,6 +198,7 @@ def markdown(summary, meta):
              "{} flats, {} legs per driver, max {} steps, stuck rule {} steps; student: {}, {} calls ({:,} API "
              "credits).".format(meta["flats"], meta["legs"], meta["max_steps"], meta["stuck_steps"], meta["policy"],
                                 meta.get("calls", 0), meta.get("credits_used", 0)), "",
+             "Conditions: {}.".format(", ".join(meta.get("conditions", CONDITIONS))), "",
              "| driver | condition | legs | goal (no contact) | 95% interval | collision | 95% interval | stuck | timeout | cycles to goal |",
              "|---|---|---:|---:|---|---:|---|---:|---:|---:|"]
     for s in summary.values():
@@ -219,17 +230,34 @@ def main():
     parser.add_argument("--min-credits", type=int, default=150_000, help="never go below this many credits left")
     parser.add_argument("--export", default=None, help="the v29 export folder (default data/nav/dagger/v2/student/v29)")
     parser.add_argument("--no-baseline", action="store_true")
+    parser.add_argument("--levels", default=None,
+                        help="comma-separated conditions instead of home,scattered: the app's mess levels "
+                             "clean, medium, messy (and/or home, scattered)")
+    parser.add_argument("--driver", choices=("both", "student", "baseline-only"), default="both",
+                        help="baseline-only: A* + the a-to-b controller only (local, no student, no API, no DINOv2)")
     parser.add_argument("--controller", default="default")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
-    legs = make_legs(args.flats, seed=args.seed, max_legs=args.max_legs)
-    print("{} legs in {} flats ({})".format(len(legs), args.flats, ", ".join(CONDITIONS)), flush=True)
+    conditions = tuple(c.strip() for c in args.levels.split(",") if c.strip()) if args.levels else CONDITIONS
+    unknown = [c for c in conditions if c not in CONDITIONS + LEVELS]
+    if unknown:
+        raise SystemExit("unknown condition(s) {}: use {}".format(", ".join(unknown), ", ".join(CONDITIONS + LEVELS)))
+    legs = make_legs(args.flats, conditions=conditions, seed=args.seed, max_legs=args.max_legs)
+    print("{} legs in {} flats ({})".format(len(legs), args.flats, ", ".join(conditions)), flush=True)
+    meta = {"started": time.strftime("%Y-%m-%dT%H:%M:%S"), "flats": args.flats, "legs": len(legs),
+            "max_steps": args.max_steps, "stuck_steps": args.stuck_steps, "conditions": list(conditions),
+            "driver": args.driver, "git_commit": git_commit(), "credits_per_call": CREDITS_PER_PREDICT}
+    if args.driver == "baseline-only":
+        meta.update(policy="none", calls=0, credits_used=0)
+        started = time.time()
+        outcomes = run_baseline(legs, args.controller, max_steps=args.max_steps, stuck_steps=args.stuck_steps)
+        meta["baseline_seconds"] = round(time.time() - started, 1)
+        _write(args, outcomes, meta, v2_dir)
+        return
     folder = Path(args.export) if args.export else v2_dir() / "student" / "v29"
     features, table, export_meta = load_export(folder)
-    meta = {"started": time.strftime("%Y-%m-%dT%H:%M:%S"), "flats": args.flats, "legs": len(legs),
-            "max_steps": args.max_steps, "stuck_steps": args.stuck_steps, "policy": args.policy,
-            "export": export_meta.get("variant"), "git_commit": git_commit(), "credits_per_call": CREDITS_PER_PREDICT}
+    meta.update(policy=args.policy, export=export_meta.get("variant"))
     if args.policy == "client":
         if args.budget_calls is None:
             raise SystemExit("--budget-calls is required with the client policy (each call costs {:,} credits)".format(
@@ -259,10 +287,15 @@ def main():
                 credits_used=calls * CREDITS_PER_PREDICT if args.policy == "client" else 0)
     if args.policy == "client":
         meta["credits_after"] = credits_left()
-    if not args.no_baseline:
+    if not args.no_baseline and args.driver == "both":
         started = time.time()
         outcomes += run_baseline(legs, args.controller, max_steps=args.max_steps, stuck_steps=args.stuck_steps)
         meta["baseline_seconds"] = round(time.time() - started, 1)
+    _write(args, outcomes, meta, v2_dir)
+
+
+def _write(args, outcomes, meta, v2_dir):
+    """bench.json and bench.md in --out (default data/nav/dagger/v2/student/bench-<time>); prints the table."""
     summary = summarize(outcomes)
     out = Path(args.out) if args.out else v2_dir() / "student" / "bench-{}".format(time.strftime("%Y%m%d-%H%M%S"))
     out.mkdir(parents=True, exist_ok=True)

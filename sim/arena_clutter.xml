@@ -1,0 +1,9 @@
+<!-- The plain training arena (arena.xml) plus the twelve clutter bodies of clutter.xml, parked outside the room.
+     The student's plain twin in the app (app/student.py PlainTwin) and homes/sim_bridge.FlatEnv use it, so the
+     clutter the app drops on the floor is in the student's camera as well as its lidar. Never used for training:
+     arena.xml stays as it is. -->
+<mujoco model="jethexa_arena_clutter">
+  <include file="jethexa.xml"/>
+  <include file="arena_furniture.xml"/>
+  <include file="clutter.xml"/>
+</mujoco>

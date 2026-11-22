@@ -2,5 +2,6 @@
 <mujoco model="jethexa_apartment_simple">
   <include file="jethexa_simple.xml"/>
   <include file="arena_furniture.xml"/>
+  <include file="clutter.xml"/>
   <include file="apartment_decor.xml"/>
 </mujoco>
