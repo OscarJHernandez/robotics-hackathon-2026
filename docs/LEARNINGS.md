@@ -43,6 +43,11 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): The app felt slow because each student decision blocked its one simulator thread:
+  about 0.6 s of every decision is the TabPFN API round trip (the local inputs, DINOv2 included, take 48 ms; a 1280x720
+  render plus JPEG 4 ms). The streams fell to 2 to 3 pictures per second and x3 ran at about x1. Render while waiting,
+  and use `--student-backend local` where there is a GPU (0.18 s per predict on vendetta). See docs/app.md.
+
 - 2026-11-22 (Oscar's agent): In the apartment scene the robot camera could not see anything closer than 1.1 m:
   MuJoCo's near clipping plane is `vis.map.znear` x the model's extent, and the decor and clutter parked 40-50 m away
   make the extent 112 m. Margarete, 0.6 m from the viewing pose, was invisible to the camera and its depth.
@@ -364,9 +369,6 @@ in the same pull request as the work.
 - 2026-11-22 (Oscar's agent): The clutter has fixed household colours, while the student was trained on random
   furniture colours; if it misses clutter in the camera, give the clutter random colours in the twin as in training.
 
-- 2026-11-22 (Oscar's agent): The live student costs 10,000 TabPFN API credits per gait cycle (about a million per
-  search). If it is to run often, fit it locally on a machine that can (about 9 GB, 4 min on vendetta) and serve
-  predictions from there, or decide fewer times (every second cycle) and measure what that costs in goal rate.
 - 2026-11-22 (Oscar's agent): Run `just student-bench` (40 flats x home/scattered) on vendetta with the real student
   before claiming numbers for the app; the flats are tighter than the training layouts (0.10 m furniture gaps).
 
@@ -441,3 +443,9 @@ in the same pull request as the work.
   storage outside the repo. Until then, keep them out of commits.
 
 ## Suggestions (done or declined)
+
+- 2026-11-22 (Oscar's agent): The live student costs 10,000 TabPFN API credits per gait cycle (about a million per
+  search). If it is to run often, fit it locally on a machine that can (about 9 GB, 4 min on vendetta) and serve
+  predictions from there, or decide fewer times (every second cycle) and measure what that costs in goal rate.
+  Done for the local fit: `--student-backend local` (4 min, 3 GB, 0.18 s per decision on vendetta, no credits).
+  Deciding every second cycle was not tried.

@@ -12,9 +12,11 @@ Two scenes: "floor" (the robot alone) and "apartment" (the furnished room with z
 
 Speed (`set_speed`, x1, x2, x3 or x5): the loop advances its clock by CONTROL_DT / speed of wall time per physics
 step, so the robot moves that many times faster than real time; pictures are rendered every VIEWS[view] x speed
-steps, so the streams keep their wall-clock rate. Every steering decision blocks the loop (TabPFN), so the asked
+steps, so the streams keep their wall-clock rate. Every steering decision pauses the physics (TabPFN), so the asked
 speed is not always reached: state()["speed_actual"] is the measured rate (simulated seconds per wall second over
-the last SPEED_WINDOW seconds).
+the last SPEED_WINDOW seconds). While the student decides, the loop keeps rendering the paused scene (`_hold`), so the
+streams do not freeze; its decision time is what limits the speed (about 0.6 s through the TabPFN API, 0.2 s with
+the local backend on vendetta).
 """
 
 import io
@@ -406,13 +408,14 @@ class LiveRobot:
     Every control step counts touches of walls and furniture (`contacts`). state()["driver"] says who walks."""
 
     def __init__(self, scene="floor", driver="tabpfn", controller="default", student=None, ab=None, realtime=True,
-                 stuck_cycles=None, student_calls=None, clock=time.monotonic, sleep=time.sleep, max_steps=None,
-                 spotter=None):
+                 stuck_cycles=None, student_calls=None, student_backend="client", clock=time.monotonic,
+                 sleep=time.sleep, max_steps=None, spotter=None):
         """`student`: an app/student.py Student to use (tests pass a fake); with driver "student" and none given,
         one is made and loaded in the background. `ab`: the first a-to-b driver to try under the student (default
         the next in DRIVERS). `realtime` False runs the physics as fast as it goes (tests). `stuck_cycles`: the
         stuck rule's cycles (default the trainer's 40). `student_calls`: at most this many TabPFN API calls (each
-        10,000 credits) for the student made here; None: as many as the credit floor allows. `clock` and `sleep`
+        10,000 credits) for the student made here; None: as many as the credit floor allows. `student_backend`:
+        "client" (the TabPFN API) or "local" (TabPFN fit() on this machine; see app/student.py). `clock` and `sleep`
         pace the loop (tests pass a virtual clock); `max_steps`: the thread ends after that many physics steps
         (tests; `finished` is set then). `spotter`: an app/spotter.py Spotter (the person detector, apartment
         only); it sees once per gait cycle while the robot walks, looks around (`look`) or watches (`watch N`)."""
@@ -423,7 +426,8 @@ class LiveRobot:
         self._stuck_cycles = stuck_cycles
         if scene == "apartment" and driver == "student" and student is None:
             from student import Student
-            student = Student(simple=not meshes_available(), max_calls=student_calls).load_async()
+            student = Student(simple=not meshes_available(), max_calls=student_calls,
+                              backend=student_backend).load_async()
         self._student = student if scene == "apartment" else None
         self._spotter = spotter if scene == "apartment" else None
         self._look = {"running": False}
@@ -722,8 +726,10 @@ class LiveRobot:
                         if progress.update(math.hypot(goal[0] - x, goal[1] - y)):
                             fall_back("the student was stuck (not {:.1f} m closer in {} cycles)".format(progress.gain, progress.cycles), x, y)
                         else:
+                            hold = (lambda: self._hold(sim, step, mode, goal)) if self._realtime else None
                             try:
-                                stride, turn = self._student.act(sim, goal)
+                                stride, turn = self._student.act(sim, goal, wait=hold,
+                                                                 interval=CONTROL_DT * min(VIEWS.values()))
                             except Exception as error:  # noqa: BLE001 - API down, no credits: A* + a-to-b
                                 fall_back("the student is unavailable ({})".format(error), x, y)
                             next_tick = self._clock()  # the physics waited while the student decided
@@ -802,7 +808,14 @@ class LiveRobot:
             return float(self._speed)
         return round((sim_time - paced[0][1]) / wall, 2)
 
-    def _publish(self, sim, step, mode, goal):
+    def _hold(self, sim, step, mode, goal):
+        """While the physics waits for a decision: render every watched view of the paused scene, so the streams keep
+        their rate (the outside cameras keep easing towards the robot). Student.decide() calls it once per picture
+        interval and stops waiting as soon as the decision is made."""
+        self._publish(sim, step, mode, goal, every=True)
+
+    def _publish(self, sim, step, mode, goal, every=False):
+        """Render the watched views that are due at this step (all of them with `every`) and publish the state."""
         renderer, cameras = self._views
         x, y, z = sim.body_position()
         yaw = math.degrees(sim.body_yaw())
@@ -821,7 +834,7 @@ class LiveRobot:
                     camera.azimuth += 0.08 * (((yaw - camera.azimuth) + 180.0) % 360.0 - 180.0)  # behind it
         speed = self._speed
         for view in watched:
-            if step % (VIEWS[view] * speed):  # the same pictures per wall second at any speed
+            if not every and step % (VIEWS[view] * speed):  # the same pictures per wall second at any speed
                 continue
             self.renders[view] += 1
             if view == "eye":
