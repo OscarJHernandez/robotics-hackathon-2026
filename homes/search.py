@@ -261,6 +261,17 @@ class Search:
                            "seen": bool(seen), "belief_after": after, "metres": self.metres})
         self.belief, self.at = after, zone
 
+    def report_found(self, zone):
+        """She was seen in `zone`, which need not be the goal's (the robot can spot her on the way, or from a
+        viewing pose that sees into the next zone). Ends the search as "found" with that zone."""
+        if zone not in self.belief:
+            raise ValueError("unknown zone {!r}".format(zone))
+        self.metres += float(self.dist[self.names.index(self.at), self.names.index(zone)])
+        after = {c: (1.0 if c == zone else 0.0) for c in self.belief}
+        self.steps.append({"zone": zone, "p_before": self.belief[zone], "belief_before": self.belief,
+                           "seen": True, "belief_after": after, "metres": self.metres})
+        self.belief, self.at, self.status = after, zone, "found"
+
 
 def run(flat, probs, truth, rng, miss_rate=MISS_RATE, max_looks=MAX_LOOKS, stop_out=STOP_OUT, update_rate=None):
     """The whole search with the mock observation: pick the most likely zone, walk there, look, update, repeat.

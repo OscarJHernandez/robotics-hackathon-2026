@@ -35,7 +35,8 @@ from collections import OrderedDict, deque
 
 LABELS = {"bedroom": "bedroom", "living_room": "living room", "dining_area": "dining area", "kitchen": "kitchen",
           "hallway": "hallway"}
-KINDS = ("start", "heading", "miss", "found", "nobody_home", "gave_up", "stopped", "failed", "fallback")
+KINDS = ("start", "heading", "miss", "found", "nobody_home", "gave_up", "stopped", "failed", "fallback", "spotted",
+         "false_alarm")
 DROPPABLE = ("heading",)
 FINAL = ("found", "nobody_home", "gave_up", "failed")  # always spoken
 MAX_UNSPOKEN = 2
@@ -112,6 +113,13 @@ def template(kind, facts):
         if "stuck" in str(facts.get("reason", "")):
             return "Something is in my way, so I'm taking the mapped route{} instead.".format(where)
         return "I'm taking the mapped route{} for the rest of this walk.".format(where)
+    if kind == "spotted":  # the camera matched her look; the close-up check decides
+        metres = float(facts.get("metres", 0.0))
+        where = " in the {}".format(room(facts["zone"])) if facts.get("zone") in LABELS else ""
+        return "I think I see someone{}, about {:.0f} metre{} away. I'm going closer to check.".format(
+            where, metres, "" if round(metres) == 1 else "s")
+    if kind == "false_alarm":
+        return "That wasn't {}, just something that looked like her. I'll keep looking.".format(name)
     if kind == "failed":
         reason = str(facts.get("reason") or "something went wrong").rstrip(".")
         return "I had to stop the search: {}.".format(reason)

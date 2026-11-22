@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 
 import mujoco
+import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "sim"))
@@ -65,6 +66,9 @@ DECOR = (("decor_duvet", "bed", 0.24, 0.0), ("decor_pillow", "bed", -0.62, 0.0),
          ("decor_leaves_a", "plant", 0.0, 0.0), ("decor_leaves_b", "plant", 0.03, -0.02),
          ("decor_rug_dining", "table", 0.0, 0.0), ("decor_rug_living", "couch", 0.0, 1.1))
 PARKED = (50.0, 50.0)  # where the pillar goes when nobody is home
+POSES = ("lying", "standing")  # how Margarete is found
+NEAR_PLANE = 0.05  # metres: the robot camera's near clipping plane in the apartment
+STANDING_HEIGHT = 0.83  # metres: standing, her feet (x = -0.80, radius 0.045 in the decor file) touch the floor
 RANDOM_SPAN = 2.0  # metres: random end points lie in this square, so they stay well inside the floor
 RANDOM_MIN_DIST = 0.8  # metres: a random end point is at least this far from the robot
 FALLEN = 0.5  # body_upright() below this counts as a fall
@@ -77,7 +81,10 @@ SPEEDS = (1, 2, 3, 5)  # how many times faster than real time the simulation may
 SPEED_WINDOW = 3.0  # seconds of wall time over which speed_actual is measured
 
 HELP = ("goto X Y (metres, floor is -{a} to {a}), forward M (metres), turn DEG (positive = left), "
-        "stop, reset, target (walk to the red pillar), random (new random end point)").format(a=ARENA)
+        "stop, reset, target (walk to the red pillar), random (new random end point), "
+        "look (turn once on the spot looking for her), watch N (stand N cycles looking)").format(a=ARENA)
+LOOK_TURN = 0.15       # turn command of a look-around: about 0.32 rad per gait cycle, 20 cycles a turn (PR 26)
+LOOK_CLEARANCE = 0.33  # metres (lidar): closer than this, the corner legs could sweep into something while turning
 
 
 def wrap(angle):
@@ -91,6 +98,8 @@ def parse_command(text, limit=ARENA):
     if not words:
         raise ValueError("empty command")
     name, args = words[0].lower().lstrip("/"), words[1:]
+    if name == "spot" and len(args) == 1 and args[0].lower() in ("reset", "reject", "mark"):
+        return ("spot", args[0].lower())  # the person detector: new search / the spot was empty / count from now
     try:
         numbers = [float(a) for a in args]
     except ValueError:
@@ -103,8 +112,10 @@ def parse_command(text, limit=ARENA):
         return ("forward", numbers[0])
     if name == "turn" and len(numbers) == 1 and abs(numbers[0]) <= 360:
         return ("turn", math.radians(numbers[0]))
-    if name in ("stop", "reset", "random", "target") and not numbers:
+    if name in ("stop", "reset", "random", "target", "look") and not numbers:
         return (name,)
+    if name == "watch" and len(numbers) == 1 and 1 <= numbers[0] <= 30:
+        return ("watch", int(numbers[0]))
     raise ValueError("unknown command '{}'. Commands: {}".format(text.strip(), HELP))
 
 
@@ -306,6 +317,9 @@ class ApartmentScene:
         model.mat_reflectance[model.geom_matid[model.geom("floor").id]] = 0.0
         wood_floor(model)
         dress(model)
+        # MuJoCo puts the camera's near plane at znear x the model's extent; the decor parked 40-50 m away makes the
+        # extent 112 m, so everything closer than 1.1 m vanished from the robot's camera (and its depth). 5 cm instead.
+        model.vis.map.znear = NEAR_PLANE / model.stat.extent
         self._person = int(model.body("person").mocapid[0])
         self.zone_geoms = dict((model.geom(g).name[5:], g) for g in range(model.ngeom)
                                if model.geom(g).name.startswith("zone_"))
@@ -361,13 +375,23 @@ class ApartmentScene:
         for name, g in self.zone_geoms.items():
             self.sim.model.geom_rgba[g][3] = 0.04 + 0.36 * max(0.0, min(1.0, belief.get(name, 0.0)))
 
-    def person(self, x=None, y=None, yaw=0.0):
-        """Margarete with her middle at (x, y), head towards `yaw` (radians); no point: out of sight."""
+    def person(self, x=None, y=None, yaw=0.0, pose="lying"):
+        """Margarete at (x, y); no point: out of sight. `pose` "lying": on her back, head towards `yaw` (radians);
+        "standing": the same figure turned upright (her head-to-feet line, +x in sim/apartment_decor.xml, points
+        up), feet on the floor, facing away from `yaw`."""
         data = self.sim.data
         if x is None:
             x, y = PARKED[0], PARKED[1] + 2.0
-        data.mocap_pos[self._person] = (x, y, 0.0)
-        data.mocap_quat[self._person] = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
+        yaw_q = np.array([math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2)])
+        if pose == "standing":
+            pitch = np.array([math.cos(-math.pi / 4), 0.0, math.sin(-math.pi / 4), 0.0])  # -90 degrees about y
+            quat = np.empty(4)
+            mujoco.mju_mulQuat(quat, yaw_q, pitch)
+            data.mocap_pos[self._person] = (x, y, STANDING_HEIGHT)
+            data.mocap_quat[self._person] = quat
+        else:
+            data.mocap_pos[self._person] = (x, y, 0.0)
+            data.mocap_quat[self._person] = yaw_q
 
 
 class LiveRobot:
@@ -385,7 +409,7 @@ class LiveRobot:
 
     def __init__(self, scene="floor", driver="tabpfn", controller="default", student=None, ab=None, realtime=True,
                  stuck_cycles=None, student_calls=None, student_backend="client", clock=time.monotonic,
-                 sleep=time.sleep, max_steps=None):
+                 sleep=time.sleep, max_steps=None, spotter=None):
         """`student`: an app/student.py Student to use (tests pass a fake); with driver "student" and none given,
         one is made and loaded in the background. `ab`: the first a-to-b driver to try under the student (default
         the next in DRIVERS). `realtime` False runs the physics as fast as it goes (tests). `stuck_cycles`: the
@@ -393,7 +417,8 @@ class LiveRobot:
         10,000 credits) for the student made here; None: as many as the credit floor allows. `student_backend`:
         "client" (the TabPFN API) or "local" (TabPFN fit() on this machine; see app/student.py). `clock` and `sleep`
         pace the loop (tests pass a virtual clock); `max_steps`: the thread ends after that many physics steps
-        (tests; `finished` is set then)."""
+        (tests; `finished` is set then). `spotter`: an app/spotter.py Spotter (the person detector, apartment
+        only); it sees once per gait cycle while the robot walks, looks around (`look`) or watches (`watch N`)."""
         self.scene = scene
         self._driver, self._controller = driver, controller
         self._ab_first = ab
@@ -404,6 +429,8 @@ class LiveRobot:
             student = Student(simple=not meshes_available(), max_calls=student_calls,
                               backend=student_backend).load_async()
         self._student = student if scene == "apartment" else None
+        self._spotter = spotter if scene == "apartment" else None
+        self._look = {"running": False}
         self._contacts = None
         self._fallbacks, self._fallback = 0, None
         self._ab = None
@@ -439,13 +466,15 @@ class LiveRobot:
             state = self.state()
             parsed = ("goto", state.get("target_x", 1.0), state.get("target_y", 0.0))
         self._commands.put(parsed)
-        if parsed[0] in ("goto", "forward", "turn"):
+        if parsed[0] in ("goto", "forward", "turn", "look", "watch"):
             # Say so at once: the simulator thread may be busy (planning a route, TabPFN predicting) for a moment,
             # and a caller that waits for "idle" must not take the old state for "already done".
             with self._lock:
-                self._state["mode"] = "turn" if parsed[0] == "turn" else "goto"
+                self._state["mode"] = parsed[0] if parsed[0] in ("turn", "look", "watch") else "goto"
         if parsed[0] == "target":
             return "random end point {:.2f} {:.2f}".format(parsed[1], parsed[2])
+        if parsed[0] == "spot":
+            return "spot " + parsed[1]
         return " ".join([parsed[0]] + ["{:.2f}".format(math.degrees(v) if parsed[0] == "turn" else v)
                                        for v in parsed[1:]])
 
@@ -484,12 +513,14 @@ class LiveRobot:
         """Apartment scene: shade each zone patch by the belief {zone: probability} that she is there."""
         self._commands.put(("zones", dict(belief)))
 
-    def person(self, x=None, y=None, yaw_deg=0.0):
-        """Apartment scene: lay Margarete (the figure in sim/apartment_decor.xml) on the floor with her middle at
-        (x, y), head towards `yaw_deg`; with no point, out of sight (nobody home)."""
+    def person(self, x=None, y=None, yaw_deg=0.0, pose="lying"):
+        """Apartment scene: Margarete (the figure in sim/apartment_decor.xml) at (x, y), lying on the floor with
+        her head towards `yaw_deg`, or standing (`pose="standing"`); with no point, out of sight (nobody home)."""
         if x is None:
             x, y = PARKED[0], PARKED[1] + 2.0
-        self._commands.put(("person", float(x), float(y), math.radians(yaw_deg)))
+        if pose not in POSES:
+            raise ValueError("pose must be one of: " + ", ".join(POSES))
+        self._commands.put(("person", float(x), float(y), math.radians(yaw_deg), pose))
 
     # ---- the simulator thread ----
 
@@ -584,8 +615,8 @@ class LiveRobot:
                 elif cmd[0] == "zones":
                     scene.paint(cmd[1])
                     continue
-                elif cmd[0] == "person":  # Margarete: where she lies, or out of sight
-                    scene.person(cmd[1], cmd[2], cmd[3])
+                elif cmd[0] == "person":  # Margarete: where she lies or stands, or out of sight
+                    scene.person(cmd[1], cmd[2], cmd[3], cmd[4] if len(cmd) > 4 else "lying")
                     continue
                 elif cmd[0] == "reset":
                     if scene is not None:
@@ -602,8 +633,19 @@ class LiveRobot:
                     continue  # keep the gait clock: no jump in the legs
                 elif cmd[0] == "stop":
                     mode, goal = "idle", None
+                    self._look = dict(self._look, running=False)
                 elif cmd[0] == "turn":
                     mode, goal = "turn", wrap(yaw + cmd[1])
+                elif cmd[0] == "spot":  # the person detector: reset / reject / mark (no change to the walk)
+                    spotter = self._spotter
+                    if spotter is not None and spotter.ready:
+                        getattr(spotter, cmd[1])()
+                    continue
+                elif cmd[0] in ("look", "watch"):  # turn once on the spot looking, or stand looking N cycles
+                    mode, goal = cmd[0], None
+                    self._look = {"running": True, "kind": cmd[0], "turned_deg": 0.0, "cycles": 0,
+                                  "want": int(cmd[1]) if cmd[0] == "watch" else None, "blocked": False,
+                                  "seen": False, "last_yaw": yaw}
                 else:
                     if cmd[0] == "forward":
                         tx, ty = x + cmd[1] * math.cos(yaw), y + cmd[1] * math.sin(yaw)
@@ -631,6 +673,8 @@ class LiveRobot:
                     else:
                         route, legs = [], [goal]
                     poses, prev = [], (0.0, 0.0)
+                if mode not in ("look", "watch") and self._look.get("running"):
+                    self._look = dict(self._look, running=False)  # another command ended the look-around
                 gait, cycle_at = PHASE0, -1.0
 
             x, y, _ = sim.body_position()
@@ -647,9 +691,37 @@ class LiveRobot:
             elif mode == "turn" and abs(wrap(goal - yaw)) < YAW_REACHED:
                 mode, goal = "idle", None
 
-            if mode in ("goto", "turn"):
+            if mode in ("goto", "turn", "look", "watch"):
                 if gait - cycle_at >= CYCLE:  # new steering command once per gait cycle
                     cycle_at = gait
+                    spotter = self._spotter
+                    if spotter is not None and spotter.ready and mode != "turn":  # the person detector looks
+                        try:
+                            spotter.see(sim)
+                        except Exception as error:  # noqa: BLE001 - never let the detector stop the robot
+                            spotter.status, spotter.reason = "failed", str(error)
+                            print("[app] the person detector failed: {}".format(error), flush=True)
+                        next_tick = self._clock()  # the physics waited while DINOv2 looked
+                    if mode in ("look", "watch"):
+                        look = self._look
+                        look["turned_deg"] += abs(math.degrees(wrap(yaw - look["last_yaw"])))
+                        look["last_yaw"] = yaw
+                        confirmed = spotter is not None and spotter.ready and spotter.estimate.confirmed
+                        look["seen"] = bool(confirmed)
+                        stride, turn = 0.0, 0.0
+                        if mode == "look":
+                            if confirmed or look["turned_deg"] >= 360.0:
+                                mode = "idle"
+                            elif float(np.min(sim.lidar(36, 0.15, 8.0))) < LOOK_CLEARANCE:
+                                look["blocked"], mode = True, "idle"  # no room to turn: report what was seen
+                            else:
+                                turn = LOOK_TURN
+                        elif look["cycles"] >= look["want"]:
+                            mode = "idle"
+                        look["cycles"] += 1
+                        if mode == "idle":
+                            look["running"] = False
+                            goal = None
                     if mode == "goto" and walker == "student":  # the student: own sensors, own map, the end point
                         if progress.update(math.hypot(goal[0] - x, goal[1] - y)):
                             fall_back("the student was stuck (not {:.1f} m closer in {} cycles)".format(progress.gain, progress.cycles), x, y)
@@ -662,7 +734,9 @@ class LiveRobot:
                                 fall_back("the student is unavailable ({})".format(error), x, y)
                             next_tick = self._clock()  # the physics waited while the student decided
                     leg = legs[0] if legs else goal
-                    if mode == "goto" and walker == "student":
+                    if mode in ("look", "watch", "idle"):
+                        pass  # the look-around set stride and turn above (idle: it just ended)
+                    elif mode == "goto" and walker == "student":
                         pass
                     elif mode == "goto" and policy is not None:  # the TabPFN a-to-b controller walks this leg
                         stride, turn = (float(v) for v in policy.act([nav_row((x, y, yaw), poses, prev, leg)])[0])
@@ -789,6 +863,10 @@ class LiveRobot:
                 state["contact_points"] = list(self._contacts.points)
             state["fallbacks"] = self._fallbacks
             state["fallback"] = self._fallback
+            state["spotter"] = self._spotter.state() if self._spotter is not None else {"status": "off"}
+            look = self._look
+            state["look"] = {k: (round(v, 1) if isinstance(v, float) else v) for k, v in look.items()
+                             if k != "last_yaw"}
             if mode == "goto":
                 state["goal_x"], state["goal_y"] = round(goal[0], 3), round(goal[1], 3)
         with self._lock:

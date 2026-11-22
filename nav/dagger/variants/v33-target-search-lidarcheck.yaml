@@ -1,0 +1,20 @@
+id: v33-target-search-lidarcheck
+hypothesis: most of v32's extra collisions are confirmed look-alikes (goal 4-6 m off) and look-arounds started without the room-to-turn check; rejecting matches the lidar also sees (the pillar is lidar-transparent), a stricter threshold and the spin fix remove them
+parent: v32-target-search
+change: target.threshold 0.86 (signature 0.844) and lidar_sees_target false (reject matches the lidar sees at the same range); look-arounds always check room to turn. Tuned on final layouts 0-99, so judged on 100-199 only
+kill_criterion: none (a measurement); compare with v29 on the same layouts
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true, lidar_plan: true}
+context: {sources: [round0], max_rows: null, quotas: uniform, seed: 0}
+offline: []
+closed: {max_steps: 600, stuck_steps: null}
+target:
+  signature: full60/signature-pillar.npz
+  range_source: depth
+  candidates: 4
+  min_gap: 1.0
+  view_dist: [0.8, 1.5]
+  schedule: random
+  detect_range: 2.5
+  threshold: 0.86
+  lidar_sees_target: false

@@ -19,7 +19,7 @@ const NODES: Node[] = [
   { id: "spot", title: "Viewing spot", sub: "from the floor plan", kind: "step", wide: { x: 516, y: 30 }, tall: 3 },
   { id: "route", title: "A* route", sub: "around known furniture", kind: "step", wide: { x: 688, y: 30 }, tall: 4 },
   { id: "walk", title: "TabPFN a → b", sub: "walks each waypoint", kind: "model", wide: { x: 688, y: 176 }, tall: 5 },
-  { id: "look", title: "Look", sub: "simulated sighting", kind: "step", wide: { x: 516, y: 176 }, tall: 6 },
+  { id: "look", title: "Look", sub: "camera + DINOv2", kind: "step", wide: { x: 516, y: 176 }, tall: 6 },
   { id: "update", title: "Bayes update", sub: "lower the zone looked at", kind: "step", wide: { x: 344, y: 176 }, tall: 7 },
   { id: "narrate", title: "metacon narrates", sub: "text; voice on the phone", kind: "step", wide: { x: 0, y: 176, w: 196 }, tall: 8 },
   { id: "sensors", title: "Lidar + camera", sub: "its own sensors", kind: "progress", wide: { x: 344, y: 336 }, tall: 9 },
