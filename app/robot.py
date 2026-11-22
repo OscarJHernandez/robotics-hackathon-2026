@@ -997,5 +997,12 @@ class LiveRobot:
             if mode == "goto":
                 state["goal_x"], state["goal_y"] = round(goal[0], 3), round(goal[1], 3)
         with self._lock:
+            if not self._commands.empty():
+                # A command is waiting: the loop has not read it yet (the student is deciding and _hold publishes the
+                # paused scene). Keep what command() said about it, or a caller sees the old "idle" / ended approach
+                # and takes the new command for done (live: an approach "lost" at once, a look-around that never turned).
+                for key in ("mode", "approach"):
+                    if key in self._state:
+                        state[key] = self._state[key]
             self._frames.update(frames)
             self._state = state
