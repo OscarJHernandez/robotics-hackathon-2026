@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The web app on vendetta, port 8795. Replace __HOME__; see deploy/vendetta/README.md. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>dev.alpharelay.jethexa-vendetta</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/Projects/robotics-hackathon-2026/.claude/worktrees/deploy-jethexa-vendetta/.venv/bin/python</string>
+    <string>app/server.py</string>
+    <string>--port</string><string>8795</string>
+    <string>--student-backend</string><string>local</string>
+  </array>
+  <key>WorkingDirectory</key><string>__HOME__/Projects/robotics-hackathon-2026/.claude/worktrees/deploy-jethexa-vendetta</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/jethexa-vendetta.out.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/jethexa-vendetta.err.log</string>
+</dict>
+</plist>

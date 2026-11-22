@@ -399,6 +399,12 @@ the Mac; it does not restart after a reboot. It is then public without a login, 
 server limits each visitor (by Cloudflare's `Cf-Connecting-Ip`) to 20 chats per 10 minutes and 60 commands per
 minute, and runs at most 2 chats at once. The server must have the voice settings above in its environment for voice calls.
 
+A second copy runs on vendetta, Oscar's always-on Mac, at https://jethexa-vendetta.alpharelay.dev (since
+2026-11-22; `main` at `76455c3`). It has its own Cloudflare tunnel and launchd agents, so it restarts after a crash or
+reboot. It runs the student with `--student-backend local` (TabPFN on vendetta's GPU, no API credits; see "Local
+student" above), so it does not draw on the laptop copy's TabPFN API credits. Setup, updates and teardown:
+[deploy/vendetta/README.md](../deploy/vendetta/README.md).
+
 ## Settings
 
 `METACON_URL` (default `http://metacon:4000/v1`), `METACON_MODEL` (default `qwen3:8b`), `METACON_LLM_KEY`.

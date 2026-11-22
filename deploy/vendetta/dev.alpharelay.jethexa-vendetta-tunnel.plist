@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The Cloudflare tunnel jethexa-vendetta on vendetta. Replace __HOME__; see deploy/vendetta/README.md. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>dev.alpharelay.jethexa-vendetta-tunnel</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/cloudflared</string>
+    <string>tunnel</string>
+    <string>--no-autoupdate</string>
+    <string>--config</string>
+    <string>__HOME__/.cloudflared/jethexa-vendetta.yml</string>
+    <string>run</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/jethexa-vendetta-tunnel.out.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/jethexa-vendetta-tunnel.err.log</string>
+</dict>
+</plist>
