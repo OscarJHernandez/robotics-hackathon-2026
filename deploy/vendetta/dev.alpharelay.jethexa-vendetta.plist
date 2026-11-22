@@ -9,7 +9,6 @@
     <string>__HOME__/Projects/robotics-hackathon-2026/.claude/worktrees/deploy-jethexa-vendetta/.venv/bin/python</string>
     <string>app/server.py</string>
     <string>--port</string><string>8795</string>
-    <string>--student-backend</string><string>local</string>
   </array>
   <key>WorkingDirectory</key><string>__HOME__/Projects/robotics-hackathon-2026/.claude/worktrees/deploy-jethexa-vendetta</string>
   <key>EnvironmentVariables</key>
@@ -17,6 +16,8 @@
     <key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>PYTHONUNBUFFERED</key><string>1</string>
   </dict>
+  <!-- Interactive: without it macOS throttles the agent's timers and the camera streams drop to about 5 pictures/s. -->
+  <key>ProcessType</key><string>Interactive</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
