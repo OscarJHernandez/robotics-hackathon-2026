@@ -82,9 +82,19 @@ SPEED_WINDOW = 3.0  # seconds of wall time over which speed_actual is measured
 
 HELP = ("goto X Y (metres, floor is -{a} to {a}), forward M (metres), turn DEG (positive = left), "
         "stop, reset, target (walk to the red pillar), random (new random end point), "
-        "look (turn once on the spot looking for her), watch N (stand N cycles looking)").format(a=ARENA)
+        "look (turn once on the spot looking for her), watch N (stand N cycles looking), "
+        "approach [M] (walk up to her, M metres short; the destination follows the camera's range)").format(a=ARENA)
 LOOK_TURN = 0.15       # turn command of a look-around: about 0.32 rad per gait cycle, 20 cycles a turn (PR 26)
 LOOK_CLEARANCE = 0.33  # metres (lidar): closer than this, the corner legs could sweep into something while turning
+# approach: walk up to the person the detector sees. Every gait cycle the destination is recomputed from the
+# detector's estimate (her floor position from the depth camera's range and the match's bearing): APPROACH_STOP
+# metres short of her, on the side the robot comes from, at a spot APPROACH_CLEAR metres from furniture and walls.
+APPROACH_STOP = 0.6     # metres from her the robot stops (default; `approach M` sets it)
+APPROACH_RANGE = (0.3, 1.5)  # allowed stop distances
+APPROACH_CLEAR = 0.30   # metres: the destination's distance to the nearest wall or furniture footprint
+APPROACH_MOVE = 0.15    # metres: the destination is updated when it moved more than this
+APPROACH_LOST = 20      # gait cycles without a match: she is lost, the approach ends where the robot is
+APPROACH_FACE = 0.12    # radians: at the destination the robot turns to face her when off by more than this
 
 
 def wrap(angle):
@@ -116,6 +126,10 @@ def parse_command(text, limit=ARENA):
         return (name,)
     if name == "watch" and len(numbers) == 1 and 1 <= numbers[0] <= 30:
         return ("watch", int(numbers[0]))
+    if name == "approach" and not numbers:
+        return ("approach", APPROACH_STOP)
+    if name == "approach" and len(numbers) == 1 and APPROACH_RANGE[0] <= numbers[0] <= APPROACH_RANGE[1]:
+        return ("approach", numbers[0])
     raise ValueError("unknown command '{}'. Commands: {}".format(text.strip(), HELP))
 
 
@@ -260,6 +274,36 @@ def nav_row(pose, poses, prev, target):
     row["target_dist"], row["target_sin"], row["target_cos"] = dist, math.sin(bearing), math.cos(bearing)
     row.update(make_goal(dist, bearing))
     return row
+
+
+def clearance(shapes, half, p):
+    """Metres from the floor point `p` to the nearest wall of the room (half-width `half`) or footprint in `shapes`
+    (footprints(): boxes and circles); 0 inside one."""
+    best = half - max(abs(p[0]), abs(p[1]))
+    for s in shapes:
+        dx, dy = p[0] - s["x"], p[1] - s["y"]
+        if s["kind"] == "box":
+            c, si = math.cos(s["yaw"]), math.sin(s["yaw"])
+            lx, ly = c * dx + si * dy, -si * dx + c * dy
+            d = math.hypot(max(abs(lx) - s["hx"], 0.0), max(abs(ly) - s["hy"], 0.0))
+        else:
+            d = math.hypot(dx, dy) - s["r"]
+        best = min(best, d)
+    return max(0.0, best)
+
+
+def approach_point(person, robot, stop, shapes, half, clear=APPROACH_CLEAR):
+    """Where to stand to be `stop` metres from `person` (x, y): on the line towards `robot` if that spot is `clear`
+    metres from walls and furniture; else the nearest free spot around her (15 degree steps either side, then a
+    little farther out, up to 1.2 m). None when there is no free spot."""
+    base = math.atan2(robot[1] - person[1], robot[0] - person[0])
+    for radius in (stop, stop + 0.15, stop + 0.3, max(stop + 0.45, 1.2)):
+        for k in (0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6):
+            a = base + math.radians(15.0 * k)
+            p = (person[0] + radius * math.cos(a), person[1] + radius * math.sin(a))
+            if clearance(shapes, half, p) >= clear:
+                return p
+    return None
 
 
 def plan_route(shapes, half, start, goal):
@@ -431,6 +475,7 @@ class LiveRobot:
         self._student = student if scene == "apartment" else None
         self._spotter = spotter if scene == "apartment" else None
         self._look = {"running": False}
+        self._approach = {"running": False}
         self._contacts = None
         self._fallbacks, self._fallback = 0, None
         self._ab = None
@@ -466,11 +511,13 @@ class LiveRobot:
             state = self.state()
             parsed = ("goto", state.get("target_x", 1.0), state.get("target_y", 0.0))
         self._commands.put(parsed)
-        if parsed[0] in ("goto", "forward", "turn", "look", "watch"):
+        if parsed[0] in ("goto", "forward", "turn", "look", "watch", "approach"):
             # Say so at once: the simulator thread may be busy (planning a route, TabPFN predicting) for a moment,
             # and a caller that waits for "idle" must not take the old state for "already done".
             with self._lock:
                 self._state["mode"] = parsed[0] if parsed[0] in ("turn", "look", "watch") else "goto"
+                if parsed[0] == "approach":
+                    self._state["approach"] = {"running": True, "reason": None, "updates": 0}
         if parsed[0] == "target":
             return "random end point {:.2f} {:.2f}".format(parsed[1], parsed[2])
         if parsed[0] == "spot":
@@ -600,6 +647,60 @@ class LiveRobot:
                               "goal": [round(goal[0], 2), round(goal[1], 2)], "driver": driver}
             print("[app] student -> {} (A* route): {}".format(driver, reason), flush=True)
 
+        def begin_goto(tx, ty, x, y):
+            """Start walking to (tx, ty): the student if it is ready (straight to the point, its own map), else the
+            a-to-b driver on an A* route."""
+            nonlocal mode, goal, walker, route, legs, twin_checked, poses, prev
+            mode, goal = "goto", (tx, ty)
+            walker = driver
+            if scene is not None:
+                route = plan_route(scene.shapes, scene.half, (x, y), goal)
+                legs = route
+                student = self._student
+                if student is not None and student.ready and not twin_checked:
+                    try:
+                        student.twin.check_compatible(sim.model)
+                    except Exception as error:  # noqa: BLE001
+                        student.status, student.reason = "failed", str(error)
+                    twin_checked = True
+                if student is not None and student.ready:
+                    walker, legs = "student", [goal]  # the student walks to the end point itself
+                    student.start(goal)
+                    progress.reset(math.hypot(goal[0] - x, goal[1] - y))
+            else:
+                route, legs = [], [goal]
+            poses, prev = [], (0.0, 0.0)
+
+        def end_approach(reason):
+            ap = self._approach
+            if ap.get("running"):
+                self._approach = dict(ap, running=False, reason=reason)
+                spotter = self._spotter
+                if spotter is not None and hasattr(spotter, "approach"):
+                    spotter.approach(False)
+
+        def retarget(x, y):
+            """approach: the destination from the detector's latest estimate of her (once per gait cycle)."""
+            nonlocal goal, legs
+            ap, spotter = self._approach, self._spotter
+            ap["cycles"] += 1
+            seen = spotter is not None and spotter.ready and getattr(spotter, "last", None) is not None
+            ap["misses"] = 0 if seen else ap["misses"] + 1
+            est = spotter.estimate.est if spotter is not None and spotter.ready else None
+            if est is None or ap["misses"] >= APPROACH_LOST:
+                return False
+            ap["estimate"] = (float(est[0]), float(est[1]))
+            ap["range"] = math.hypot(est[0] - x, est[1] - y)
+            new = approach_point(est, (x, y), ap["stop"], scene.shapes, scene.half)
+            if new is not None and math.hypot(new[0] - goal[0], new[1] - goal[1]) > APPROACH_MOVE:
+                goal = new
+                ap["goal"], ap["updates"] = new, ap["updates"] + 1
+                if walker == "student":
+                    progress.reset(math.hypot(goal[0] - x, goal[1] - y))
+                else:
+                    legs = plan_route(scene.shapes, scene.half, (x, y), goal)
+            return True
+
         while True:
             while True:
                 try:
@@ -608,6 +709,8 @@ class LiveRobot:
                     break
                 x, y, _ = sim.body_position()
                 yaw = sim.body_yaw()
+                if cmd[0] in ("layout", "reset", "stop", "turn", "look", "watch", "goto", "forward", "approach"):
+                    end_approach("interrupted")  # another motion command ends a running approach
                 if cmd[0] == "layout":  # apartment: a new flat (or the same flat with its loose pieces moved)
                     home = scene.load(cmd[1])
                     layout += 1
@@ -646,6 +749,26 @@ class LiveRobot:
                     self._look = {"running": True, "kind": cmd[0], "turned_deg": 0.0, "cycles": 0,
                                   "want": int(cmd[1]) if cmd[0] == "watch" else None, "blocked": False,
                                   "seen": False, "last_yaw": yaw}
+                elif cmd[0] == "approach":  # walk up to her; the destination follows the detector's estimate
+                    spotter = self._spotter
+                    est = spotter.estimate.est if spotter is not None and spotter.ready else None
+                    self._approach = {"running": True, "stop": float(cmd[1]), "reason": None, "updates": 0,
+                                      "cycles": 0, "misses": 0, "phase": "walk", "estimate": None, "goal": None,
+                                      "range": None}
+                    if est is None or scene is None:
+                        end_approach("lost")  # nobody to walk up to
+                        mode, goal = "idle", None
+                    else:
+                        if hasattr(spotter, "approach"):
+                            spotter.approach(True)
+                        dest = approach_point(est, (x, y), cmd[1], scene.shapes, scene.half)
+                        if dest is None:  # nowhere free around her: as close as the straight line allows
+                            dist = math.hypot(est[0] - x, est[1] - y)
+                            t = max(0.0, dist - cmd[1]) / max(dist, 1e-6)
+                            dest = (x + t * (est[0] - x), y + t * (est[1] - y))
+                        self._approach.update(estimate=(float(est[0]), float(est[1])), goal=dest,
+                                              range=math.hypot(est[0] - x, est[1] - y))
+                        begin_goto(dest[0], dest[1], x, y)
                 else:
                     if cmd[0] == "forward":
                         tx, ty = x + cmd[1] * math.cos(yaw), y + cmd[1] * math.sin(yaw)
@@ -654,25 +777,7 @@ class LiveRobot:
                         tx, ty = cmd[1], cmd[2]
                     # The pillar stays put: only `random` moves it. (Moving it to every goto end point made a
                     # misread "walk to the target", e.g. [[forward 1]], put the pillar right in front of the robot.)
-                    mode, goal = "goto", (tx, ty)
-                    walker = driver
-                    if scene is not None:
-                        route = plan_route(scene.shapes, scene.half, (x, y), goal)
-                        legs = route
-                        student = self._student
-                        if student is not None and student.ready and not twin_checked:
-                            try:
-                                student.twin.check_compatible(sim.model)
-                            except Exception as error:  # noqa: BLE001
-                                student.status, student.reason = "failed", str(error)
-                            twin_checked = True
-                        if student is not None and student.ready:
-                            walker, legs = "student", [goal]  # the student walks to the end point itself
-                            student.start(goal)
-                            progress.reset(math.hypot(goal[0] - x, goal[1] - y))
-                    else:
-                        route, legs = [], [goal]
-                    poses, prev = [], (0.0, 0.0)
+                    begin_goto(tx, ty, x, y)
                 if mode not in ("look", "watch") and self._look.get("running"):
                     self._look = dict(self._look, running=False)  # another command ended the look-around
                 gait, cycle_at = PHASE0, -1.0
@@ -690,6 +795,20 @@ class LiveRobot:
                 legs = legs[1:]  # on to the next point of the route
             elif mode == "turn" and abs(wrap(goal - yaw)) < YAW_REACHED:
                 mode, goal = "idle", None
+            ap = self._approach
+            if ap.get("running") and mode == "idle":
+                if ap["phase"] == "walk":  # at the destination: face her, then done
+                    est = ap["estimate"]
+                    face = math.atan2(est[1] - y, est[0] - x)
+                    if abs(wrap(face - yaw)) > APPROACH_FACE:
+                        mode, goal = "turn", face
+                        ap["phase"] = "face"
+                    else:
+                        end_approach("arrived")
+                else:
+                    end_approach("arrived")
+            elif ap.get("running") and mode == "fallen":
+                end_approach("fallen")
 
             if mode in ("goto", "turn", "look", "watch"):
                 if gait - cycle_at >= CYCLE:  # new steering command once per gait cycle
@@ -722,6 +841,11 @@ class LiveRobot:
                         if mode == "idle":
                             look["running"] = False
                             goal = None
+                    if mode == "goto" and self._approach.get("running") and self._approach["phase"] == "walk":
+                        if not retarget(x, y):  # she has not been seen for APPROACH_LOST cycles: stop here
+                            end_approach("lost")
+                            mode, goal, legs = "idle", None, []
+                            stride, turn = 0.0, 0.0
                     if mode == "goto" and walker == "student":  # the student: own sensors, own map, the end point
                         if progress.update(math.hypot(goal[0] - x, goal[1] - y)):
                             fall_back("the student was stuck (not {:.1f} m closer in {} cycles)".format(progress.gain, progress.cycles), x, y)
@@ -867,6 +991,9 @@ class LiveRobot:
             look = self._look
             state["look"] = {k: (round(v, 1) if isinstance(v, float) else v) for k, v in look.items()
                              if k != "last_yaw"}
+            ap = self._approach
+            state["approach"] = {k: ([round(float(c), 2) for c in v] if isinstance(v, (tuple, list)) else
+                                     round(v, 2) if isinstance(v, float) else v) for k, v in ap.items()}
             if mode == "goto":
                 state["goal_x"], state["goal_y"] = round(goal[0], 3), round(goal[1], 3)
         with self._lock:

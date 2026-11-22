@@ -461,6 +461,17 @@ export function Plan({ a, belief, showHer }: { a: ApartmentState; belief: Belief
           <title>{`Camera match ${a.spotter.match.sim.toFixed(2)}, ${a.spotter.match.range.toFixed(1)} m away`}</title>
         </line>
       )}
+      {/* The walk up to her: where the robot is heading now (moves as the camera ranges her again) */}
+      {a.search.running && a.search.status === "approaching" && a.search.approach?.goal && (
+        <g>
+          <line x1={a.robot.x} y1={-a.robot.y} x2={a.search.approach.goal[0]} y2={-a.search.approach.goal[1]}
+            stroke="oklch(0.85 0.12 200)" strokeWidth={0.035} strokeDasharray="0.05 0.05" />
+          <g transform={`translate(${a.search.approach.goal[0]} ${-a.search.approach.goal[1]})`}>
+            <circle r={0.16} fill="none" stroke="oklch(0.85 0.12 200)" strokeWidth={0.045} />
+            <title>{`Walking up to her: destination updated ${a.search.approach.updates} time${a.search.approach.updates === 1 ? "" : "s"} from the camera's range`}</title>
+          </g>
+        </g>
+      )}
       {(() => {
         const est = a.search.found_at ?? (a.search.running && a.spotter?.confirmed && a.spotter.x != null
           ? [a.spotter.x, a.spotter.y!] as [number, number] : null);

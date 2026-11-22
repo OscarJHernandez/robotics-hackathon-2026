@@ -94,6 +94,9 @@ def main():
                   "found_zone": found_zone, "right_zone": found_zone == where, "looks": len(steps),
                   "metres": round(run.get("metres", 0.0), 2), "false_alarms": run.get("false_alarms", 0),
                   "found_error": run.get("found_error"), "missed_looks": missed, "looks_in_her_zone": looked_hers,
+                  "robot_to_person": run.get("robot_to_person"),
+                  "approach_updates": (run.get("approach") or {}).get("updates"),
+                  "approach_reason": (run.get("approach") or {}).get("reason"),
                   "confirmed_from_m": sightings[-1]["dist"] if sightings and run["status"] == "found" else None,
                   "seen_on_the_way": bool(sightings and sightings[-1]["while"] == "walking"),
                   "fallbacks": run.get("fallbacks", 0), "contacts": run.get("contacts", 0),
@@ -121,6 +124,14 @@ def main():
         "metres_mean": round(float(np.mean([r["metres"] for r in home])), 2) if home else None,
         "seen_on_the_way": sum(r["seen_on_the_way"] for r in found),
         "found_error_median": round(float(np.median([r["found_error"] for r in found])), 2) if found else None,
+        "within_1m_by_pose": {p: "{}/{}".format(
+            sum(1 for r in found if r["pose"] == p and r["found_error"] is not None and r["found_error"] <= 1.0),
+            sum(1 for r in home if r["pose"] == p)) for p in ("lying", "standing")},
+        "robot_to_person_median": round(float(np.median([r["robot_to_person"] for r in found
+                                                         if r["robot_to_person"] is not None])), 2) if found else None,
+        "robot_near_her": "{}/{}".format(sum(1 for r in found if r["robot_to_person"] is not None
+                                             and 0.3 <= r["robot_to_person"] <= 1.0), len(found)),
+        "approach_updates_mean": round(float(np.mean([r["approach_updates"] or 0 for r in found])), 1) if found else None,
         "confirmed_from_median": round(float(np.median([r["confirmed_from_m"] for r in found
                                                         if r["confirmed_from_m"] is not None])), 2) if found else None,
         "look_miss_rate": round(missed / max(looks_hers, 1), 3), "looks_in_her_zone": looks_hers,

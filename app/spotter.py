@@ -45,6 +45,11 @@ CHECK_RADIUS = 1.0
 # pictures (median 0.84-0.89), while the look-alikes that passed the 0.65 threshold in the bench scored 0.66-0.67
 # (the edge of a brown cylinder, seed 7110). Two such matches in CHECK_CYCLES looks are needed.
 CHECK_SIM = 0.75
+# metres: only matches from this close count for the close-up check. 1.5 m let a mis-ranged sighting pass: the depth
+# of something in front of her (the lidar does not see it) put her 2 m too close, and two strong matches from 1.3-1.5 m
+# on the way in called her found there (bench seed 7431); at the destination, 0.6 m from that point, nothing matched.
+CHECK_RANGE = 1.0
+APPROACH_DECAY = 0.4  # fuse_decay while walking up to her (normally 0.7): newer, closer matches count more
 
 
 class Spotter:
@@ -116,8 +121,11 @@ class Spotter:
         self.cycles += 1
         if d is not None:
             self.estimate.add(d, self.cycles)
-            if self.marked is not None and d["sim"] >= CHECK_SIM \
-                    and math.hypot(d["x"] - self.marked[0], d["y"] - self.marked[1]) <= CHECK_RADIUS:
+            # The close-up check counts strong matches from up close near where she is now thought to be: the
+            # estimate moves while the robot walks up to her (approach), so the spot mark() saw is only the fallback.
+            centre = self.estimate.est if self.estimate.est is not None else self.marked
+            if self.marked is not None and d["sim"] >= CHECK_SIM and d["range"] <= CHECK_RANGE \
+                    and math.hypot(d["x"] - centre[0], d["y"] - centre[1]) <= CHECK_RADIUS:
                 self.watch_hits += 1
         self.seconds = 0.8 * self.seconds + 0.2 * (time.monotonic() - started) if self.cycles > 1 else \
             time.monotonic() - started
@@ -136,10 +144,16 @@ class Spotter:
         self.marked, self.watch_hits = None, 0
 
     def mark(self):
-        """Count matches within CHECK_RADIUS of the current estimate from now on (the close-up check before
-        calling her found)."""
+        """Count strong matches from up close within CHECK_RADIUS of the estimate from now on (the close-up check
+        before calling her found)."""
         est = self.estimate.est
         self.marked, self.watch_hits = (tuple(est) if est is not None else None), 0
+
+    def approach(self, on):
+        """While the robot walks up to her (LiveRobot's approach): older matches fade faster (APPROACH_DECAY), so
+        the estimate follows the newer, closer ones, which are ranged better and less often on the furniture behind
+        her. Off: the normal fading again."""
+        self.estimate.cfg = dict(self.cfg, fuse_decay=APPROACH_DECAY) if on else self.cfg
 
     def state(self):
         est, d = self.estimate.est, self.last
