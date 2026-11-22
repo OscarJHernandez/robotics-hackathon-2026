@@ -118,6 +118,7 @@ SETS = {  # name: (first scene id, layouts, start seed, first episode id)
     "screen": (101_000, 200, 99, 101_000),           # held out, closed loop, student alone
     "confirm": (103_000, 200, 99, 103_000),          # held out, once per promotion
     "final": (102_000, 200, 99, 102_000),            # held out, robust check (fresh block per check: 104000, ...)
+    "final_b": (102_000, 200, 98, 105_000),          # the same final layouts with a second start seed
 }
 
 

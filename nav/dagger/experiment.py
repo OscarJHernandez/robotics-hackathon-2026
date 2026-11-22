@@ -290,7 +290,9 @@ def main():
     r.add_argument("--closed-first", type=int, default=None)
     r.add_argument("--closed-count", type=int, default=None)
     r.add_argument("--no-closed", action="store_true")
-    r.add_argument("--closed-set", default=None, choices=["screen", "confirm", "final"],
+    r.add_argument("--closed-max-steps", type=int, default=None, help="override the step cap (final sets: 300)")
+    r.add_argument("--closed-stuck-steps", type=int, default=None, help="override the stuck rule; 0 = off")
+    r.add_argument("--closed-set", default=None, choices=["screen", "confirm", "final", "final_b"],
                    help="held-out layouts to drive on (default: the variant's, normally screen)")
     r.add_argument("--tag", default=None, help="results folder <id>-<tag> (e.g. confirm), so sets never mix")
     for p in (c, d, r):
@@ -331,6 +333,10 @@ def main():
         closed.update(variant.get("closed") or {})
         if args.closed_set:
             closed["set"] = args.closed_set
+        if args.closed_max_steps:
+            closed["max_steps"] = args.closed_max_steps
+        if args.closed_stuck_steps is not None:
+            closed["stuck_steps"] = args.closed_stuck_steps or None
         if args.closed_first is not None:
             closed["first"] = args.closed_first
         if args.closed_count is not None:

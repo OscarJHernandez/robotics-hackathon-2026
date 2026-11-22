@@ -152,7 +152,7 @@ def main():
     parser.add_argument("--closed-count", type=int, default=100)
     parser.add_argument("--n-envs", type=int, default=32)
     parser.add_argument("--reference", default="v03-reference")
-    parser.add_argument("--closed-set", default="screen", choices=["screen", "confirm", "final"])
+    parser.add_argument("--closed-set", default="screen", choices=["screen", "confirm", "final", "final_b"])
     args = parser.parse_args()
     if args.command == "run":
         run_queue(args.ids, args.closed_count, args.n_envs)
