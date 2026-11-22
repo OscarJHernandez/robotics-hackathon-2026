@@ -1,8 +1,11 @@
 """Checks that the simulated JetHexa loads, stands and walks. Run: python -m unittest discover -s tests -v"""
 
+import math
 import sys
 import unittest
 from pathlib import Path
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sim"))
 
@@ -112,3 +115,48 @@ class JetHexaSimTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LidarTest(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from vision.scene import Arena
+        self.arena = Arena(simple=True)
+        self.sim = self.arena.sim
+
+    def place(self, yaw=0.0, obstacle_xy=(0.0, 0.8)):
+        obstacle = self.arena.obstacles[0]
+        layout = {"obstacles": [{"name": obstacle["name"], "x": obstacle_xy[0], "y": obstacle_xy[1], "yaw": 0.0,
+                                 "color": (0.5, 0.5, 0.5)}],
+                  "target": (3.0, -3.0)}
+        for other in self.arena.obstacles[1:]:
+            layout["obstacles"].append({"name": other["name"], "x": 3.0, "y": 3.0, "yaw": 0.0, "color": (0.5, 0.5, 0.5)})
+        self.arena.apply(layout)
+        self.arena.place(0.0, 0.0, yaw)
+        return obstacle
+
+    def test_obstacle_on_the_left_is_seen_by_the_left_ray(self):
+        obstacle = self.place()
+        scan = self.sim.lidar()
+        self.assertEqual(scan.shape, (36,))
+        self.assertEqual(scan.dtype, np.float32)
+        self.assertLess(scan[9], 0.8)
+        self.assertGreater(scan[9], 0.8 - obstacle["radius"] - 0.05)
+        self.assertGreater(scan[0], 2.0)
+
+    def test_turning_left_puts_the_obstacle_ahead(self):
+        self.place(yaw=math.pi / 2)
+        scan = self.sim.lidar()
+        self.assertLess(scan[0], 0.8)
+        self.assertGreater(scan[9], 2.0)
+
+    def test_robot_alone_never_sees_itself(self):
+        self.place(obstacle_xy=(3.0, 3.0))
+        scan = self.sim.lidar()
+        self.assertGreater(float(scan.min()), 0.3)
+        self.assertEqual(self.sim.lidar(rays=72).shape, (72,))
+
+    def test_target_pillar_is_not_seen(self):
+        self.place(obstacle_xy=(3.0, 3.0))
+        self.sim.set_target(0.5, 0.0)
+        self.assertGreater(float(self.sim.lidar()[0]), 2.0)
