@@ -225,3 +225,33 @@ class LidarShieldFrontTest(unittest.TestCase):
         self.assertEqual(out[0, 0], 0.0)
         self.assertGreater(out[0, 1], 0)
         np.testing.assert_allclose(out[1], [0.3, 0.0])
+
+
+class LidarPlanTest(unittest.TestCase):
+    def test_plan_goes_around_a_seen_wall_and_matches_offline(self):
+        import math
+        from nav.dagger.lidarmap import LidarPlanner, lidar_plan_columns
+        # a wall 0.6 m ahead, from y = -0.6 to 1.2 m: the plan must bend toward the open (negative y) end
+        ranges = np.full(36, 8.0)
+        for i in range(36):
+            a = math.radians(i * 10)
+            if math.cos(a) > 1e-6:
+                y = 0.6 * math.tan(a)
+                if -0.6 <= y <= 1.2:
+                    ranges[i] = 0.6 / math.cos(a)
+        planner = LidarPlanner()
+        s, c = planner.step((0.0, 0.0, 0.0), (2.0, 0.0), ranges)
+        self.assertLess(math.atan2(s, c), -0.2)  # to the right, around the open end
+        free = LidarPlanner().step((0.0, 0.0, 0.0), (2.0, 0.0), np.full(36, 8.0))
+        self.assertAlmostEqual(math.atan2(*free), 0.0, places=3)  # nothing seen: straight at the goal
+        if HAVE_ML:
+            rows = pd.DataFrame({"episode": [5, 5], "step": [1, 0], "x": [0.1, 0.0], "y": [0.0, 0.0], "yaw": [0.0, 0.0],
+                                 "goal_x": [2.0, 2.0], "goal_y": [0.0, 0.0]})
+            for i in range(36):
+                rows["lr_{}".format(i)] = [ranges[i], ranges[i]]
+            cols = lidar_plan_columns(rows)  # rows out of order: step 0 is processed first
+            live = LidarPlanner()
+            first = live.step((0.0, 0.0, 0.0), (2.0, 0.0), ranges)
+            second = live.step((0.1, 0.0, 0.0), (2.0, 0.0), ranges)
+            np.testing.assert_allclose(cols[1], first, atol=1e-6)
+            np.testing.assert_allclose(cols[0], second, atol=1e-6)

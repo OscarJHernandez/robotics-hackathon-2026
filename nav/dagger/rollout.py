@@ -179,6 +179,10 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
     total = len(queue)
     n = len(envs)
     slots, obs, hist = [None] * n, [None] * n, [None] * n
+    planners = None
+    if features is not None and features.cfg.get("lidar_plan"):
+        from .lidarmap import LidarPlanner
+        planners = [LidarPlanner() for _ in range(n)]
     out = Collected()
     counts = Counter()
     finished = steps = pending = 0
@@ -191,6 +195,8 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
         episode = dict(queue.pop(0))
         obs[k] = envs[k].reset(episode["scene_id"], episode["seed"])
         hist[k] = None
+        if planners is not None:
+            planners[k].reset()
         episode.update(t0=time.time(), nopath_steps=0, random_left=0, random_cmd=None, kicked=False, perturbed_steps=0)
         slots[k] = episode
 
@@ -211,6 +217,10 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
                 cmd = expert.act(envs[k].state())
                 experts.append((cmd, bool(expert.nopath), float(expert.look_bearing)))
         base["look_bearing"] = [e[2] for e in experts]  # used only by the privileged ceiling variant
+        if planners is not None:
+            with timer("lidar_plan"):
+                lp = [planners[k].step(obs[k]["robot_pose"], envs[k].goal, obs[k]["lidar"]) for k in active]
+            base["lp_sin"], base["lp_cos"] = [v[0] for v in lp], [v[1] for v in lp]
         student = None
         if policy is not None and beta < 1.0:
             with timer("features_live"):

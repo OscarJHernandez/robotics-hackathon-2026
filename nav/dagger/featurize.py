@@ -453,6 +453,7 @@ DEFAULT_FEATURES = {
     "band_sectors": 15,   # sectors for band_pca
     "lidar": False,       # the 360 degree lidar ranges lr_*
     "lookahead": False,   # PRIVILEGED: the expert's look-ahead bearing (sin, cos); ceiling experiments only
+    "lidar_plan": False,  # the robot's own plan on its lidar map: look-ahead bearing (sin, cos), see lidarmap.py
 }
 
 
@@ -538,6 +539,11 @@ class Features:
             mean, scale, comps = self.pca[:3]
             parts.append((((flat - mean) / scale) @ comps).reshape(n, sectors * k))
             names += ["bp_{}_{}".format(s, j) for s in range(sectors) for j in range(k)]
+        if c["lidar_plan"]:
+            if "lp_sin" not in base.columns:
+                raise ValueError("lidar_plan features need lp_sin/lp_cos: run `python -m nav.dagger.lidarmap add`")
+            parts.append(base[["lp_sin", "lp_cos"]].to_numpy(np.float32))
+            names += ["lp_sin", "lp_cos"]
         if c["lookahead"]:
             look = base["look_bearing"].to_numpy(np.float32)
             parts.append(np.stack([np.sin(look), np.cos(look)], axis=1))

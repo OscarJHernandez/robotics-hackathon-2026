@@ -60,6 +60,13 @@ def load_rows(name, need_band, columns=None):
     if not path.exists():
         raise SystemExit("data set {} is not merged yet: {} missing".format(name, path))
     rows = pd.read_parquet(path, columns=columns)
+    lp = folder / "rows.lp.parquet"
+    if lp.exists() and columns is None:
+        plan = pd.read_parquet(lp)
+        if len(plan) != len(rows) or not (plan["episode"].to_numpy() == rows["episode"].to_numpy()).all() \
+                or not (plan["step"].to_numpy() == rows["step"].to_numpy()).all():
+            raise SystemExit("{}: rows.lp.parquet does not line up with rows.parquet; rebuild it".format(name))
+        rows["lp_sin"], rows["lp_cos"] = plan["lp_sin"].to_numpy(), plan["lp_cos"].to_numpy()
     band = None
     if need_band:
         side = folder / "rows.hz.npy"
