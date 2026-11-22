@@ -179,7 +179,10 @@ phase) and one line per episode. Linux needs headless OpenGL: `MUJOCO_GL=egl` is
 
 ## DAgger v2 in the arena: the best model (2026-11-22)
 
-A research loop (vendetta and metacon, coordinated by Claude) tested about 30 student variants, each driving alone
+The full record (every variant, what worked and why, why the search stopped, GIFs of the student driving alone) is
+[dagger-report.md](dagger-report.md).
+
+A research loop (vendetta and metacon, coordinated by Claude) tested 26 student variants after dagger1, each driving alone
 (beta 0) on held-out arena layouts, compared in pairs on the same layouts. Result:
 
 **Best model, `v29-lidarplan`**: TabPFN 3.5 (`fit()`/`predict()` only, 4 estimators) on all 31,586 round 0 expert rows,

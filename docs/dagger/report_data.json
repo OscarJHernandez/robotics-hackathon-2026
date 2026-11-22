@@ -1,0 +1,3562 @@
+{
+ "screening": [
+  {
+   "id": "v03-reference",
+   "verdict": "reference",
+   "why": "the dagger1 setup on v2 data: walks on where the expert stops and turns",
+   "reference": null,
+   "columns": 606,
+   "context_rows": 8000,
+   "fit_s": 110.11,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 58,
+     "rate": 0.58,
+     "ci_low": 0.4821,
+     "ci_high": 0.672
+    },
+    "collision": {
+     "count": 41,
+     "rate": 0.41,
+     "ci_low": 0.3187,
+     "ci_high": 0.508
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 1,
+     "rate": 0.01,
+     "ci_low": 0.0018,
+     "ci_high": 0.0545
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.6684,
+    "median_progress": 0.8261,
+    "mean_steps_goal": 26.86,
+    "failures": {
+     "goal": 58,
+     "collision_front": 23,
+     "collision_side": 18,
+     "stuck": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.5152
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.6579
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.5517
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.8333
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.7143
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.65
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.3659
+     }
+    },
+    "stop_ignored": 355,
+    "wrong_stop": 1,
+    "collision_side_share": 0.439
+   },
+   "vs": null,
+   "student_only": true
+  },
+  {
+   "id": "v00-noise",
+   "verdict": "noise floor",
+   "why": "v03 with another context seed: identical setups differ by about 4 points",
+   "reference": "v03-reference",
+   "columns": 606,
+   "context_rows": 8000,
+   "fit_s": 110.35,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 62,
+     "rate": 0.62,
+     "ci_low": 0.5221,
+     "ci_high": 0.709
+    },
+    "collision": {
+     "count": 38,
+     "rate": 0.38,
+     "ci_low": 0.291,
+     "ci_high": 0.4779
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.6833,
+    "median_progress": 0.8414,
+    "mean_steps_goal": 27.81,
+    "failures": {
+     "goal": 62,
+     "collision_front": 27,
+     "collision_side": 11
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.6061
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.6842
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.5517
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.8333
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.7143
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.6
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.4878
+     }
+    },
+    "stop_ignored": 494,
+    "wrong_stop": 0,
+    "collision_side_share": 0.2895
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 8,
+    "losses": 4,
+    "ties": 88,
+    "sign_p": 0.3876953125,
+    "mean_progress_diff": 0.014878297446748383,
+    "wilcoxon_p": 0.18937568314566122,
+    "collisions_a": 38,
+    "collisions_b": 41
+   },
+   "student_only": true
+  },
+  {
+   "id": "v01-rule",
+   "verdict": "baseline",
+   "why": "heading alone (stop when the goal is off to the side): crashes into what is ahead",
+   "reference": "v03-reference",
+   "columns": 8,
+   "context_rows": 1000,
+   "fit_s": 0.0,
+   "student": "RulePolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 50,
+     "rate": 0.5,
+     "ci_low": 0.4038,
+     "ci_high": 0.5962
+    },
+    "collision": {
+     "count": 50,
+     "rate": 0.5,
+     "ci_low": 0.4038,
+     "ci_high": 0.5962
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.6068,
+    "median_progress": 0.7429,
+    "mean_steps_goal": 23.1,
+    "failures": {
+     "goal": 50,
+     "collision_front": 48,
+     "collision_side": 2
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.4848
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.5526
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.4483
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.8889
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.6667
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.5
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.2439
+     }
+    },
+    "stop_ignored": 160,
+    "wrong_stop": 23,
+    "collision_side_share": 0.04
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 3,
+    "losses": 11,
+    "ties": 86,
+    "sign_p": 0.057373046875,
+    "mean_progress_diff": -0.061623807736877895,
+    "wilcoxon_p": 0.0033047083098202107,
+    "collisions_a": 50,
+    "collisions_b": 41
+   },
+   "student_only": true
+  },
+  {
+   "id": "v06-knn",
+   "verdict": "baseline",
+   "why": "kNN on v03's rows and columns: TabPFN earns its place",
+   "reference": "v03-reference",
+   "columns": 606,
+   "context_rows": 8000,
+   "fit_s": 0.02,
+   "student": "KNNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 16,
+     "rate": 0.16,
+     "ci_low": 0.101,
+     "ci_high": 0.2442
+    },
+    "collision": {
+     "count": 48,
+     "rate": 0.48,
+     "ci_low": 0.3846,
+     "ci_high": 0.5768
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 36,
+     "rate": 0.36,
+     "ci_low": 0.2727,
+     "ci_high": 0.4576
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": -0.028,
+    "median_progress": 0.0271,
+    "mean_steps_goal": 31.06,
+    "failures": {
+     "collision_front": 38,
+     "never_turned": 20,
+     "goal": 16,
+     "stuck": 15,
+     "collision_side": 10,
+     "walked_past": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.2424
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.1579
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.069
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.1667
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.2381
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.2
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.0976
+     }
+    },
+    "stop_ignored": 2327,
+    "wrong_stop": 0,
+    "collision_side_share": 0.2083
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 4,
+    "losses": 46,
+    "ties": 50,
+    "sign_p": 4.461782054931973e-10,
+    "mean_progress_diff": -0.6964660397576816,
+    "wilcoxon_p": 1.2066584852827546e-13,
+    "collisions_a": 48,
+    "collisions_b": 41
+   },
+   "student_only": true
+  },
+  {
+   "id": "v02-summary",
+   "verdict": "better than v03",
+   "why": "8 columns beat 606: the patch grid drowns the goal columns",
+   "reference": "v03-reference",
+   "columns": 8,
+   "context_rows": 8000,
+   "fit_s": 17.92,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 70,
+     "rate": 0.7,
+     "ci_low": 0.6041,
+     "ci_high": 0.7811
+    },
+    "collision": {
+     "count": 30,
+     "rate": 0.3,
+     "ci_low": 0.2189,
+     "ci_high": 0.3959
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.7389,
+    "median_progress": 0.8918,
+    "mean_steps_goal": 27.81,
+    "failures": {
+     "goal": 70,
+     "collision_front": 22,
+     "collision_side": 8
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.6667
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.7368
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.6897
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.9444
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8095
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.7
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.5366
+     }
+    },
+    "stop_ignored": 344,
+    "wrong_stop": 0,
+    "collision_side_share": 0.2667
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 14,
+    "losses": 2,
+    "ties": 84,
+    "sign_p": 0.004180908203125,
+    "mean_progress_diff": 0.0704194441279029,
+    "wilcoxon_p": 0.028468000827469798,
+    "collisions_a": 30,
+    "collisions_b": 41
+   },
+   "student_only": true
+  },
+  {
+   "id": "v09-scan",
+   "verdict": "not better than v02",
+   "why": "a camera horizon scan instead of the summary: no gain",
+   "reference": "v03-reference",
+   "columns": 18,
+   "context_rows": 8000,
+   "fit_s": 19.2,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 67,
+     "rate": 0.67,
+     "ci_low": 0.5731,
+     "ci_high": 0.7544
+    },
+    "collision": {
+     "count": 33,
+     "rate": 0.33,
+     "ci_low": 0.2456,
+     "ci_high": 0.4269
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.7281,
+    "median_progress": 0.8757,
+    "mean_steps_goal": 27.49,
+    "failures": {
+     "goal": 67,
+     "collision_front": 23,
+     "collision_side": 10
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.6667
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.6579
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.6897
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.9444
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.7619
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.7
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.4878
+     }
+    },
+    "stop_ignored": 298,
+    "wrong_stop": 0,
+    "collision_side_share": 0.303
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 13,
+    "losses": 4,
+    "ties": 83,
+    "sign_p": 0.049041748046875,
+    "mean_progress_diff": 0.05962443915946348,
+    "wilcoxon_p": 0.0378637557361713,
+    "collisions_a": 33,
+    "collisions_b": 41
+   },
+   "student_only": true
+  },
+  {
+   "id": "v10-band",
+   "verdict": "not better",
+   "why": "camera horizon depth + DINOv2 PCA: the camera cannot see beside the robot",
+   "reference": "v03-reference",
+   "columns": 78,
+   "context_rows": 8000,
+   "fit_s": 26.32,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 63,
+     "rate": 0.63,
+     "ci_low": 0.5322,
+     "ci_high": 0.7182
+    },
+    "collision": {
+     "count": 36,
+     "rate": 0.36,
+     "ci_low": 0.2727,
+     "ci_high": 0.4576
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 1,
+     "rate": 0.01,
+     "ci_low": 0.0018,
+     "ci_high": 0.0545
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.7031,
+    "median_progress": 0.8414,
+    "mean_steps_goal": 26.43,
+    "failures": {
+     "goal": 63,
+     "collision_front": 26,
+     "collision_side": 10,
+     "never_turned": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.6364
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.6579
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.5862
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.9444
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8095
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.6
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.4146
+     }
+    },
+    "stop_ignored": 270,
+    "wrong_stop": 1,
+    "collision_side_share": 0.2778
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 11,
+    "losses": 6,
+    "ties": 83,
+    "sign_p": 0.332305908203125,
+    "mean_progress_diff": 0.0346736897603589,
+    "wilcoxon_p": 0.07050312050487799,
+    "collisions_a": 36,
+    "collisions_b": 41
+   },
+   "student_only": true
+  },
+  {
+   "id": "v11-lidar",
+   "verdict": "promoted (1)",
+   "why": "the 360 degree lidar: most crashes were into furniture beside the robot",
+   "reference": "v03-reference",
+   "columns": 114,
+   "context_rows": 8000,
+   "fit_s": 30.48,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 89,
+     "rate": 0.89,
+     "ci_low": 0.8137,
+     "ci_high": 0.9375
+    },
+    "collision": {
+     "count": 10,
+     "rate": 0.1,
+     "ci_low": 0.0552,
+     "ci_high": 0.1744
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 1,
+     "rate": 0.01,
+     "ci_low": 0.0018,
+     "ci_high": 0.0545
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8512,
+    "median_progress": 0.9215,
+    "mean_steps_goal": 29.82,
+    "failures": {
+     "goal": 89,
+     "collision_front": 6,
+     "collision_side": 4,
+     "never_turned": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.8788
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9474
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.8276
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.95
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.8293
+     }
+    },
+    "stop_ignored": 230,
+    "wrong_stop": 0,
+    "collision_side_share": 0.4
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 32,
+    "losses": 1,
+    "ties": 67,
+    "sign_p": 7.916241884231567e-09,
+    "mean_progress_diff": 0.18276012952993193,
+    "wilcoxon_p": 4.2994193958888864e-07,
+    "collisions_a": 10,
+    "collisions_b": 41
+   },
+   "student_only": true
+  },
+  {
+   "id": "v12-lidar-perturb",
+   "verdict": "not better",
+   "why": "heading-recovery rows: better offline stop recall, same driving",
+   "reference": "v11-lidar",
+   "columns": 114,
+   "context_rows": 8000,
+   "fit_s": 30.53,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 89,
+     "rate": 0.89,
+     "ci_low": 0.8137,
+     "ci_high": 0.9375
+    },
+    "collision": {
+     "count": 9,
+     "rate": 0.09,
+     "ci_low": 0.0481,
+     "ci_high": 0.1623
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 2,
+     "rate": 0.02,
+     "ci_low": 0.0055,
+     "ci_high": 0.07
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8559,
+    "median_progress": 0.9214,
+    "mean_steps_goal": 30.2,
+    "failures": {
+     "goal": 89,
+     "collision_front": 7,
+     "collision_side": 2,
+     "never_turned": 1,
+     "spinning": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.8788
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9474
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.8276
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.9
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.8537
+     }
+    },
+    "stop_ignored": 231,
+    "wrong_stop": 5,
+    "collision_side_share": 0.2222
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 3,
+    "losses": 3,
+    "ties": 94,
+    "sign_p": 1.0,
+    "mean_progress_diff": 0.004713518356705232,
+    "wilcoxon_p": 0.0944324073070398,
+    "collisions_a": 9,
+    "collisions_b": 10
+   },
+   "student_only": true
+  },
+  {
+   "id": "v13-lidar-gated",
+   "verdict": "not better",
+   "why": "walk / stop-turn classifier: offline stop recall 51% -> 82%, same driving",
+   "reference": "v11-lidar",
+   "columns": 114,
+   "context_rows": 8000,
+   "fit_s": 42.98,
+   "student": "GatedPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 90,
+     "rate": 0.9,
+     "ci_low": 0.8256,
+     "ci_high": 0.9448
+    },
+    "collision": {
+     "count": 10,
+     "rate": 0.1,
+     "ci_low": 0.0552,
+     "ci_high": 0.1744
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.865,
+    "median_progress": 0.923,
+    "mean_steps_goal": 30.08,
+    "failures": {
+     "goal": 90,
+     "collision_front": 7,
+     "collision_side": 3
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9091
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9211
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.8621
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.85
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9024
+     }
+    },
+    "stop_ignored": 218,
+    "wrong_stop": 13,
+    "collision_side_share": 0.3
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 3,
+    "losses": 2,
+    "ties": 95,
+    "sign_p": 1.0,
+    "mean_progress_diff": 0.01385217506717186,
+    "wilcoxon_p": 0.2607380468047288,
+    "collisions_a": 10,
+    "collisions_b": 10
+   },
+   "student_only": true
+  },
+  {
+   "id": "v14-lidar-only",
+   "verdict": "not better",
+   "why": "lidar without camera features: the camera adds little next to the lidar",
+   "reference": "v11-lidar",
+   "columns": 39,
+   "context_rows": 8000,
+   "fit_s": 21.63,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 86,
+     "rate": 0.86,
+     "ci_low": 0.7786,
+     "ci_high": 0.9147
+    },
+    "collision": {
+     "count": 13,
+     "rate": 0.13,
+     "ci_low": 0.0776,
+     "ci_high": 0.2098
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 1,
+     "rate": 0.01,
+     "ci_low": 0.0018,
+     "ci_high": 0.0545
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8247,
+    "median_progress": 0.9157,
+    "mean_steps_goal": 29.9,
+    "failures": {
+     "goal": 86,
+     "collision_side": 7,
+     "collision_front": 6,
+     "never_turned": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.8485
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9211
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.7931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.85
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.8049
+     }
+    },
+    "stop_ignored": 260,
+    "wrong_stop": 2,
+    "collision_side_share": 0.5385
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 1,
+    "losses": 4,
+    "ties": 95,
+    "sign_p": 0.375,
+    "mean_progress_diff": -0.026445436216762066,
+    "wilcoxon_p": 0.6560808699294636,
+    "collisions_a": 13,
+    "collisions_b": 10
+   },
+   "student_only": true
+  },
+  {
+   "id": "v16-lidar-history",
+   "verdict": "killed",
+   "why": "short memory of the last 2 steps: no gain",
+   "reference": "v11-lidar",
+   "columns": 149,
+   "context_rows": 8000,
+   "fit_s": 34.57,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 86,
+     "rate": 0.86,
+     "ci_low": 0.7786,
+     "ci_high": 0.9147
+    },
+    "collision": {
+     "count": 14,
+     "rate": 0.14,
+     "ci_low": 0.0853,
+     "ci_high": 0.2214
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8248,
+    "median_progress": 0.9159,
+    "mean_steps_goal": 29.91,
+    "failures": {
+     "goal": 86,
+     "collision_front": 9,
+     "collision_side": 5
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.8788
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.8947
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.7931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.9
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.7805
+     }
+    },
+    "stop_ignored": 355,
+    "wrong_stop": 0,
+    "collision_side_share": 0.3571
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 3,
+    "losses": 6,
+    "ties": 91,
+    "sign_p": 0.5078125,
+    "mean_progress_diff": -0.02638369953567518,
+    "wilcoxon_p": 0.7438068355343099,
+    "collisions_a": 14,
+    "collisions_b": 10
+   },
+   "student_only": true
+  },
+  {
+   "id": "v17-lidar-balanced",
+   "verdict": "killed",
+   "why": "context balanced over mode and free space: no gain",
+   "reference": "v11-lidar",
+   "columns": 114,
+   "context_rows": 8000,
+   "fit_s": 31.2,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 86,
+     "rate": 0.86,
+     "ci_low": 0.7786,
+     "ci_high": 0.9147
+    },
+    "collision": {
+     "count": 14,
+     "rate": 0.14,
+     "ci_low": 0.0853,
+     "ci_high": 0.2214
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8255,
+    "median_progress": 0.9215,
+    "mean_steps_goal": 31.15,
+    "failures": {
+     "goal": 86,
+     "collision_front": 8,
+     "collision_side": 6
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.8485
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9211
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.7931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.8889
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8095
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.9
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.8537
+     }
+    },
+    "stop_ignored": 176,
+    "wrong_stop": 11,
+    "collision_side_share": 0.4286
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 5,
+    "losses": 8,
+    "ties": 87,
+    "sign_p": 0.5810546875,
+    "mean_progress_diff": -0.025645821158312904,
+    "wilcoxon_p": 0.934987986845814,
+    "collisions_a": 14,
+    "collisions_b": 10
+   },
+   "student_only": true
+  },
+  {
+   "id": "v15-lidar-allrows",
+   "verdict": "leader (2nd)",
+   "why": "all 31k rows instead of 8k: more real rows help",
+   "reference": "v11-lidar",
+   "columns": 114,
+   "context_rows": 31586,
+   "fit_s": 234.29,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 95,
+     "rate": 0.95,
+     "ci_low": 0.8882,
+     "ci_high": 0.9785
+    },
+    "collision": {
+     "count": 5,
+     "rate": 0.05,
+     "ci_low": 0.0215,
+     "ci_high": 0.1118
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8845,
+    "median_progress": 0.9293,
+    "mean_steps_goal": 31.08,
+    "failures": {
+     "goal": 95,
+     "collision_front": 5
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9394
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9737
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.95
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9756
+     }
+    },
+    "stop_ignored": 305,
+    "wrong_stop": 0,
+    "collision_side_share": 0.0
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 6,
+    "losses": 0,
+    "ties": 94,
+    "sign_p": 0.03125,
+    "mean_progress_diff": 0.033258416657316936,
+    "wilcoxon_p": 0.008746382294012317,
+    "collisions_a": 5,
+    "collisions_b": 10
+   },
+   "student_only": true
+  },
+  {
+   "id": "v18-lidar-dagger1",
+   "verdict": "not better",
+   "why": "DAgger round 1 rows in a 12k context: no gain",
+   "reference": "v11-lidar",
+   "columns": 114,
+   "context_rows": 12000,
+   "fit_s": 51.94,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 90,
+     "rate": 0.9,
+     "ci_low": 0.8256,
+     "ci_high": 0.9448
+    },
+    "collision": {
+     "count": 10,
+     "rate": 0.1,
+     "ci_low": 0.0552,
+     "ci_high": 0.1744
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8598,
+    "median_progress": 0.9289,
+    "mean_steps_goal": 32.73,
+    "failures": {
+     "goal": 90,
+     "collision_front": 6,
+     "collision_side": 4
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.8788
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9211
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.8966
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.8889
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8095
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.9
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9512
+     }
+    },
+    "stop_ignored": 195,
+    "wrong_stop": 8,
+    "collision_side_share": 0.4
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 5,
+    "losses": 4,
+    "ties": 91,
+    "sign_p": 1.0,
+    "mean_progress_diff": 0.008568739359035321,
+    "wilcoxon_p": 0.3276540350173558,
+    "collisions_a": 10,
+    "collisions_b": 10
+   },
+   "student_only": true
+  },
+  {
+   "id": "v19-lidar-dagger1-near",
+   "verdict": "killed",
+   "why": "keeping every close-to-furniture row: hesitant, 5% stuck",
+   "reference": "v18-lidar-dagger1",
+   "columns": 114,
+   "context_rows": 12000,
+   "fit_s": 52.69,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 84,
+     "rate": 0.84,
+     "ci_low": 0.7558,
+     "ci_high": 0.899
+    },
+    "collision": {
+     "count": 11,
+     "rate": 0.11,
+     "ci_low": 0.0625,
+     "ci_high": 0.1863
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 5,
+     "rate": 0.05,
+     "ci_low": 0.0215,
+     "ci_high": 0.1118
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8364,
+    "median_progress": 0.9157,
+    "mean_steps_goal": 31.45,
+    "failures": {
+     "goal": 84,
+     "collision_front": 8,
+     "spinning": 3,
+     "collision_side": 3,
+     "stuck": 2
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.8182
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.8421
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.8621
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.8889
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.85
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.8049
+     }
+    },
+    "stop_ignored": 268,
+    "wrong_stop": 43,
+    "collision_side_share": 0.2727
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 2,
+    "losses": 8,
+    "ties": 90,
+    "sign_p": 0.109375,
+    "mean_progress_diff": -0.023341200805747545,
+    "wilcoxon_p": 0.09042232305379196,
+    "collisions_a": 11,
+    "collisions_b": 10
+   },
+   "student_only": true
+  },
+  {
+   "id": "v20-lidar-allrows-dagger1",
+   "verdict": "not better",
+   "why": "all rows + DAgger round 1 (52k): plateau",
+   "reference": "v15-lidar-allrows",
+   "columns": 114,
+   "context_rows": 51904,
+   "fit_s": 547.99,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 94,
+     "rate": 0.94,
+     "ci_low": 0.8752,
+     "ci_high": 0.9722
+    },
+    "collision": {
+     "count": 6,
+     "rate": 0.06,
+     "ci_low": 0.0278,
+     "ci_high": 0.1248
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8864,
+    "median_progress": 0.9293,
+    "mean_steps_goal": 31.07,
+    "failures": {
+     "goal": 94,
+     "collision_front": 3,
+     "collision_side": 3
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9394
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9474
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.9
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9756
+     }
+    },
+    "stop_ignored": 157,
+    "wrong_stop": 3,
+    "collision_side_share": 0.5
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 0,
+    "losses": 1,
+    "ties": 99,
+    "sign_p": 1.0,
+    "mean_progress_diff": 0.0019836950335817716,
+    "wilcoxon_p": 0.5669276486505286,
+    "collisions_a": 6,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v21-lidar-allrows-dagger12",
+   "verdict": "not better",
+   "why": "all rows + DAgger rounds 1-2 (61k): plateau",
+   "reference": "v15-lidar-allrows",
+   "columns": 114,
+   "context_rows": 61466,
+   "fit_s": 747.53,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 96,
+     "rate": 0.96,
+     "ci_low": 0.9016,
+     "ci_high": 0.9843
+    },
+    "collision": {
+     "count": 4,
+     "rate": 0.04,
+     "ci_low": 0.0157,
+     "ci_high": 0.0984
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8903,
+    "median_progress": 0.9295,
+    "mean_steps_goal": 32.17,
+    "failures": {
+     "goal": 96,
+     "collision_side": 3,
+     "collision_front": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9697
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9474
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.9655
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.9524
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.85
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 1.0
+     }
+    },
+    "stop_ignored": 192,
+    "wrong_stop": 5,
+    "collision_side_share": 0.75
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 3,
+    "losses": 2,
+    "ties": 95,
+    "sign_p": 1.0,
+    "mean_progress_diff": 0.005825618029403906,
+    "wilcoxon_p": 0.6636959838409773,
+    "collisions_a": 4,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v22c-collector",
+   "verdict": "data collector",
+   "why": "12k student used to drive DAgger rounds 3-4: plateau",
+   "reference": "v15-lidar-allrows",
+   "columns": 114,
+   "context_rows": 12000,
+   "fit_s": 317.74,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 93,
+     "rate": 0.93,
+     "ci_low": 0.8625,
+     "ci_high": 0.9657
+    },
+    "collision": {
+     "count": 6,
+     "rate": 0.06,
+     "ci_low": 0.0278,
+     "ci_high": 0.1248
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 1,
+     "rate": 0.01,
+     "ci_low": 0.0018,
+     "ci_high": 0.0545
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8811,
+    "median_progress": 0.9288,
+    "mean_steps_goal": 32.54,
+    "failures": {
+     "goal": 93,
+     "collision_front": 4,
+     "collision_side": 2,
+     "stuck": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9394
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9474
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.8966
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.9
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9512
+     }
+    },
+    "stop_ignored": 251,
+    "wrong_stop": 5,
+    "collision_side_share": 0.3333
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 1,
+    "losses": 3,
+    "ties": 96,
+    "sign_p": 0.625,
+    "mean_progress_diff": -0.0033043850951734966,
+    "wilcoxon_p": 0.10224174620169509,
+    "collisions_a": 6,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v23-gated-allrows",
+   "verdict": "not better",
+   "why": "gated output with all rows: stops ignored 230 -> 130, crashes unchanged",
+   "reference": "v15-lidar-allrows",
+   "columns": 114,
+   "context_rows": 31586,
+   "fit_s": 329.27,
+   "student": "GatedPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 94,
+     "rate": 0.94,
+     "ci_low": 0.8752,
+     "ci_high": 0.9722
+    },
+    "collision": {
+     "count": 6,
+     "rate": 0.06,
+     "ci_low": 0.0278,
+     "ci_high": 0.1248
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8743,
+    "median_progress": 0.9281,
+    "mean_steps_goal": 30.49,
+    "failures": {
+     "goal": 94,
+     "collision_side": 3,
+     "collision_front": 3
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9394
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9474
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.95
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9512
+     }
+    },
+    "stop_ignored": 130,
+    "wrong_stop": 14,
+    "collision_side_share": 0.5
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 1,
+    "losses": 2,
+    "ties": 97,
+    "sign_p": 1.0,
+    "mean_progress_diff": -0.010181640268297501,
+    "wilcoxon_p": 0.6650047146854436,
+    "collisions_a": 6,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v24-allrows-est8",
+   "verdict": "not better",
+   "why": "8 estimators instead of 4: capacity is not the limit",
+   "reference": "v15-lidar-allrows",
+   "columns": 114,
+   "context_rows": 31586,
+   "fit_s": 468.26,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 94,
+     "rate": 0.94,
+     "ci_low": 0.8752,
+     "ci_high": 0.9722
+    },
+    "collision": {
+     "count": 6,
+     "rate": 0.06,
+     "ci_low": 0.0278,
+     "ci_high": 0.1248
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.876,
+    "median_progress": 0.929,
+    "mean_steps_goal": 31.26,
+    "failures": {
+     "goal": 94,
+     "collision_side": 3,
+     "collision_front": 3
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9394
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9474
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 0.9444
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.9048
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.95
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9512
+     }
+    },
+    "stop_ignored": 294,
+    "wrong_stop": 0,
+    "collision_side_share": 0.5
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 1,
+    "losses": 2,
+    "ties": 97,
+    "sign_p": 1.0,
+    "mean_progress_diff": -0.008489378563368156,
+    "wilcoxon_p": 0.7454192062895686,
+    "collisions_a": 6,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v27-allrows-lidarshield",
+   "verdict": "killed",
+   "why": "safety stop at 0.27 m: decides too late, crashes while turning",
+   "reference": "v15-lidar-allrows",
+   "columns": 114,
+   "context_rows": 31586,
+   "fit_s": 236.16,
+   "student": "LidarShield",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 94,
+     "rate": 0.94,
+     "ci_low": 0.8752,
+     "ci_high": 0.9722
+    },
+    "collision": {
+     "count": 6,
+     "rate": 0.06,
+     "ci_low": 0.0278,
+     "ci_high": 0.1248
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8775,
+    "median_progress": 0.9289,
+    "mean_steps_goal": 31.36,
+    "failures": {
+     "goal": 94,
+     "collision_front": 6
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9394
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9474
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.9
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9756
+     }
+    },
+    "stop_ignored": 307,
+    "wrong_stop": 16,
+    "collision_side_share": 0.0
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 0,
+    "losses": 1,
+    "ties": 99,
+    "sign_p": 1.0,
+    "mean_progress_diff": -0.006958801275785726,
+    "wilcoxon_p": 0.35754538839682937,
+    "collisions_a": 6,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v28-allrows-shield2",
+   "verdict": "killed",
+   "why": "earlier safety stop: trades crashes for stuck and spinning",
+   "reference": "v15-lidar-allrows",
+   "columns": 114,
+   "context_rows": 31586,
+   "fit_s": 241.0,
+   "student": "LidarShield",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 91,
+     "rate": 0.91,
+     "ci_low": 0.8377,
+     "ci_high": 0.9519
+    },
+    "collision": {
+     "count": 5,
+     "rate": 0.05,
+     "ci_low": 0.0215,
+     "ci_high": 0.1118
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 4,
+     "rate": 0.04,
+     "ci_low": 0.0157,
+     "ci_high": 0.0984
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8627,
+    "median_progress": 0.9257,
+    "mean_steps_goal": 30.68,
+    "failures": {
+     "goal": 91,
+     "collision_side": 4,
+     "stuck": 2,
+     "spinning": 2,
+     "collision_front": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9091
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.8947
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.8571
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.85
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9268
+     }
+    },
+    "stop_ignored": 270,
+    "wrong_stop": 97,
+    "collision_side_share": 0.8
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 0,
+    "losses": 4,
+    "ties": 96,
+    "sign_p": 0.125,
+    "mean_progress_diff": -0.02176688330763806,
+    "wilcoxon_p": 0.1754823057235626,
+    "collisions_a": 5,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v08b-ceiling-lookahead",
+   "verdict": "ceiling (privileged)",
+   "why": "the expert's look-ahead bearing: the missing piece is path info",
+   "reference": "v15-lidar-allrows",
+   "columns": 116,
+   "context_rows": 31586,
+   "fit_s": 235.38,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 100,
+     "rate": 1.0,
+     "ci_low": 0.963,
+     "ci_high": 1.0
+    },
+    "collision": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.9135,
+    "median_progress": 0.9297,
+    "mean_steps_goal": 31.2,
+    "failures": {
+     "goal": 100
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 1.0
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 1.0
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 1.0
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 1.0
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 1.0
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 1.0
+     }
+    },
+    "stop_ignored": 129,
+    "wrong_stop": 0,
+    "collision_side_share": null
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 5,
+    "losses": 0,
+    "ties": 95,
+    "sign_p": 0.0625,
+    "mean_progress_diff": 0.029045302596022365,
+    "wilcoxon_p": 0.6266287840602375,
+    "collisions_a": 0,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v29-lidarplan",
+   "verdict": "promoted (2): best",
+   "why": "the robot's own plan on its lidar map: most of the ceiling",
+   "reference": "v15-lidar-allrows",
+   "columns": 116,
+   "context_rows": 31586,
+   "fit_s": 236.22,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 97,
+     "rate": 0.97,
+     "ci_low": 0.9155,
+     "ci_high": 0.9897
+    },
+    "collision": {
+     "count": 3,
+     "rate": 0.03,
+     "ci_low": 0.0103,
+     "ci_high": 0.0845
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8985,
+    "median_progress": 0.9295,
+    "mean_steps_goal": 31.48,
+    "failures": {
+     "goal": 97,
+     "collision_front": 2,
+     "collision_side": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 1.0
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.9737
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.931
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.9048
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 1.0
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.9756
+     }
+    },
+    "stop_ignored": 220,
+    "wrong_stop": 0,
+    "collision_side_share": 0.3333
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 3,
+    "losses": 1,
+    "ties": 96,
+    "sign_p": 0.625,
+    "mean_progress_diff": 0.01403673996586103,
+    "wilcoxon_p": 0.5276634794424773,
+    "collisions_a": 3,
+    "collisions_b": 5
+   },
+   "student_only": true
+  },
+  {
+   "id": "v31-lidarplan-alldata",
+   "verdict": "not better",
+   "why": "v29 with every row (81k, incl. DAgger): more mixed data was worse",
+   "reference": "v29-lidarplan",
+   "columns": 116,
+   "context_rows": 81354,
+   "fit_s": 1360.33,
+   "student": "TabPFNPolicy",
+   "summary": {
+    "n": 100,
+    "goal": {
+     "count": 92,
+     "rate": 0.92,
+     "ci_low": 0.85,
+     "ci_high": 0.9589
+    },
+    "collision": {
+     "count": 7,
+     "rate": 0.07,
+     "ci_low": 0.0343,
+     "ci_high": 0.1375
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "stuck": {
+     "count": 1,
+     "rate": 0.01,
+     "ci_low": 0.0018,
+     "ci_high": 0.0545
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.037
+    },
+    "mean_progress": 0.8826,
+    "median_progress": 0.9219,
+    "mean_steps_goal": 31.05,
+    "failures": {
+     "goal": 92,
+     "collision_front": 6,
+     "collision_side": 1,
+     "spinning": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 33,
+      "goal_rate": 0.9697
+     },
+     "side": {
+      "n": 38,
+      "goal_rate": 0.8947
+     },
+     "behind": {
+      "n": 29,
+      "goal_rate": 0.8966
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 18,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 21,
+      "goal_rate": 0.9048
+     },
+     "3-4": {
+      "n": 20,
+      "goal_rate": 0.95
+     },
+     ">4": {
+      "n": 41,
+      "goal_rate": 0.878
+     }
+    },
+    "stop_ignored": 125,
+    "wrong_stop": 2,
+    "collision_side_share": 0.1429
+   },
+   "vs": {
+    "pairs": 100,
+    "wins": 1,
+    "losses": 6,
+    "ties": 93,
+    "sign_p": 0.125,
+    "mean_progress_diff": -0.015845234730063752,
+    "wilcoxon_p": 0.0349055206006901,
+    "collisions_a": 7,
+    "collisions_b": 3
+   },
+   "student_only": true
+  }
+ ],
+ "expert_screen": {
+  "n": 100,
+  "goal": {
+   "count": 100,
+   "rate": 1.0,
+   "ci_low": 0.963,
+   "ci_high": 1.0
+  },
+  "collision": {
+   "count": 0,
+   "rate": 0.0,
+   "ci_low": 0.0,
+   "ci_high": 0.037
+  },
+  "timeout": {
+   "count": 0,
+   "rate": 0.0,
+   "ci_low": 0.0,
+   "ci_high": 0.037
+  },
+  "stuck": {
+   "count": 0,
+   "rate": 0.0,
+   "ci_low": 0.0,
+   "ci_high": 0.037
+  },
+  "fell": {
+   "count": 0,
+   "rate": 0.0,
+   "ci_low": 0.0,
+   "ci_high": 0.037
+  },
+  "mean_progress": 0.9135,
+  "median_progress": 0.9299,
+  "mean_steps_goal": 31.18,
+  "failures": {
+   "goal": 100
+  },
+  "by_start_side": {
+   "ahead": {
+    "n": 33,
+    "goal_rate": 1.0
+   },
+   "side": {
+    "n": 38,
+    "goal_rate": 1.0
+   },
+   "behind": {
+    "n": 29,
+    "goal_rate": 1.0
+   }
+  },
+  "by_dist_bin": {
+   "<2": {
+    "n": 18,
+    "goal_rate": 1.0
+   },
+   "2-3": {
+    "n": 21,
+    "goal_rate": 1.0
+   },
+   "3-4": {
+    "n": 20,
+    "goal_rate": 1.0
+   },
+   ">4": {
+    "n": 41,
+    "goal_rate": 1.0
+   }
+  },
+  "stop_ignored": 0,
+  "wrong_stop": 0,
+  "collision_side_share": null
+ },
+ "promotion": [
+  {
+   "set": "screen",
+   "id": "expert",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 200,
+     "rate": 1.0,
+     "ci_low": 0.9812,
+     "ci_high": 1.0
+    },
+    "collision": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.9088,
+    "median_progress": 0.9248,
+    "mean_steps_goal": 29.84,
+    "failures": {
+     "goal": 200
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 58,
+      "goal_rate": 1.0
+     },
+     "side": {
+      "n": 77,
+      "goal_rate": 1.0
+     },
+     "behind": {
+      "n": 65,
+      "goal_rate": 1.0
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 43,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 40,
+      "goal_rate": 1.0
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 1.0
+     },
+     ">4": {
+      "n": 74,
+      "goal_rate": 1.0
+     }
+    },
+    "stop_ignored": 0,
+    "wrong_stop": 0,
+    "collision_side_share": null
+   }
+  },
+  {
+   "set": "screen",
+   "id": "v03-reference",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 127,
+     "rate": 0.635,
+     "ci_low": 0.5663,
+     "ci_high": 0.6986
+    },
+    "collision": {
+     "count": 72,
+     "rate": 0.36,
+     "ci_low": 0.2967,
+     "ci_high": 0.4286
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 1,
+     "rate": 0.005,
+     "ci_low": 0.0009,
+     "ci_high": 0.0278
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.6933,
+    "median_progress": 0.8388,
+    "mean_steps_goal": 26.03,
+    "failures": {
+     "goal": 127,
+     "collision_front": 44,
+     "collision_side": 28,
+     "stuck": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 58,
+      "goal_rate": 0.6034
+     },
+     "side": {
+      "n": 77,
+      "goal_rate": 0.7273
+     },
+     "behind": {
+      "n": 65,
+      "goal_rate": 0.5538
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 43,
+      "goal_rate": 0.907
+     },
+     "2-3": {
+      "n": 40,
+      "goal_rate": 0.675
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 0.6279
+     },
+     ">4": {
+      "n": 74,
+      "goal_rate": 0.4595
+     }
+    },
+    "stop_ignored": 692,
+    "wrong_stop": 1,
+    "collision_side_share": 0.3889
+   },
+   "student_only": true
+  },
+  {
+   "set": "screen",
+   "id": "v11-lidar",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 181,
+     "rate": 0.905,
+     "ci_low": 0.8564,
+     "ci_high": 0.9383
+    },
+    "collision": {
+     "count": 18,
+     "rate": 0.09,
+     "ci_low": 0.0577,
+     "ci_high": 0.1378
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 1,
+     "rate": 0.005,
+     "ci_low": 0.0009,
+     "ci_high": 0.0278
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.8555,
+    "median_progress": 0.919,
+    "mean_steps_goal": 28.56,
+    "failures": {
+     "goal": 181,
+     "collision_front": 11,
+     "collision_side": 7,
+     "never_turned": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 58,
+      "goal_rate": 0.8793
+     },
+     "side": {
+      "n": 77,
+      "goal_rate": 0.9481
+     },
+     "behind": {
+      "n": 65,
+      "goal_rate": 0.8769
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 43,
+      "goal_rate": 0.9767
+     },
+     "2-3": {
+      "n": 40,
+      "goal_rate": 0.9
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 0.9302
+     },
+     ">4": {
+      "n": 74,
+      "goal_rate": 0.8514
+     }
+    },
+    "stop_ignored": 403,
+    "wrong_stop": 1,
+    "collision_side_share": 0.3889
+   },
+   "student_only": true
+  },
+  {
+   "set": "screen",
+   "id": "v15-lidar-allrows",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 189,
+     "rate": 0.945,
+     "ci_low": 0.9042,
+     "ci_high": 0.969
+    },
+    "collision": {
+     "count": 11,
+     "rate": 0.055,
+     "ci_low": 0.031,
+     "ci_high": 0.0958
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.8767,
+    "median_progress": 0.9208,
+    "mean_steps_goal": 29.42,
+    "failures": {
+     "goal": 189,
+     "collision_front": 11
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 58,
+      "goal_rate": 0.9138
+     },
+     "side": {
+      "n": 77,
+      "goal_rate": 0.974
+     },
+     "behind": {
+      "n": 65,
+      "goal_rate": 0.9385
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 43,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 40,
+      "goal_rate": 0.9
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 0.9535
+     },
+     ">4": {
+      "n": 74,
+      "goal_rate": 0.9324
+     }
+    },
+    "stop_ignored": 605,
+    "wrong_stop": 0,
+    "collision_side_share": 0.0
+   },
+   "student_only": true
+  },
+  {
+   "set": "screen",
+   "id": "v29-lidarplan",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 197,
+     "rate": 0.985,
+     "ci_low": 0.9568,
+     "ci_high": 0.9949
+    },
+    "collision": {
+     "count": 3,
+     "rate": 0.015,
+     "ci_low": 0.0051,
+     "ci_high": 0.0432
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.9012,
+    "median_progress": 0.9231,
+    "mean_steps_goal": 30.02,
+    "failures": {
+     "goal": 197,
+     "collision_front": 2,
+     "collision_side": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 58,
+      "goal_rate": 1.0
+     },
+     "side": {
+      "n": 77,
+      "goal_rate": 0.987
+     },
+     "behind": {
+      "n": 65,
+      "goal_rate": 0.9692
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 43,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 40,
+      "goal_rate": 0.95
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 1.0
+     },
+     ">4": {
+      "n": 74,
+      "goal_rate": 0.9865
+     }
+    },
+    "stop_ignored": 428,
+    "wrong_stop": 0,
+    "collision_side_share": 0.3333
+   },
+   "student_only": true
+  },
+  {
+   "set": "confirm",
+   "id": "expert",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 200,
+     "rate": 1.0,
+     "ci_low": 0.9812,
+     "ci_high": 1.0
+    },
+    "collision": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.918,
+    "median_progress": 0.9331,
+    "mean_steps_goal": 32.35,
+    "failures": {
+     "goal": 200
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 62,
+      "goal_rate": 1.0
+     },
+     "side": {
+      "n": 80,
+      "goal_rate": 1.0
+     },
+     "behind": {
+      "n": 58,
+      "goal_rate": 1.0
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 29,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 39,
+      "goal_rate": 1.0
+     },
+     "3-4": {
+      "n": 40,
+      "goal_rate": 1.0
+     },
+     ">4": {
+      "n": 92,
+      "goal_rate": 1.0
+     }
+    },
+    "stop_ignored": 0,
+    "wrong_stop": 0,
+    "collision_side_share": null
+   }
+  },
+  {
+   "set": "confirm",
+   "id": "v29-lidarplan-confirm",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 194,
+     "rate": 0.97,
+     "ci_low": 0.9361,
+     "ci_high": 0.9862
+    },
+    "collision": {
+     "count": 6,
+     "rate": 0.03,
+     "ci_low": 0.0138,
+     "ci_high": 0.0639
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.8973,
+    "median_progress": 0.9325,
+    "mean_steps_goal": 32.3,
+    "failures": {
+     "goal": 194,
+     "collision_front": 4,
+     "collision_side": 2
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 62,
+      "goal_rate": 0.9677
+     },
+     "side": {
+      "n": 80,
+      "goal_rate": 0.975
+     },
+     "behind": {
+      "n": 58,
+      "goal_rate": 0.9655
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 29,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 39,
+      "goal_rate": 0.9744
+     },
+     "3-4": {
+      "n": 40,
+      "goal_rate": 0.925
+     },
+     ">4": {
+      "n": 92,
+      "goal_rate": 0.9783
+     }
+    },
+    "stop_ignored": 433,
+    "wrong_stop": 0,
+    "collision_side_share": 0.3333
+   },
+   "student_only": true
+  },
+  {
+   "set": "final",
+   "id": "expert",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 199,
+     "rate": 0.995,
+     "ci_low": 0.9722,
+     "ci_high": 0.9991
+    },
+    "collision": {
+     "count": 1,
+     "rate": 0.005,
+     "ci_low": 0.0009,
+     "ci_high": 0.0278
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.9097,
+    "median_progress": 0.9309,
+    "mean_steps_goal": 31.05,
+    "failures": {
+     "goal": 199,
+     "collision_side": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 47,
+      "goal_rate": 0.9787
+     },
+     "side": {
+      "n": 91,
+      "goal_rate": 1.0
+     },
+     "behind": {
+      "n": 62,
+      "goal_rate": 1.0
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 42,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 33,
+      "goal_rate": 1.0
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 1.0
+     },
+     ">4": {
+      "n": 82,
+      "goal_rate": 0.9878
+     }
+    },
+    "stop_ignored": 0,
+    "wrong_stop": 0,
+    "collision_side_share": 1.0
+   }
+  },
+  {
+   "set": "final",
+   "id": "v29-lidarplan-final",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 196,
+     "rate": 0.98,
+     "ci_low": 0.9497,
+     "ci_high": 0.9922
+    },
+    "collision": {
+     "count": 4,
+     "rate": 0.02,
+     "ci_low": 0.0078,
+     "ci_high": 0.0503
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.8991,
+    "median_progress": 0.9296,
+    "mean_steps_goal": 31.19,
+    "failures": {
+     "goal": 196,
+     "collision_front": 3,
+     "collision_side": 1
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 47,
+      "goal_rate": 0.9574
+     },
+     "side": {
+      "n": 91,
+      "goal_rate": 0.989
+     },
+     "behind": {
+      "n": 62,
+      "goal_rate": 0.9839
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 42,
+      "goal_rate": 0.9762
+     },
+     "2-3": {
+      "n": 33,
+      "goal_rate": 1.0
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 0.9767
+     },
+     ">4": {
+      "n": 82,
+      "goal_rate": 0.9756
+     }
+    },
+    "stop_ignored": 424,
+    "wrong_stop": 0,
+    "collision_side_share": 0.25
+   },
+   "student_only": true
+  },
+  {
+   "set": "final_b",
+   "id": "expert",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 200,
+     "rate": 1.0,
+     "ci_low": 0.9812,
+     "ci_high": 1.0
+    },
+    "collision": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.9173,
+    "median_progress": 0.9301,
+    "mean_steps_goal": 31.93,
+    "failures": {
+     "goal": 200
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 47,
+      "goal_rate": 1.0
+     },
+     "side": {
+      "n": 85,
+      "goal_rate": 1.0
+     },
+     "behind": {
+      "n": 68,
+      "goal_rate": 1.0
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 29,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 46,
+      "goal_rate": 1.0
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 1.0
+     },
+     ">4": {
+      "n": 82,
+      "goal_rate": 1.0
+     }
+    },
+    "stop_ignored": 0,
+    "wrong_stop": 0,
+    "collision_side_share": null
+   }
+  },
+  {
+   "set": "final_b",
+   "id": "v29-lidarplan-final_b",
+   "summary": {
+    "n": 200,
+    "goal": {
+     "count": 195,
+     "rate": 0.975,
+     "ci_low": 0.9428,
+     "ci_high": 0.9893
+    },
+    "collision": {
+     "count": 5,
+     "rate": 0.025,
+     "ci_low": 0.0107,
+     "ci_high": 0.0572
+    },
+    "timeout": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "stuck": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "fell": {
+     "count": 0,
+     "rate": 0.0,
+     "ci_low": 0.0,
+     "ci_high": 0.0188
+    },
+    "mean_progress": 0.9029,
+    "median_progress": 0.9275,
+    "mean_steps_goal": 31.6,
+    "failures": {
+     "goal": 195,
+     "collision_side": 3,
+     "collision_front": 2
+    },
+    "by_start_side": {
+     "ahead": {
+      "n": 47,
+      "goal_rate": 0.9787
+     },
+     "side": {
+      "n": 85,
+      "goal_rate": 0.9647
+     },
+     "behind": {
+      "n": 68,
+      "goal_rate": 0.9853
+     }
+    },
+    "by_dist_bin": {
+     "<2": {
+      "n": 29,
+      "goal_rate": 1.0
+     },
+     "2-3": {
+      "n": 46,
+      "goal_rate": 1.0
+     },
+     "3-4": {
+      "n": 43,
+      "goal_rate": 1.0
+     },
+     ">4": {
+      "n": 82,
+      "goal_rate": 0.939
+     }
+    },
+    "stop_ignored": 448,
+    "wrong_stop": 0,
+    "collision_side_share": 0.6
+   },
+   "student_only": true
+  }
+ ],
+ "dagger_rounds": [
+  {
+   "round": 1,
+   "student": "v11-lidar",
+   "beta": 0.5,
+   "episodes": 300,
+   "rows": 9498,
+   "student_rows": 4776,
+   "outcomes": {
+    "goal": 296,
+    "collision": 4
+   }
+  },
+  {
+   "round": 2,
+   "student": "v18-lidar-dagger1",
+   "beta": 0.25,
+   "episodes": 300,
+   "rows": 9562,
+   "student_rows": 7095,
+   "outcomes": {
+    "goal": 285,
+    "collision": 15
+   }
+  },
+  {
+   "round": 3,
+   "student": "v22c-collector",
+   "beta": 0.0,
+   "episodes": 300,
+   "rows": 9713,
+   "student_rows": 9713,
+   "outcomes": {
+    "goal": 288,
+    "collision": 8,
+    "stuck": 4
+   }
+  },
+  {
+   "round": 4,
+   "student": "v26c-collector",
+   "beta": 0.0,
+   "episodes": 300,
+   "rows": 10175,
+   "student_rows": 10175,
+   "outcomes": {
+    "goal": 275,
+    "collision": 17,
+    "stuck": 8
+   }
+  }
+ ]
+}

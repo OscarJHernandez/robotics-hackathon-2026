@@ -43,6 +43,11 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): 8 of v29's 9 final-test collisions are into the table's legs (cylinders 5 cm across):
+  the simulated lidar's 36 rays are 10 degrees apart, 17 cm at 1 m, so a leg falls between rays until it is close and is
+  missing from the robot's lidar map. Thin obstacles need a denser lidar; see [dagger-report.md](dagger-report.md).
+- 2026-11-22 (Oscar's agent): Adding every row to v29's context (81k, mostly student-driven DAgger rows) made it
+  worse (97% -> 92% on screening). A large mix of student-driven rows dilutes the clean expert context.
 - 2026-11-22 (Oscar's agent): DAgger v2 in the arena: the best student (98% goals, 2% collisions on 200 fresh layouts,
   two start seeds) is TabPFN 3.5 on all round 0 rows with a 360 degree lidar and the robot's own plan on its lidar map
   (`nav/dagger/lidarmap.py`). The camera-only students plateaued at 58-70%; see docs/navigation.md "DAgger v2".
@@ -266,6 +271,8 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-22 (Oscar's agent): Try a denser simulated lidar (for example 360 rays at 1 degree) aimed at the table-leg
+  crashes: a new round 0 (about 15 min) and one refit of v29.
 - 2026-11-22 (Oscar's agent): Check the simulated lidar against the real JetHexa lidar (rays, range, noise) and
   test `lidarmap.py` with real odometry drift before trusting the 98% on the robot.
 - 2026-11-22 (Oscar's agent): The `stage analyse` printout says "expert on screen" also for the confirmation and final
