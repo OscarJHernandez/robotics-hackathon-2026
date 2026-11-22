@@ -114,6 +114,23 @@ class ApartmentTest(unittest.TestCase):
         self.assertEqual((s["journal"][0]["zone"], s["journal"][0]["source"]), ("kitchen", "search"))
         self.assertAlmostEqual(s["belief"]["kitchen"], 1.0)
 
+    def test_random_puts_her_in_any_zone_at_one_of_its_spots(self):
+        zones, spots = set(), set()
+        for _ in range(40):
+            a = make()
+            a.start("random", miss_rate=0.0)
+            finish(a)
+            s = a.state()["search"]
+            self.assertEqual(s["status"], "found")
+            zones.add(s["truth"])
+            spots.add(tuple(s["person"]))
+            zone = apartment.F.zone(a.flat, s["truth"])
+            self.assertIn(tuple(s["person"]), {(sp["person_x"], sp["person_y"]) for sp in zone["spots"]})
+        self.assertGreaterEqual(len(zones), 4)  # not always the same place
+        self.assertGreater(len(spots), len(zones))  # the living room has two spots
+        with self.assertRaises(ValueError):
+            make().start("garage")
+
     def test_nobody_home_ends_the_search(self):
         a = make()
         a.start("out")

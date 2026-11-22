@@ -231,6 +231,8 @@ export interface ApartmentState {
   search: {
     status: "idle" | "starting" | "walking" | "looking" | "found" | "nobody_home" | "gave_up" | "stopped" | "failed";
     running: boolean; goal: ZoneName | null; truth: ZoneClass | null; miss_rate: number;
+    /** Where she lies (x, y), when she is home. */
+    person?: [number, number] | null;
     path: [number, number][]; metres: number; steps: SearchStep[];
   };
   robot: { x: number; y: number; yaw_deg?: number };

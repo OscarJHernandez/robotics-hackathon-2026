@@ -43,7 +43,8 @@ LOOK = 0.9  # seconds a look takes
 TICK = 0.1  # seconds between marker positions
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 NAMES = dict(F.LABELS, out="Out")
-WHERE = ("routine",) + F.CLASSES  # where she really is, for the mock: drawn from her routine, a zone, or out
+# Where she really is, for the simulation: drawn from her routine, a random zone (and spot in it), a zone, or out.
+WHERE = ("routine", "random") + F.CLASSES
 
 
 def population():
@@ -233,16 +234,18 @@ class Apartment:
             start = self.stages()["last_heard"]
             truth = self._truth(where, weekday, minute)
             self.search = S.Search(self.flat, start, miss)
+            person = None  # where she lies: the zone's main spot, or any of its spots for "random"
+            if truth != "out":
+                spots = F.zone(self.flat, truth)["spots"]
+                spot = spots[int(np.random.default_rng().integers(len(spots)))] if where == "random" else spots[0]
+                person = (spot["person_x"], spot["person_y"], spot["heading_deg"] + 90.0)
             if self._robot is None:
                 self.robot = dict(self.flat["dock"])
             else:  # Margarete lies where she really is; the robot starts from where it stands
-                if truth == "out":
-                    self._robot.person()
-                else:
-                    z = F.zone(self.flat, truth)
-                    self._robot.person(z["person_x"], z["person_y"], z["heading_deg"] + 90.0)
+                self._robot.person(*person) if person else self._robot.person()
                 self.robot = self._pose()
             self.run = {"status": "starting", "goal": None, "truth": truth, "miss_rate": miss, "walked": 0.0,
+                        "person": list(person[:2]) if person else None,
                         "path": [[self.robot["x"], self.robot["y"]]]}
             self._paint(start)
             self._stop.clear()
@@ -255,6 +258,8 @@ class Apartment:
 
     def _truth(self, where, weekday, minute):
         """Where she really is, for the mock look."""
+        if where == "random":  # anywhere in the flat, every zone equally likely
+            return str(np.random.default_rng().choice(F.ZONE_NAMES))
         if where != "routine":
             return where
         slot = R.slot_of(minute)
@@ -450,7 +455,8 @@ class Apartment:
                 "last_heard": ({"zone": last[0]["zone"], "minutes": last[1]} if last else None),
                 "stages": stages, "belief": belief, "plan": S.plan(flat, stages["last_heard"])[0],
                 "search": {"status": self.run["status"], "running": running, "goal": self.run["goal"],
-                           "truth": self.run["truth"], "miss_rate": self.run["miss_rate"], "path": self.run["path"],
+                           "truth": self.run["truth"], "person": self.run.get("person"),
+                           "miss_rate": self.run["miss_rate"], "path": self.run["path"],
                            "metres": self.run.get("walked", 0.0),
                            "steps": [{"zone": s["zone"], "p": s["p_before"], "seen": s["seen"], "metres": s["metres"]}
                                      for s in (search.steps if search else [])]},

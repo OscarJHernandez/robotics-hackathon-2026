@@ -2,6 +2,7 @@
 // (proposal, walk, look, update), the journal viewers can add to, and the log. Drawn from GET /api/apartment
 // (useApartment), so every viewer sees the same thing. The 3D view behind shows the same flat in MuJoCo.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Clock, Dices, Eye, EyeOff, Footprints, Plus, ScanEye, Search, Square, Trash2, X } from "lucide-react";
 import {
   apartmentAddEntry, apartmentClock, apartmentRemoveEntry, apartmentReset, apartmentSearch, apartmentStop,
@@ -20,7 +21,7 @@ const STAGES: { id: Stage | "live"; label: string; hint: string }[] = [
 const pct = (p: number) => `${Math.round(100 * p)}%`;
 const ago = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, "0")} min` : `${Math.round(m)} min`);
 
-function statusText(a: ApartmentState): { text: string; tone: "idle" | "busy" | "good" | "warn" } {
+export function statusText(a: ApartmentState): { text: string; tone: "idle" | "busy" | "good" | "warn" } {
   const s = a.search;
   const goal = s.goal ? ZONE_LABEL[s.goal].toLowerCase() : "";
   switch (s.status) {
@@ -68,9 +69,9 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
         </div>
         <div role="status" className={`apt-strip apt-strip-${status.tone} mt-3`}>
           {status.tone === "busy" ? <span className="live-dot" /> : status.tone === "good" ? <Check className="h-4 w-4" /> : null}
-          <span className="font-semibold">{status.text}</span>
+          <span className="min-w-0 truncate font-semibold">{status.text}</span>
           {a.search.steps.length > 0 && (
-            <span className="ml-auto font-mono text-[11.5px] tabular-nums opacity-80">
+            <span className="ml-auto shrink-0 whitespace-nowrap font-mono text-[11.5px] tabular-nums opacity-80">
               {a.search.steps.length} look{a.search.steps.length === 1 ? "" : "s"} · {a.search.metres.toFixed(1)} m
             </span>
           )}
@@ -93,21 +94,22 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
               <button className="apt-link ml-auto" disabled={a.search.running} onClick={() => void run(apartmentClock(null, null))}>Use the time now</button>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             {a.search.running ? (
-              <button onClick={() => void run(apartmentStop())} className="knock-btn knock-secondary h-11 flex-1 gap-2">
+              <button onClick={() => void run(apartmentStop())} className="knock-btn knock-secondary h-11 min-w-[170px] flex-1 gap-2 whitespace-nowrap">
                 <Square className="h-4 w-4" />Stop the search
               </button>
             ) : (
-              <button onClick={() => void run(apartmentSearch(where))} className="knock-btn knock-primary h-11 flex-1 gap-2">
+              <button onClick={() => void run(apartmentSearch(where))} className="knock-btn knock-primary h-11 min-w-[170px] flex-1 gap-2 whitespace-nowrap">
                 <Search className="h-4 w-4" />Find {a.name}
               </button>
             )}
-            <label className="flex flex-col gap-0.5 text-[10px] uppercase tracking-wider text-video/45">
+            <label className="flex min-w-[170px] flex-1 flex-col gap-0.5 text-[10px] uppercase tracking-wider text-video/45">
               She really is
-              <select aria-label="Where she really is, for the simulation" className="apt-input" value={where} disabled={a.search.running}
+              <select aria-label="Where she really is, for the simulation" className="apt-input w-full" value={where} disabled={a.search.running}
                 onChange={(e) => setWhere(e.target.value)}>
                 <option value="routine">where her routine says</option>
+                <option value="random">somewhere random</option>
                 {ZONE_CLASSES.map((z) => <option key={z} value={z}>{z === "out" ? "out of the flat" : `in the ${ZONE_LABEL[z].toLowerCase()}`}</option>)}
               </select>
             </label>
@@ -171,7 +173,7 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
 }
 
 /** The flat from above: zones shaded by the belief, obstacles, door, dock, the robot, its path and the looks. */
-function Plan({ a, belief, showHer }: { a: ApartmentState; belief: Belief; showHer: boolean }) {
+export function Plan({ a, belief, showHer }: { a: ApartmentState; belief: Belief; showHer: boolean }) {
   const { half, zones, obstacles, door, dock } = a.flat;
   const pad = 0.12;
   const looks = useMemo(() => {
@@ -270,7 +272,7 @@ function Plan({ a, belief, showHer }: { a: ApartmentState; belief: Belief; showH
       })}
       {/* Margarete, when shown */}
       {showHer && truth && (
-        <g transform={`translate(${truth.person_x} ${-truth.person_y})`}>
+        <g transform={`translate(${a.search.person?.[0] ?? truth.person_x} ${-(a.search.person?.[1] ?? truth.person_y)})`}>
           <circle r={0.2} fill="oklch(0.68 0.19 25)" stroke="white" strokeWidth={0.035} />
           <text textAnchor="middle" y={0.075} fontSize={0.2} fontWeight={700} fill="white">{a.name[0]}</text>
           <title>{`${a.name} is here`}</title>
@@ -301,7 +303,7 @@ function Legend() {
 }
 
 /** The search so far, one chip per look: where the robot looked, how likely that zone was, what it saw. */
-function Looks({ a }: { a: ApartmentState }) {
+export function Looks({ a }: { a: ApartmentState }) {
   const s = a.search;
   if (s.steps.length === 0 && !s.running) return null;
   return (
@@ -419,6 +421,72 @@ function Log({ a }: { a: ApartmentState }) {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+/**
+ * The apartment on a phone: who and where, the status, the floor plan with the belief, the looks so far, and
+ * Find Margarete. "Details" opens the whole panel (time, belief steps, journal, log) as a full-screen sheet.
+ */
+export function ApartmentPhoneCard({ apartment: a, onError, onChanged }: {
+  apartment: ApartmentState; onError: (m: string) => void; onChanged: () => void;
+}) {
+  const [sheet, setSheet] = useState(false);
+  const status = statusText(a);
+  const found = a.search.status === "found";
+  const run = async (p: Promise<{ ok: boolean; error?: string }>) => {
+    const r = await p;
+    if (!r.ok && r.error) onError(r.error);
+    onChanged();
+  };
+  return (
+    <section aria-label={`Where is ${a.name}?`} className="knock-card rise-in flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <div aria-hidden className="knock-avatar">{a.name[0]}</div>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-lg font-semibold leading-tight">Where is {a.name}?</span>
+          <span className="truncate font-mono text-xs text-video/70">
+            {a.last_heard ? `Last heard: ${ZONE_LABEL[a.last_heard.zone].toLowerCase()} · ${ago(a.last_heard.minutes)} ago` : "Not heard yet"}
+          </span>
+        </div>
+        <span className="shrink-0 font-mono text-[11px] text-video/55">{DAYS[a.now.weekday]} {a.now.time}</span>
+      </div>
+      <div role="status" className={`apt-strip apt-strip-${status.tone}`}>
+        {status.tone === "busy" ? <span className="live-dot" /> : status.tone === "good" ? <Check className="h-4 w-4" /> : null}
+        <span className="min-w-0 truncate font-semibold">{status.text}</span>
+        {a.search.steps.length > 0 && (
+          <span className="ml-auto shrink-0 whitespace-nowrap font-mono text-[11.5px] tabular-nums opacity-80">
+            {a.search.steps.length} look{a.search.steps.length === 1 ? "" : "s"} · {a.search.metres.toFixed(1)} m
+          </span>
+        )}
+      </div>
+      <Plan a={a} belief={a.belief} showHer={found} />
+      <Looks a={a} />
+      <div className={`grid gap-2 ${a.search.running ? "grid-cols-[1fr_auto]" : "grid-cols-[1fr_auto_auto]"}`}>
+        {a.search.running ? (
+          <button type="button" onClick={() => void run(apartmentStop())} className="knock-btn knock-secondary h-12 gap-2">
+            <Square className="h-4 w-4" />Stop the search
+          </button>
+        ) : (
+          <>
+            <button type="button" onClick={() => void run(apartmentSearch("routine"))} className="knock-btn knock-primary h-12 gap-2">
+              <Search className="h-[18px] w-[18px]" />Find {a.name}
+            </button>
+            <button type="button" onClick={() => void run(apartmentSearch("random"))} className="knock-btn knock-secondary h-12 w-12"
+              aria-label={`Put ${a.name} somewhere random and find her`} title="Put her somewhere random, then search">
+              <Dices className="h-5 w-5" />
+            </button>
+          </>
+        )}
+        <button type="button" onClick={() => setSheet(true)} className="knock-btn knock-secondary h-12 px-4">Details</button>
+      </div>
+      {/* In the page body, not in the card: the card's entrance animation would trap a fixed element inside it. */}
+      {sheet && createPortal(
+        <div role="dialog" aria-modal="true" aria-label="Apartment details"
+          className="fixed inset-0 z-50 bg-[var(--stage)] p-2 pt-[max(8px,env(safe-area-inset-top))] pb-[max(8px,env(safe-area-inset-bottom))]">
+          <ApartmentPanel apartment={a} onClose={() => setSheet(false)} onError={onError} onChanged={onChanged} />
+        </div>, document.body)}
     </section>
   );
 }

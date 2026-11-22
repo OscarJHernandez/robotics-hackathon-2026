@@ -37,10 +37,11 @@ export function App() {
   const term = useMetacon(conn, health?.llm ?? false);
   const phone = useIsPhone();
   // The apartment: zones, obstacles, journal, search and log, in a panel on the right (desktop).
-  const hasApartment = live && !!health?.apartment && !phone;
+  // On a phone it is a card under the camera, with the whole panel as a full-screen sheet.
+  const hasApartment = live && !!health?.apartment;
   const [aptOpen, setAptOpen] = useState(true);
-  const { apartment, refresh: refreshApartment } = useApartment(hasApartment && aptOpen);
-  const apt = hasApartment && aptOpen && apartment ? apartment : null;
+  const { apartment, refresh: refreshApartment } = useApartment(hasApartment && (aptOpen || phone));
+  const apt = hasApartment && !phone && aptOpen && apartment ? apartment : null;
   useEffect(() => { if (health?.scene === "apartment") setMain("orbit"); }, [health?.scene]);
 
   // Voice: hold to talk, the reply spoken in the robot's voice, and everyone else's calls shown live.
@@ -98,6 +99,7 @@ export function App() {
     return (
       <>
         <PhoneApp conn={conn} views={views} state={state} lines={term.lines} busy={term.busy} chatOff={term.chatOff} onClear={term.clear}
+          apartment={hasApartment ? apartment : null} onApartmentChanged={refreshApartment} onError={(m) => toast.error(m)}
           voice={voice} other={other} knock={knock} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)} />
         <Toaster position="top-center" />
       </>

@@ -62,8 +62,13 @@ layout and resident. The home look and Margarete are in `sim/apartment_decor.xml
 includes: `arena.xml`, the vision data and the DAgger scenes do not change. The JetHexa meshes must be in
 `sim/meshes/` (`just meshes`), else the robot is drawn with simple shapes.
 
-Not done yet: the phone page still shows the old Knock card with its own zones (`app/knock.py`); the Apartment
-panel is desktop only.
+**Where she really is** can be her routine, a zone, out, or **somewhere random** (a random zone and a random spot in
+it; the dice button on the phone).
+
+**On a phone** the apartment is a card under the camera: status, the floor plan with the belief, a chip per look,
+Find Margarete, the dice, and **Details**, which opens the whole panel (time, belief steps, journal, log) as a
+full-screen sheet. It replaces the old Knock card while the server runs the apartment scene; the Knock check-in
+(`app/knock.py`, with its own zones and the call-out) is still what `--scene floor` shows.
 
 ## The terminal
 

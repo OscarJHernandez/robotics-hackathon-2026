@@ -40,7 +40,8 @@ The apartment (app/apartment.py): the flat's zones and obstacles, the journal, t
     POST /api/apartment/journal         {"zone": "kitchen", "time": "09:30"?, "days_ago": 0?}  add an entry
     POST /api/apartment/journal/remove  {"id": 12}
     POST /api/apartment/clock           {"weekday": 0-6?, "time": "10:35"?}  the check-in time; {} = the real time
-    POST /api/apartment/search          {"where": "routine" | zone | "out", "miss_rate": 0.2?}  start, or 409
+    POST /api/apartment/search          {"where": "routine" | "random" | zone | "out", "miss_rate": 0.2?}  start, or 409
+                                        ("random": she is in a random zone, at a random spot in it)
     POST /api/apartment/stop            {}
     POST /api/apartment/reset           {"seed": 3?}  a new random flat and resident
 
