@@ -95,7 +95,7 @@ def analyse(ids, reference, closed_count):
         summary = summarize(table)
         offline = {}
         for path in sorted(folder.glob("offline_*.parquet")):
-            offline[path.stem.replace("offline_", "")] = offline_report(pd.read_parquet(path))
+            offline[path.stem[len("offline_"):]] = offline_report(pd.read_parquet(path))
         jobs = [json.loads(p.read_text()) for p in sorted(folder.glob("job-*.json"))]
         fit = [r.get("info", {}) for j in jobs for r in j.get("results", [])]
         cost = {"fit_s": max([f.get("fit_seconds", 0) for f in fit] or [0]),
