@@ -729,7 +729,7 @@ class Apartment:
             with self._lock:
                 self.run["fallbacks"] = self.run.get("fallbacks", 0) + 1
                 zone = self.run.get("goal")
-                self._say("Fallback: the student {}; the mapped route (A* + {}) walks the rest of the way".format(
+                self._say("Fallback: {}; the mapped route (A* + {}) walks the rest of the way".format(
                     info.get("reason", "handed over"), info.get("driver", "a-to-b")), "fallback")
             self._emit("fallback", zone=zone, reason=str(info.get("reason", "")))
         if contacts > seen["contacts"]:

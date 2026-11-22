@@ -109,7 +109,9 @@ def template(kind, facts):
         return "The search is stopped."
     if kind == "fallback":
         where = " to the {}".format(room(facts["zone"])) if facts.get("zone") in LABELS else ""
-        return "Something is in my way, so I'm taking the mapped route{} instead.".format(where)
+        if "stuck" in str(facts.get("reason", "")):
+            return "Something is in my way, so I'm taking the mapped route{} instead.".format(where)
+        return "I'm taking the mapped route{} for the rest of this walk.".format(where)
     if kind == "failed":
         reason = str(facts.get("reason") or "something went wrong").rstrip(".")
         return "I had to stop the search: {}.".format(reason)

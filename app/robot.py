@@ -601,12 +601,12 @@ class LiveRobot:
                     cycle_at = gait
                     if mode == "goto" and walker == "student":  # the student: own sensors, own map, the end point
                         if progress.update(math.hypot(goal[0] - x, goal[1] - y)):
-                            fall_back("stuck: not {:.1f} m closer in {} cycles".format(progress.gain, progress.cycles), x, y)
+                            fall_back("the student was stuck (not {:.1f} m closer in {} cycles)".format(progress.gain, progress.cycles), x, y)
                         else:
                             try:
                                 stride, turn = self._student.act(sim, goal)
                             except Exception as error:  # noqa: BLE001 - API down, no credits: A* + a-to-b
-                                fall_back("student unavailable: {}".format(error), x, y)
+                                fall_back("the student is unavailable ({})".format(error), x, y)
                             next_tick = time.monotonic()  # the physics waited while the student decided
                     leg = legs[0] if legs else goal
                     if mode == "goto" and walker == "student":

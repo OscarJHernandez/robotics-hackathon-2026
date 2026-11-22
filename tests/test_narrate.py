@@ -76,6 +76,11 @@ class TemplateTest(unittest.TestCase):
         for kind in narrate.KINDS:
             self.assertEqual(narrate.template(kind, FACTS[kind]), EXPECTED[kind], kind)
 
+    def test_a_fallback_only_blames_an_obstacle_when_the_student_was_stuck(self):
+        line = narrate.template("fallback", {"zone": "kitchen",
+                                             "reason": "the student is unavailable (TabPFN API budget used up)"})
+        self.assertEqual(line, "I'm taking the mapped route to the kitchen for the rest of this walk.")
+
     def test_later_heading_and_a_miss_with_no_next_zone(self):
         self.assertEqual(narrate.template("heading", {"zone": "dining_area", "p": 0.25, "look": 3}),
                          "I'm heading to the dining area, 25% likely.")
