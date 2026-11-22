@@ -656,7 +656,8 @@ class LiveRobot:
                         else:
                             hold = (lambda: self._hold(sim, step, mode, goal)) if self._realtime else None
                             try:
-                                stride, turn = self._student.act(sim, goal, wait=hold)
+                                stride, turn = self._student.act(sim, goal, wait=hold,
+                                                                 interval=CONTROL_DT * min(VIEWS.values()))
                             except Exception as error:  # noqa: BLE001 - API down, no credits: A* + a-to-b
                                 fall_back("the student is unavailable ({})".format(error), x, y)
                             next_tick = self._clock()  # the physics waited while the student decided
@@ -734,10 +735,10 @@ class LiveRobot:
         return round((sim_time - paced[0][1]) / wall, 2)
 
     def _hold(self, sim, step, mode, goal):
-        """While the physics waits for a decision: render every watched view of the paused scene, then sleep one
-        picture interval, so the streams keep their rate (the outside cameras keep easing towards the robot)."""
+        """While the physics waits for a decision: render every watched view of the paused scene, so the streams keep
+        their rate (the outside cameras keep easing towards the robot). Student.decide() calls it once per picture
+        interval and stops waiting as soon as the decision is made."""
         self._publish(sim, step, mode, goal, every=True)
-        self._sleep(CONTROL_DT * min(VIEWS.values()))
 
     def _publish(self, sim, step, mode, goal, every=False):
         """Render the watched views that are due at this step (all of them with `every`) and publish the state."""

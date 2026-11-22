@@ -317,9 +317,10 @@ class Student:
         X, _ = self.features.live(base, band, [None])
         return X, obs
 
-    def decide(self, X, wait=None):
+    def decide(self, X, wait=None, interval=0.08):
         """The policy's command for the row X. With `wait`, predict() runs on a helper thread and `wait()` is called
-        (on this thread) until it returns, so the caller can keep rendering; errors are raised here as usual."""
+        (on this thread) every `interval` seconds until it returns, so the caller can keep rendering; the result is
+        taken as soon as it is there. Errors are raised here as usual."""
         if wait is None:
             return self.policy.act_batch(X)[0]
         out = {}
@@ -334,20 +335,20 @@ class Student:
         worker.start()
         while worker.is_alive():
             wait()
-            worker.join(0)
+            worker.join(interval)  # returns early when the decision is made
         if "error" in out:
             raise out["error"]
         return out["cmd"]
 
-    def act(self, sim, goal, wait=None):
+    def act(self, sim, goal, wait=None, interval=0.08):
         """(stride, turn) for the next gait cycle. Raises when the API fails or the budget is used up (the caller
-        then hands the walk to the a-to-b driver). `wait`: called repeatedly while predict() runs (see decide());
-        the inputs are read from `sim` before, on the caller's thread."""
+        then hands the walk to the a-to-b driver). `wait`: called every `interval` seconds while predict() runs (see
+        decide()); the inputs are read from `sim` before, on the caller's thread."""
         from nav.dagger.policy import OutOfCredits
         started = time.perf_counter()
         X, _ = self.inputs(sim, goal)
         try:
-            cmd = self.decide(X, wait)
+            cmd = self.decide(X, wait, interval)
         except OutOfCredits as error:
             self.status, self.reason = "no_credits", str(error)
             raise

@@ -175,9 +175,11 @@ class StudentTest(unittest.TestCase):
         student = self.make(Slow((0.1, 0.05)))
         student.start((1.0, 0.0))
         waits = []
-        cmd = student.act(FakeSim(), (1.0, 0.0), wait=lambda: (waits.append(1), time.sleep(0.02)))
+        started = time.monotonic()
+        cmd = student.act(FakeSim(), (1.0, 0.0), wait=lambda: waits.append(1), interval=0.03)
         self.assertEqual(cmd, (0.1, 0.05))
         self.assertGreater(len(waits), 3)  # the caller kept working while the policy decided
+        self.assertLess(time.monotonic() - started, 0.2 + 0.03 + 0.1)  # taken soon after predict() returned
         self.assertEqual(student.info()["decisions"], 1)
 
         class Broken(FakePolicy):
@@ -188,7 +190,7 @@ class StudentTest(unittest.TestCase):
         student = self.make(Broken())
         student.start((1.0, 0.0))
         with self.assertRaisesRegex(RuntimeError, "connection reset"):
-            student.act(FakeSim(), (1.0, 0.0), wait=lambda: time.sleep(0.01))
+            student.act(FakeSim(), (1.0, 0.0), wait=lambda: None, interval=0.01)
 
     def test_the_backend_is_checked_and_reported(self):
         from student import Student
@@ -308,7 +310,7 @@ class LiveStudent:
     def start(self, goal):
         self.starts.append(tuple(goal))
 
-    def act(self, sim, goal, wait=None):
+    def act(self, sim, goal, wait=None, interval=0.08):
         self.acts += 1
         if wait is not None:
             wait()
@@ -384,11 +386,12 @@ class LiveRobotStudentTest(unittest.TestCase):
 
     def test_pictures_keep_coming_while_a_slow_student_decides(self):
         class SlowStudent(LiveStudent):
-            def act(self, sim, goal, wait=None):
+            def act(self, sim, goal, wait=None, interval=0.08):
                 self.acts += 1
                 end = time.monotonic() + 0.6
                 while time.monotonic() < end:  # like the TabPFN API: 0.6 s per decision
                     wait()
+                    time.sleep(interval)
                 return self.command
 
         from robot import LiveRobot
