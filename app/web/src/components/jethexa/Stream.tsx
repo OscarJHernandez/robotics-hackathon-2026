@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { streamUrl, type View } from "@/lib/api";
 
 export const VIEW_LABEL: Record<View, string> = { chase: "Chase", orbit: "Orbit", overhead: "Overhead", eye: "Robot eye" };
@@ -12,8 +12,15 @@ export function Stream({ view, live, className = "" }: { view: View; live: boole
     return () => clearTimeout(t);
   }, [err]);
   useEffect(() => { setErr(false); }, [view]);
+  // A picture stream never ends, and the browser keeps its connection open after the <img> is gone unless its
+  // src is emptied first. Without this, switching views used up the six connections a browser allows per host.
+  const img = useRef<HTMLImageElement | null>(null);
+  const hold = useCallback((el: HTMLImageElement | null) => {
+    if (!el && img.current) img.current.src = "";
+    img.current = el;
+  }, []);
   if (!live || err) return <DemoView view={view} className={className} />;
-  return <img key={`${view}-${key}`} src={`${streamUrl(view)}?r=${key}`} onError={() => setErr(true)}
+  return <img ref={hold} key={`${view}-${key}`} src={`${streamUrl(view)}?r=${key}`} onError={() => setErr(true)}
     alt={VIEW_LABEL[view]} className={`h-full w-full object-cover ${className}`} />;
 }
 

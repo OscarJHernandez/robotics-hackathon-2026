@@ -20,11 +20,50 @@ Spec: [knock-ui.md](knock-ui.md); mockup: [knock-ui/mockup.html](knock-ui/mockup
 | `app/voice.py` | Speech through Oscar's Voice Control service: transcription of the caller and the robot's spoken replies (voice `Glados-portal`) |
 | `app/call.py` | Voice calls: one caller at a time holds the line; every event of the call goes to all viewers |
 | `app/knock.py` | Knock: one check-in at a time that calls Margarete through the robot and walks zone to zone to find her; every viewer sees the same card |
+| `app/apartment.py` | The apartment: flat, journal, belief and the search loop that walks the robot from zone to zone; `GET /api/apartment` is what the Apartment panel draws |
 | `app/server.py` | Standard-library HTTP server: the API under `/api` (documented at the top of the file) and the built front end |
 | `app/web/` | The front end: React, Vite, Tailwind, built with Lovable (project "JetHexa Live Studio"). Full-screen view with switchable cameras (chase, orbit, overhead, robot eye), a chat bar and a red/green terminal. Without the API it runs a demo mode |
 
 The steering is a simple rule (turn toward the target, slow down when facing away), the same as the `baseline`
 policy in `nav/policy.py`, so the app needs no TabPFN and no recorded data.
+
+## The apartment: the search in the live room
+
+`just app` now starts the robot in the **apartment** scene: the 50 m² arena with its furniture, dressed as a home
+(wooden floor, bedding, cushions, rugs, a door), the five zones of `homes/flats.py` tinted on the floor, and
+Margarete as a figure lying where she really is. On a computer the **Apartment** panel (button top right) shows:
+
+| Part | What it shows |
+|---|---|
+| Check-in | The weekday and time of the check-in (the real time, or one you pick), **Find Margarete**, and where she really is (the simulation has to know: by her routine, a zone, or out) |
+| Floor plan | The zones shaded by the belief with their percentage, the furniture as obstacles, door, dock, the robot with its heading, the path walked, and each look as a numbered chip (green when it found her) |
+| Belief | P(zone) and P(out), step by step: population, + habits, + journal, now. Under it her stated habits |
+| Journal | Where she was heard. Add an entry (zone, day, time) and the belief changes at once; entries can be removed |
+| Log | Every step of the loop: proposal, observation, update, found / nobody home |
+
+**Find Margarete** runs the loop of `homes/search.py` (`Search`): the most likely zone → the robot walks to its
+viewing pose and turns to face it → a look → Bayes' update → the next zone, until she is found or `out` reaches
+95%. Finding her adds a journal entry. The look is still a mock (it misses her 20% of the time).
+
+**Who walks.** A goto in the apartment is a route of straight legs around the furniture (`plan_route` in
+`app/robot.py`, the grid and A* of `nav/dagger/expert.py`); a driver walks each leg:
+
+| `--driver` | What it is |
+|---|---|
+| `tabpfn` (default) | The a-to-b controller built with `just controller` (`--controller default`): TabPFN picks stride and turn every gait cycle. It does not see obstacles; the route keeps it clear of them. Needs the `ml` packages and `data/nav/controllers/` |
+| `planner` | The `nav/dagger` expert (path planner + pure pursuit) |
+| `rule` | The old steer-to-bearing rule |
+
+A driver that cannot be loaded falls back to the next one; the panel says which one walks. With TabPFN the physics
+waits about 0.25 s every gait cycle while it predicts, so a walk takes about a quarter longer than real time.
+
+`--scene floor` gives the old empty floor (the panel then moves a marker on the plan only). `--flat N` picks the
+layout and resident. The home look and Margarete are in `sim/apartment_decor.xml`, which only `sim/apartment.xml`
+includes: `arena.xml`, the vision data and the DAgger scenes do not change. The JetHexa meshes must be in
+`sim/meshes/` (`just meshes`), else the robot is drawn with simple shapes.
+
+Not done yet: the phone page still shows the old Knock card with its own zones (`app/knock.py`); the Apartment
+panel is desktop only.
 
 ## The terminal
 
@@ -58,7 +97,7 @@ the page plays the same screens on timers (demo mode).
 
 People can talk to the robot. On a phone the page is a call screen (`PhoneApp.tsx`): the robot's camera on top,
 the conversation in the middle and a big **hold-to-talk** button at the bottom; the keyboard button switches to
-typing. On a computer the mic button sits in the chat bar and the terminal prompt (hold it with the mouse, or hold
+typing, and **New chat** above the conversation empties it and what metacon remembers. On a computer the mic button sits in the chat bar and the terminal prompt (hold it with the mouse, or hold
 Space or Enter on it). Sliding up while holding cancels.
 
 ```

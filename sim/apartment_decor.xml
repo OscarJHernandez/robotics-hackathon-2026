@@ -1,0 +1,53 @@
+<!-- What makes the arena look like a home in the web app (app/robot.py, scene "apartment"). Looks only: nothing
+     here collides or has mass, so the robot, the furniture and the physics are the same as in arena.xml.
+     Not included by arena.xml, so the vision data and the DAgger scenes never see any of it.
+
+     - zone_*: the five zones as flat colored patches on the floor. app/robot.py moves and sizes each to its zone
+       of the flat (homes/flats.py) and sets its opacity from the belief that she is there.
+     - decor_*: bedding, cushions, rugs, a worktop, plant leaves, a door and a doormat. app/robot.py puts each
+       on or beside its piece of furniture when a flat is loaded.
+     - person: Margarete, lying on the floor (a mocap body made of simple shapes, about 1.6 m, head towards +x).
+       app/robot.py moves her to where she is, or out of sight when nobody is home. -->
+<mujoco>
+  <default>
+    <default class="look"><geom contype="0" conaffinity="0" mass="0" group="0"/></default>
+  </default>
+  <worldbody>
+    <geom name="zone_bedroom" class="look" type="box" size="1 1 0.001" pos="-2 2 0.002" rgba="0.165 0.471 0.839 0.2"/>
+    <geom name="zone_living_room" class="look" type="box" size="1 1 0.001" pos="2 2 0.002" rgba="0.922 0.408 0.204 0.2"/>
+    <geom name="zone_dining_area" class="look" type="box" size="1 1 0.001" pos="-2 -2 0.002" rgba="0.106 0.686 0.478 0.2"/>
+    <geom name="zone_kitchen" class="look" type="box" size="1 1 0.001" pos="2 -2 0.002" rgba="0.929 0.631 0.0 0.2"/>
+    <geom name="zone_hallway" class="look" type="box" size="1 0.5 0.001" pos="0 -3 0.002" rgba="0.910 0.482 0.643 0.2"/>
+
+    <geom name="decor_rug_living" class="look" type="box" size="1.0 0.7 0.003" pos="40 40 0.006" rgba="0.60 0.56 0.50 1"/>
+    <geom name="decor_rug_dining" class="look" type="box" size="0.95 0.8 0.003" pos="40 41 0.006" rgba="0.46 0.54 0.52 1"/>
+    <geom name="decor_mat" class="look" type="box" size="0.35 0.22 0.004" pos="40 42 0.007" rgba="0.45 0.38 0.30 1"/>
+    <geom name="decor_duvet" class="look" type="box" size="0.60 0.47 0.035" pos="41 40 0.435" rgba="0.78 0.78 0.76 1"/>
+    <geom name="decor_pillow" class="look" type="box" size="0.14 0.30 0.045" pos="41 41 0.445" rgba="0.66 0.72 0.80 1"/>
+    <geom name="decor_cushion_a" class="look" type="box" size="0.34 0.24 0.05" pos="41 42 0.45" rgba="0.72 0.68 0.61 1"/>
+    <geom name="decor_cushion_b" class="look" type="box" size="0.34 0.24 0.05" pos="41 43 0.45" rgba="0.70 0.55 0.30 1"/>
+    <geom name="decor_seat" class="look" type="box" size="0.22 0.22 0.04" pos="42 40 0.44" rgba="0.74 0.71 0.66 1"/>
+    <geom name="decor_worktop" class="look" type="box" size="0.43 0.28 0.018" pos="42 41 1.218" rgba="0.36 0.34 0.33 1"/>
+    <geom name="decor_leaves_a" class="look" type="ellipsoid" size="0.27 0.27 0.22" pos="42 42 0.82" rgba="0.24 0.52 0.30 1"/>
+    <geom name="decor_leaves_b" class="look" type="ellipsoid" size="0.17 0.17 0.21" pos="42 43 1.03" rgba="0.31 0.61 0.36 1"/>
+    <geom name="decor_door" class="look" type="box" size="0.45 0.035 0.40" pos="43 40 0.40" rgba="0.50 0.36 0.25 1"/>
+    <geom name="decor_knob" class="look" type="sphere" size="0.035" pos="43 41 0.42" rgba="0.80 0.72 0.45 1"/>
+
+    <body name="person" mocap="true" pos="50 52 0">
+      <!-- Lying on her back, head towards +x. Cardigan, trousers, grey hair. -->
+      <geom name="person_head" class="look" type="sphere" size="0.10" pos="0.70 0 0.11" rgba="0.93 0.78 0.68 1"/>
+      <geom name="person_hair" class="look" type="ellipsoid" size="0.105 0.108 0.095" pos="0.735 0 0.105" rgba="0.80 0.80 0.82 1"/>
+      <geom name="person_neck" class="look" type="capsule" size="0.045" fromto="0.50 0 0.10 0.62 0 0.10" rgba="0.93 0.78 0.68 1"/>
+      <geom name="person_chest" class="look" type="capsule" size="0.135" fromto="0.20 0 0.135 0.44 0 0.135" rgba="0.18 0.48 0.50 1"/>
+      <geom name="person_hips" class="look" type="capsule" size="0.13" fromto="-0.06 0 0.13 0.14 0 0.13" rgba="0.22 0.26 0.38 1"/>
+      <geom name="person_leg_l" class="look" type="capsule" size="0.065" fromto="-0.10 0.08 0.07 -0.74 0.12 0.07" rgba="0.22 0.26 0.38 1"/>
+      <geom name="person_leg_r" class="look" type="capsule" size="0.065" fromto="-0.10 -0.08 0.07 -0.72 -0.16 0.07" rgba="0.22 0.26 0.38 1"/>
+      <geom name="person_foot_l" class="look" type="capsule" size="0.045" fromto="-0.78 0.12 0.05 -0.80 0.13 0.15" rgba="0.30 0.24 0.22 1"/>
+      <geom name="person_foot_r" class="look" type="capsule" size="0.045" fromto="-0.76 -0.16 0.05 -0.78 -0.18 0.15" rgba="0.30 0.24 0.22 1"/>
+      <geom name="person_arm_l" class="look" type="capsule" size="0.048" fromto="0.42 0.17 0.10 0.08 0.30 0.055" rgba="0.18 0.48 0.50 1"/>
+      <geom name="person_arm_r" class="look" type="capsule" size="0.048" fromto="0.42 -0.17 0.10 0.30 -0.42 0.055" rgba="0.18 0.48 0.50 1"/>
+      <geom name="person_hand_l" class="look" type="sphere" size="0.05" pos="0.04 0.32 0.05" rgba="0.93 0.78 0.68 1"/>
+      <geom name="person_hand_r" class="look" type="sphere" size="0.05" pos="0.27 -0.47 0.05" rgba="0.93 0.78 0.68 1"/>
+    </body>
+  </worldbody>
+</mujoco>

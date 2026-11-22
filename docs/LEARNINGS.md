@@ -43,6 +43,21 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): The web app's page keeps long-lived connections open (picture streams, `/api/live`),
+  and a browser allows six per host. Two `EventSource`s plus three streams left one for all ordinary requests, and an
+  `<img>` stream is not released when the element is removed unless its `src` is emptied first, so adding a polled
+  endpoint made the page drop to demo mode. Now `/api/live` is shared (`app/web/src/lib/live.ts`) and `Stream.tsx`
+  empties `src` on removal. Count the connections before adding another stream or poll.
+- 2026-11-22 (Oscar's agent): Anything that waits for `LiveRobot` to be "idle" after a command must first see it
+  leave idle: the simulator thread can be busy for a moment (route planning, TabPFN predicting) and still publish
+  the old state. `Apartment._settle` in `app/apartment.py` does this; the first version ended every search at once.
+- 2026-11-22 (Oscar's agent): The app's home look and the Margarete figure live in `sim/apartment_decor.xml`, which
+  only `sim/apartment.xml` includes, so `arena.xml`, the vision labels and the DAgger scenes are unchanged. The
+  TabPFN a-to-b controller reads body motion and the target's direction, no camera, so the look cannot affect it.
+  The DINOv2 probe and the DAgger student were made on the plain arena: do not expect them to work on the dressed
+  scene's camera pictures without checking.
+- 2026-11-22 (Oscar's agent): A git worktree has no `sim/meshes/` (gitignored), so the app silently draws the
+  simple-shape robot. Copy them from the main checkout or run `just meshes` in the worktree.
 - 2026-11-22 (Oscar's agent): `homes/search.py` is a counting Bayesian search (population share + stated habits + her
   journal + last heard) that checks zones from the most to the least likely: Oscar wants the order by probability,
   not by distance. On 120 test residents it finds her after 1.54 zones against 3.30 for "nearest first" and 2.12 for

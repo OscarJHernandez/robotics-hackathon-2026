@@ -3,7 +3,10 @@ export const API: string = import.meta.env["VITE_API_BASE"] ?? "";
 export type Mode = "idle" | "goto" | "turn" | "fallen";
 export type View = "chase" | "orbit" | "overhead" | "eye";
 export const VIEWS: View[] = ["chase", "orbit", "overhead", "eye"];
-export interface Health { ok: boolean; model: string; llm: boolean; commands: string; views?: View[]; voice?: boolean }
+export interface Health {
+  ok: boolean; model: string; llm: boolean; commands: string; views?: View[]; voice?: boolean;
+  scene?: "apartment" | "floor"; apartment?: boolean;
+}
 export interface RobotState {
   mode: Mode; x: number; y: number; height: number; yaw_deg: number;
   target_x: number; target_y: number; sim_time: number; turn_to_deg?: number;
@@ -188,3 +191,75 @@ export const knockFind = () => knockPost("find");
 export const knockStop = () => knockPost("stop");
 export const knockChoice = (choice: KnockChoice) => knockPost("choice", { choice });
 export const knockAudioUrl = (path: string) => `${API}${path}`;
+
+// ---- The apartment: zones, obstacles, journal, belief and the search loop (app/apartment.py) ----
+
+export type ZoneName = "bedroom" | "living_room" | "dining_area" | "kitchen" | "hallway";
+export type ZoneClass = ZoneName | "out";
+export const ZONE_CLASSES: ZoneClass[] = ["bedroom", "living_room", "dining_area", "kitchen", "hallway", "out"];
+export const ZONE_LABEL: Record<ZoneClass, string> = {
+  bedroom: "Bedroom", living_room: "Living room", dining_area: "Dining area", kitchen: "Kitchen", hallway: "Hallway", out: "Out",
+};
+/** Zone colors: categorical slots 1-5 of the chart palette (dark steps, validated as a set); "out" is a neutral. */
+export const ZONE_COLOR: Record<ZoneClass, string> = {
+  bedroom: "#3987e5", living_room: "#d95926", dining_area: "#199e70", kitchen: "#c98500", hallway: "#d55181", out: "#898781",
+};
+export type Belief = Record<ZoneClass, number>;
+export type Stage = "population" | "habits" | "journal" | "last_heard";
+export interface ApartmentZone {
+  name: ZoneName; label: string; x: number; y: number; size_x: number; size_y: number;
+  view_x: number; view_y: number; person_x: number; person_y: number;
+}
+export interface ApartmentObstacle { name: string; zone: ZoneName; x: number; y: number; size_x: number; size_y: number }
+export interface JournalEntry {
+  id: number; day: string; weekday: number; minute: number; time: string; slot: number | null;
+  zone: ZoneClass; source: "robot" | "entered" | "search";
+}
+export interface SearchStep { zone: ZoneName; p: number; seen: boolean; metres: number }
+export interface LogLine { id: number; time: string; text: string; kind: string }
+export interface ApartmentState {
+  seed: number; name: string;
+  flat: {
+    half: number; door: { wall: string; x: number; y: number; width: number }; dock: { x: number; y: number };
+    zones: ApartmentZone[]; obstacles: ApartmentObstacle[];
+  };
+  habits: { usual: Record<"0" | "1", ZoneName[]>; outings: [number, number][] };
+  now: { weekday: number; minute: number; time: string; day: string; slot: number | null; real: boolean };
+  journal: JournalEntry[]; journal_total: number;
+  last_heard: { zone: ZoneClass; minutes: number } | null;
+  stages: Record<Stage, Belief>; belief: Belief; plan: ZoneName[];
+  search: {
+    status: "idle" | "starting" | "walking" | "looking" | "found" | "nobody_home" | "gave_up" | "stopped" | "failed";
+    running: boolean; goal: ZoneName | null; truth: ZoneClass | null; miss_rate: number;
+    path: [number, number][]; metres: number; steps: SearchStep[];
+  };
+  robot: { x: number; y: number; yaw_deg?: number };
+  driver: string;
+  log: LogLine[];
+}
+
+export async function getApartment(signal?: AbortSignal | undefined): Promise<ApartmentState> {
+  const r = await fetch(`${API}/api/apartment`, { signal: signal ?? null });
+  if (!r.ok) throw new Error(`apartment ${r.status}`);
+  return (await r.json()) as ApartmentState;
+}
+
+async function apartmentPost(action: string, body: object = {}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await fetch(`${API}/api/apartment/${action}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    return r.ok ? { ok: true } : { ok: false, error: j.error ?? `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" };
+  }
+}
+export const apartmentAddEntry = (zone: ZoneClass, time: string, days_ago: number) =>
+  apartmentPost("journal", { zone, time, days_ago });
+export const apartmentRemoveEntry = (id: number) => apartmentPost("journal/remove", { id });
+export const apartmentClock = (weekday: number | null, time: string | null) =>
+  apartmentPost("clock", weekday === null && time === null ? {} : { weekday, time });
+export const apartmentSearch = (where: string) => apartmentPost("search", { where });
+export const apartmentStop = () => apartmentPost("stop");
+export const apartmentReset = (seed: number) => apartmentPost("reset", { seed });

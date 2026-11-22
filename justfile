@@ -106,9 +106,9 @@ vision-probe *args:
 app-build:
     cd app/web && npm ci && npm run build
 
-# Run the web app (live simulation + metacon chat) at http://127.0.0.1:8790: just app 8790
-app port="8790":
-    uv run --group app python app/server.py --port {{ port }}
+# Run the web app (the robot in the apartment, the search, metacon chat) at http://127.0.0.1:8790: just app 8790 [--scene floor] [--driver planner]
+app port="8790" *args:
+    uv run --group app --group ml python app/server.py --port {{ port }} {{ args }}
 
 # Where is she? Bayesian search (journal + habits + floor plan): results table and 6 examples in homes/data/search_examples/
 search-demo *args:

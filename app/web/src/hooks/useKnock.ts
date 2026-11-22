@@ -5,6 +5,7 @@ import {
 } from "@/lib/api";
 import { playAudio, unlockAudio } from "@/lib/audio";
 import { demoKnock, KNOCK_IDLE } from "@/lib/demo";
+import { openLive } from "@/lib/live";
 
 export interface Knock {
   knock: KnockState;
@@ -24,7 +25,7 @@ export function useKnock(live: boolean, speakerOn: boolean, onError: (m: string)
 
   useEffect(() => {
     if (!live || typeof EventSource === "undefined") return;
-    const source = new EventSource(liveUrl());
+    const source = openLive();
     source.onmessage = (m) => {
       let e: KnockState;
       try { e = JSON.parse(m.data as string) as KnockState; } catch { return; }

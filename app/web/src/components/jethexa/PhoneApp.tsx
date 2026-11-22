@@ -3,7 +3,7 @@
 // like a walkie-talkie. While a check-in runs the card takes the middle; when the robot finds her, the robot eye
 // fills the top and the talk bar gives way to the alert. Same state and hooks as the desktop page (App.tsx).
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Keyboard, Mic } from "lucide-react";
+import { ArrowUp, Keyboard, Mic, RotateCcw } from "lucide-react";
 import type { Conn } from "@/hooks/useRobotState";
 import type { LiveCall } from "@/hooks/useLiveCall";
 import type { Knock } from "@/hooks/useKnock";
@@ -23,10 +23,12 @@ export interface VoiceProps {
   press: () => void; release: () => void; cancel: () => void;
 }
 
-export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend }: {
+export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend, onClear }: {
   conn: Conn; views: View[]; state: RobotState | null; lines: Line[]; busy: boolean; chatOff: boolean;
   voice: VoiceProps; other: LiveCall | null; knock: Knock; speakerOn: boolean; onToggleSpeaker: () => void;
   onSend: (text: string) => void;
+  /** Empties the conversation and what metacon remembers of it. */
+  onClear: () => void;
 }) {
   const live = conn === "live";
   const [view, setView] = useState<View>("chase");
@@ -91,6 +93,15 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
       <div ref={scroll} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
         {other && !other.ended && <LiveCallCard call={other} className="sticky top-0 z-10" />}
         <div className="pb-1.5"><KnockCard k={knock} /></div>
+        {lines.length > 0 && (
+          <div className="flex items-center justify-between pt-0.5">
+            <span className="text-[11px] uppercase tracking-wider text-video/40">Conversation</span>
+            <button onClick={onClear} disabled={busy || voice.phase !== "idle"} aria-label="Clear the chat and start fresh"
+              className="flex h-7 items-center gap-1.5 rounded-full border border-video/15 bg-video/5 px-2.5 text-[12px] text-video/70 active:bg-video/15 disabled:opacity-40">
+              <RotateCcw className="h-3.5 w-3.5" />New chat
+            </button>
+          </div>
+        )}
         {lines.map((l) => <Bubble key={l.id} line={l} />)}
         {voice.phase !== "idle" && voice.phase !== "thinking" && voice.phase !== "speaking" && (
           <div className="flex justify-end">
@@ -99,7 +110,7 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
             </div>
           </div>
         )}
-        {lines.length <= 1 && voice.phase === "idle" && (
+        {lines.filter((l) => l.kind === "user").length === 0 && voice.phase === "idle" && (
           <div className="flex flex-wrap justify-center gap-2 pt-2">
             {SUGGESTIONS.map((s) => (
               <button key={s} onClick={() => onSend(s)} disabled={busy}
