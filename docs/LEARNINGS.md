@@ -61,6 +61,9 @@ in the same pull request as the work.
   furniture while turning on the spot, so a reflex at contact distance is too late.
 - 2026-11-22 (Oscar's agent): In zsh `$h:Projects` applies the `:P` modifier, so `scp file $h:Projects/...` wrote to a
   local folder `vendettarojects/` with exit code 0. Quote as `"${h}:..."`; `nav/dagger/transfer.py` uses argument lists.
+- 2026-11-22 (Oscar's agent): Split DAgger work by machine: a 31k-row TabPFN fit takes about 4 min on vendetta (M4 Pro,
+  MPS) and 20 min on metacon (CPU), so fits and variant tests go to vendetta and simulation-heavy jobs (data, DAgger
+  rounds) to metacon with 8 processes. The v2 search used 8.2 machine-hours in 5 h; see docs/dagger/compute.md.
 - 2026-11-22 (Oscar's agent): TabPFN 3.5 on metacon's CPU is fine for compact inputs: 8k x 114 fit in 142 s, predict
   for 32 rows 0.2 s (faster than MPS for small batches). DINOv2 on CPU (about 115 ms per picture) is then the bottleneck.
 - 2026-11-22 (Oscar's agent): The offline "stop recall at stride < 0.02" metric is unstable for plain regressors (two

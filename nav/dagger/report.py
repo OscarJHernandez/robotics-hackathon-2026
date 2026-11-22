@@ -8,12 +8,14 @@ Writes, from data/nav/dagger/v2 (every number is computed here from the experime
   report_data.json   all of the above as data
   results.png        goal rate with 95% intervals for the main steps
   route-<episode>.png  student path (the trained model driving alone) against the expert's path on the same layout
+  compute.md         with --jobs: every job's machine, kind, episodes, steps and hours, summed per machine
 Only episodes driven entirely by the student are drawn: `student_only` checks every row.
 """
 
 import argparse
 import json
 import math
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -219,27 +221,33 @@ def results_chart(folder, promo):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    labels = {"v03-reference": "camera grid\n(606 cols)", "v11-lidar": "+ 360° lidar", "v15-lidar-allrows": "+ all 31k rows",
-              "v29-lidarplan": "+ own lidar-map\nplan (best)", "expert": "expert\n(teacher)"}
+    # One bar per model, split into what happened in the 200 runs: reached the target, hit furniture, neither.
+    labels = {"v03-reference": "v03  camera only (where we started)",
+              "v11-lidar": "v11  + 360° lidar (sees furniture beside it)",
+              "v15-lidar-allrows": "v15  + all 31,586 expert examples",
+              "v29-lidarplan": "v29  + plans a route on its own lidar map (best)",
+              "expert": "the expert teacher (knows the true room)"}
     picks = [r for r in promo if r["set"] == "screen"]
     picks = [next(r for r in picks if r["id"] == k) for k in ("v03-reference", "v11-lidar", "v15-lidar-allrows",
-                                                               "v29-lidarplan", "expert")]
-    fig, ax = plt.subplots(figsize=(7.2, 3.6), dpi=110)
-    x = np.arange(len(picks))
-    goal = [r["summary"]["goal"] for r in picks]
-    coll = [r["summary"]["collision"]["rate"] for r in picks]
-    colors = ["#9aa5b1", "#5b8def", "#3a6fd8", "#1f9d55", "#c9a227"]
-    ax.bar(x, [g["rate"] * 100 for g in goal], color=colors, width=0.6)
-    ax.errorbar(x, [g["rate"] * 100 for g in goal], yerr=[[100 * (g["rate"] - g["ci_low"]) for g in goal],
-                                                          [100 * (g["ci_high"] - g["rate"]) for g in goal]],
-                fmt="none", ecolor="#333", capsize=4, lw=1)
-    for i, (g, c) in enumerate(zip(goal, coll)):
-        ax.text(i, g["rate"] * 100 + 3, "{:.0%}".format(g["rate"]), ha="center", fontsize=10, weight="bold")
-        ax.text(i, 6, "crash\n{:.0%}".format(c), ha="center", fontsize=8, color="white")
-    ax.set_xticks(x, [labels[r["id"]] for r in picks], fontsize=8.5)
-    ax.set_ylim(0, 110)
-    ax.set_ylabel("goal reached, % (95% CI)")
-    ax.set_title("Student driving alone on 200 unseen layouts (screening set)", fontsize=10)
+                                                               "v29-lidarplan", "expert")][::-1]
+    goal = np.array([r["summary"]["goal"]["rate"] * 100 for r in picks])
+    coll = np.array([r["summary"]["collision"]["rate"] * 100 for r in picks])
+    other = np.clip(100 - goal - coll, 0, None)
+    fig, ax = plt.subplots(figsize=(8.4, 3.4), dpi=110)
+    y = np.arange(len(picks))
+    ax.barh(y, goal, color="#1f9d55", height=0.6, label="reached the target")
+    ax.barh(y, coll, left=goal, color="#d64545", height=0.6, label="hit furniture")
+    ax.barh(y, other, left=goal + coll, color="#b0b7bf", height=0.6, label="stuck or out of time")
+    for i in range(len(picks)):
+        ax.text(goal[i] - 1.5, i, "{:.1f}% reached".format(goal[i]), va="center", ha="right", color="white",
+                fontsize=9, weight="bold")
+        ax.text(101.5, i, "{:.1f}% crashed".format(coll[i]), va="center", ha="left", fontsize=9,
+                color="#b02a2a" if coll[i] > 0 else "#555")
+    ax.set_yticks(y, [labels[r["id"]] for r in picks], fontsize=9)
+    ax.set_xlim(0, 100)
+    ax.set_xlabel("% of 200 rooms it had never seen (the model drives alone)")
+    ax.set_title("How each model ended its 200 test runs (each row adds one thing to the row above)", fontsize=10.5)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.28), ncol=3, frameon=False, fontsize=8.5)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
     fig.savefig(folder / "results.png")
@@ -299,12 +307,101 @@ def route_picture(folder, exp_id, set_name, episode, title, extra=None):
     return out
 
 
+KIND_NAME = {"collect": "expert episodes (data and reference sets)", "dagger": "DAgger round (student drives)",
+             "run": "variant test (fit + student drives)"}
+
+
+def job_records(roots):
+    """Every job-<host>-<time>.json under the given folders, one record each.
+
+    Each machine writes such a record at the end of every job (collection, DAgger round, variant test). The same
+    file copied to another machine is counted once (keyed by its path below the root and its name).
+    """
+    seen = {}
+    for root in roots:
+        root = Path(root)
+        for path in sorted(root.rglob("job-*.json")):
+            key = str(path.relative_to(root))
+            if key in seen:
+                continue
+            d = json.loads(path.read_text())
+            results = [r for r in d.get("results") or [] if isinstance(r, dict)]
+            fit = sum(float((r.get("info") or {}).get("fit_seconds") or 0) for r in results)
+            seen[key] = {"host": d.get("host"), "kind": d.get("kind"), "label": d.get("label"),
+                         "episodes": int(d.get("ran") or 0), "procs": int(d.get("procs") or 1),
+                         "seconds": float(d.get("seconds") or 0), "fit_seconds": fit,
+                         "steps": sum(int(r.get("steps") or 0) for r in results),
+                         "finished": path.stat().st_mtime, "file": key}
+    return [r for r in seen.values() if r["episodes"] > 0]
+
+
+def compute_summary(records):
+    """Per machine and per kind of job: jobs, busy hours, episodes, simulated steps (gait cycles), TabPFN fit hours."""
+    out = {}
+    for r in records:
+        for key in ((r["host"], "all"), (r["host"], r["kind"]), ("all", "all"), ("all", r["kind"])):
+            s = out.setdefault(key, {"jobs": 0, "hours": 0.0, "episodes": 0, "steps": 0, "fit_hours": 0.0})
+            s["jobs"] += 1
+            s["hours"] += r["seconds"] / 3600
+            s["episodes"] += r["episodes"]
+            s["steps"] += r["steps"]
+            s["fit_hours"] += r["fit_seconds"] / 3600
+    return out
+
+
+def compute_markdown(records, dagger1=None):
+    """compute.md: where the compute went, from the job records (and dagger1's timings.json if given)."""
+    summary = compute_summary(records)
+    hosts = sorted({r["host"] for r in records})
+    lines = ["# Compute: which machine did what (DAgger v2, 2026-11-22)", "",
+             "Generated by `python -m nav.dagger.report --compute-only` from the `job-<machine>-<time>.json` record "
+             "each machine writes at the end of every job. Hours are wall-clock time of the job. One simulated step "
+             "is one gait cycle (one second of robot time) and one row of data.", "",
+             "| machine | kind of job | jobs | busy hours | episodes | simulated steps | TabPFN fit hours |",
+             "|---|---|---|---|---|---|---|"]
+    for host in hosts + ["all"]:
+        for kind in ["collect", "dagger", "run", "all"]:
+            s = summary.get((host, kind))
+            if not s:
+                continue
+            name = "**all**" if kind == "all" else KIND_NAME[kind]
+            lines.append("| {} | {} | {} | {:.2f} | {:,} | {:,} | {:.2f} |".format(
+                "**{}**".format(host) if kind == "all" else host, name, s["jobs"], s["hours"], s["episodes"],
+                s["steps"], s["fit_hours"]))
+    lines += ["", "## Every job", "",
+              "Finish times are the job record's file time, in the time zone of the machine that ran this report.", "",
+              "| finished | machine | kind | what | episodes | processes | minutes | of which TabPFN fit | steps |",
+              "|---|---|---|---|---|---|---|---|---|"]
+    for r in records:
+        lines.append("| {} | {} | {} | `{}` | {} | {} | {:.1f} | {} | {:,} |".format(
+            datetime.fromtimestamp(r["finished"]).strftime("%d %b %H:%M"), r["host"], r["kind"], r["label"], r["episodes"], r["procs"], r["seconds"] / 60,
+            "{:.1f}".format(r["fit_seconds"] / 60) if r["fit_seconds"] else "-", r["steps"]))
+    if dagger1:
+        lines += ["", "## dagger1 (the first loop, 2026-11-21), round 0 expert episodes", "",
+                  "| machine | processes | episodes | steps | minutes | steps per second |", "|---|---|---|---|---|---|"]
+        for t in dagger1:
+            lines.append("| {} | {} | {} | {:,} | {:.1f} | {:.1f} |".format(
+                t["host"], t["procs"], t["episodes"], t["steps"], t["rollout_s"] / 60, t["steps_per_s"]))
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--out", default=str(v2_dir() / "report"))
+    parser.add_argument("--jobs", nargs="*", default=None,
+                        help="folders to search for job-*.json records (one per machine's data/nav/dagger/v2)")
+    parser.add_argument("--dagger1-timings", default=None, help="dagger1's timings.json")
+    parser.add_argument("--compute-only", action="store_true", help="only write compute.md")
     args = parser.parse_args()
     folder = Path(args.out)
     folder.mkdir(parents=True, exist_ok=True)
+    if args.jobs is not None:
+        records = sorted(job_records(args.jobs), key=lambda r: r["finished"])
+        dagger1 = json.loads(Path(args.dagger1_timings).read_text()) if args.dagger1_timings else None
+        (folder / "compute.md").write_text(compute_markdown(records, dagger1))
+        print("written", folder / "compute.md")
+    if args.compute_only:
+        return
     screen, expert = screening_table()
     promo = promotion_table()
     rounds = dagger_rounds()

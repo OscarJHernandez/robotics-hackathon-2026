@@ -350,3 +350,28 @@ class StudentOnlyCheckTest(unittest.TestCase):
         other = rows.copy()
         other.loc[0, "executed_turn"] = 0.0
         self.assertFalse(student_only(other))  # executed something else than the student's command
+
+
+class ComputeTableTest(unittest.TestCase):
+    def test_job_records_counted_once_per_file_and_summed_per_machine(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from nav.dagger.report import compute_markdown, compute_summary, job_records
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            job = {"host": "metacon", "kind": "dagger", "label": "dagger_r1", "ran": 300, "procs": 2,
+                   "seconds": 3600.0, "results": [{"steps": 9000, "info": {"fit_seconds": 600.0}}]}
+            empty = {"host": "metacon", "kind": "collect", "label": "screen", "ran": 0, "procs": 1, "seconds": 2.0,
+                     "results": []}
+            for root in (a, b):  # the same record copied to a second machine counts once
+                (Path(root) / "data" / "dagger_r1").mkdir(parents=True)
+                (Path(root) / "data" / "dagger_r1" / "job-metacon-010000.json").write_text(json.dumps(job))
+            (Path(a) / "data" / "job-metacon-020000.json").write_text(json.dumps(empty))  # ran nothing: left out
+            records = job_records([a, b])
+            self.assertEqual(len(records), 1)
+            s = compute_summary(records)[("metacon", "all")]
+            self.assertEqual((s["jobs"], s["episodes"], s["steps"]), (1, 300, 9000))
+            self.assertAlmostEqual(s["hours"], 1.0)
+            self.assertAlmostEqual(s["fit_hours"], 600 / 3600)
+            self.assertIn("dagger_r1", compute_markdown(records))
