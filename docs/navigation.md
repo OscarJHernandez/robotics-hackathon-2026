@@ -209,6 +209,7 @@ How the directions compared (200 screening layouts unless noted):
 | DAgger rounds 1-4, heading perturbations | 89-96% (100) | 4-10% | no gain on top of all rows |
 | PRIVILEGED ceiling: the expert's look-ahead bearing | 100% (100) | 0% | the missing piece is where the path goes, not sensing |
 | **+ the robot's own plan on its lidar map** | **98%** | **2%** | most of the ceiling, without privileged information |
+| v31: v29 with every row collected (81k, incl. DAgger rounds) | 92% (100) | 7% | more mixed data made it worse |
 
 Commands (all on branch `feat/dagger-v2-fixpass`): `python -m nav.dagger.experiment collect|dagger|run`,
 `python -m nav.dagger.stage run|analyse`, `python -m nav.dagger.lidarmap add --name <set>`, variants in
