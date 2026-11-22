@@ -217,6 +217,33 @@ The flats are `flats.json.gz`: run `gunzip -k data/flats.json.gz` before `render
 P(zone | weekday type, slot), counted from the train residents' diary. `probs(flat, hour, weekday)` returns
 `(zone_probs, p_out)`, the shape of `PRIORS` in `app/knock.py`. Night uses a stated default: bedroom 0.85, kitchen 0.15.
 
+### The belief from TabPFN (`tabpfn_belief.py`)
+
+`TabPFNBelief` gives P(zone) and P(out) with `fit()` and `predict_proba()` only. Two things made it work where
+`check.py` did not:
+
+- **The examples are synthetic check-ins, not diary records.** A check-in can come minutes after a record in the
+  same part of the day, when "last heard" is nearly always right; diary records (one per part of the day) never
+  show that case.
+- **The same inputs as the counting belief**: time, stated habits, her journal as shares per zone for this part of
+  the day, and where and how long ago she was last heard (25 features).
+
+2,000 examples from residents with 1, 2 and 4 weeks of journal are in `data/tabpfn_context.npz`. Her own journal is
+not an example: it reaches the model through the features of the row to predict.
+
+`search_demo.py --tabpfn` on the 120 test residents (TabPFN 3.5; v2 is within 0.03 zones of it):
+
+| Belief | Zones checked | Belief top | Log loss |
+|---|---|---|---|
+| Counting (`search.beliefs`) | 1.54 | 72% | 0.77 |
+| **TabPFN** | 1.61 | 71% | 0.81 |
+| Last heard first, then nearest | 2.12 | | |
+| Nearest zone first | 3.30 | | |
+
+With the 20%-miss look, the loop that starts from TabPFN's belief finds her in 98.4% of searches (counting: 98.9%).
+So TabPFN is level with the counting model on this data and well ahead of the simple rules. It reacts less sharply
+than counting to a short, one-sided journal; adding her own records as examples to `fit()` is the next thing to try.
+
 ### TabPFN smoke test (`check.py`)
 
 Only `fit()` and `predict()` (the repo's rule: no fine-tuning). Rerun on the arena zones (10 held-out residents, 1,000-row

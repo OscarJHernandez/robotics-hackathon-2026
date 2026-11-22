@@ -45,6 +45,40 @@ Margarete as a figure lying where she really is. On a computer the **Apartment**
 viewing pose and turns to face it → a look → Bayes' update → the next zone, until she is found or `out` reaches
 95%. Finding her adds a journal entry. The look is still a mock (it misses her 20% of the time).
 
+**Who says where she is: TabPFN.** The belief the search starts from comes from TabPFN
+(`homes/tabpfn_belief.py`, `--belief tabpfn`, the default): `fit()` on 2,000 synthetic check-ins, then
+`predict_proba` for the row that describes now (time, her stated routines, her journal as shares per zone, where
+and how long ago she was last heard). It uses TabPFN 3.5 when the API key is there (`TABPFN_TOKEN`, or the repo's
+gitignored `.env`, as for `nav/dagger`), else the v2 weights. Her routines and journal are features of that row,
+not examples, so changing them changes the belief without a new `fit()`. After each look the belief is updated
+with Bayes' rule. At night, or with `--belief counting`, the counting model of `homes/search.py` is used; its
+steps (population, + habits, + journal) are shown beside TabPFN's for comparison.
+
+**Custom inputs.** In the Journal card, "Custom inputs" takes one JSON object, and "Copy current" puts the live
+one in the box and on the clipboard:
+
+```json
+{
+ "routines": {
+  "weekdays": {"morning": "kitchen", "afternoon": "dining area", "evening": "living room"},
+  "weekends": {"morning": "bedroom", "afternoon": "living room", "evening": "living room"},
+  "outings": [{"day": "Thu", "part": "afternoon"}]
+ },
+ "journal": [
+  {"day": "Mon", "time": "14:10", "zone": "dining area"},
+  {"day": "Thu", "time": "14:30", "zone": "out"}
+ ]
+}
+```
+
+`routines` replaces her stated habits, `journal` replaces her journal (oldest first; a day is a weekday, a date,
+`today` or `yesterday`, and weekdays count back from the check-in time); either can be left out. Plain lines such
+as `Mon 08:10 kitchen` work for a journal, with "Add lines" to append. The same through the API:
+`GET /api/apartment/inputs.json`, `POST /api/apartment/inputs`.
+
+**Reset** (in the status strip after a search) forgets the search, takes Margarete out of the room and puts the
+robot back on its dock; the flat and the journal stay. "New flat" starts over with another layout and resident.
+
 **Who walks.** A goto in the apartment is a route of straight legs around the furniture (`plan_route` in
 `app/robot.py`, the grid and A* of `nav/dagger/expert.py`); a driver walks each leg:
 

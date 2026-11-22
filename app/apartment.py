@@ -4,7 +4,10 @@ One apartment is shared by everyone who opens the page, like the robot. It holds
 
 - the flat: the MuJoCo arena with five named zones and the arena's furniture as obstacles (homes/flats.py);
 - the resident: her stated habits and a journal of where she was heard; viewers can add journal entries;
-- the belief: where she probably is now, from habits + journal + last heard (homes/search.py);
+- the belief: where she probably is now, from habits + journal + last heard. By default TabPFN gives it
+  (homes/tabpfn_belief.py: fit() on synthetic check-ins, predict_proba for now); without TabPFN, or at night, the
+  counting belief of homes/search.py does. The steps "population, + habits, + journal" shown beside it are always
+  the counting ones;
 - the search: the loop "most likely zone -> walk there -> look -> update -> next zone" and a log of every step.
 
 With a robot (app/robot.py, scene "apartment") the search drives the simulated JetHexa: the flat's furniture and
@@ -18,6 +21,7 @@ moves in a straight line instead. The look is still a mock: it misses her 20% of
 import datetime
 import json
 import math
+import re
 import sys
 import threading
 import time
@@ -60,6 +64,123 @@ def population():
         return None
 
 
+# How a pasted journal may name a zone (lower case, spaces as underscores).
+ZONE_WORDS = {"bedroom": "bedroom", "bed": "bedroom", "living_room": "living_room", "livingroom": "living_room",
+              "living": "living_room", "lounge": "living_room", "couch": "living_room", "sofa": "living_room",
+              "dining_area": "dining_area", "dining_room": "dining_area", "dining": "dining_area",
+              "table": "dining_area", "kitchen": "kitchen", "hallway": "hallway", "hall": "hallway",
+              "entrance": "hallway", "door": "hallway", "out": "out", "away": "out", "not_home": "out"}
+WEEKDAYS = {name: i for i, name in enumerate(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))}
+JOURNAL_EXAMPLE = "Mon 08:10 kitchen\nMon 14:30 living room\nMon 20:05 bedroom\nTue 09:00 out"
+
+
+def parse_journal(text, day, minute):
+    """A pasted journal -> ([(date, minute of the day, zone)], [problems]).
+
+    One record per line, in the order they happened: a day, a time and a zone, separated by spaces, commas, tabs
+    or semicolons. The day is a weekday (Mon, Tuesday), a date (2026-11-20), `today` or `yesterday`; the zone is
+    bedroom, living room, dining area, kitchen, hallway or out. Lines starting with # and a header line are
+    skipped. A JSON list of {"day", "time", "zone"} works too.
+
+    Weekdays are counted back from the check-in time (`day`, `minute`), last line first, so "Mon ... Sun, Mon ...
+    Sun" is two weeks ending at the check-in."""
+    rows, problems = [], []
+    stripped = text.strip()
+    if stripped.startswith("["):
+        try:
+            items = json.loads(stripped)
+            lines = ["{} {} {}".format(i.get("day", i.get("date", i.get("weekday", ""))), i.get("time", ""),
+                                       i.get("zone", "")) for i in items]
+        except (ValueError, AttributeError, TypeError):
+            return [], ["the text starts with [ but is not a JSON list of records"]
+    else:
+        lines = stripped.splitlines()
+    for number, line in enumerate(lines, start=1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        words = [w for w in re.split(r"[,;|\t ]+", line.lower()) if w]
+        time_word = next((w for w in words if re.fullmatch(r"\d{1,2}[:.]\d{2}", w)), None)
+        if time_word is None:
+            if "zone" not in words:  # a header line is skipped without a word
+                problems.append("line {}: no time like 09:30".format(number))
+            continue
+        words.remove(time_word)
+        when = None
+        for w in list(words):
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", w):
+                try:
+                    when = datetime.date.fromisoformat(w)
+                except ValueError:
+                    pass
+            elif w[:3] in WEEKDAYS and (w in WEEKDAYS or w.endswith("day")):
+                when = WEEKDAYS[w[:3]]
+            elif w in ("today", "yesterday"):
+                when = day - datetime.timedelta(days=1 if w == "yesterday" else 0)
+            else:
+                continue
+            words.remove(w)
+            break
+        zone = ZONE_WORDS.get("_".join(words).replace("-", "_"))
+        try:
+            at = parse_time(time_word.replace(".", ":"))
+        except ValueError:
+            problems.append("line {}: '{}' is not a time".format(number, time_word))
+            continue
+        if when is None:
+            problems.append("line {}: no day (a weekday, a date, today or yesterday)".format(number))
+        elif zone is None:
+            problems.append("line {}: unknown zone '{}'".format(number, " ".join(words)))
+        else:
+            rows.append((when, at, zone))
+    # Weekdays become dates, counted back from the check-in, last line first.
+    out, bound = [], (day, minute)
+    for when, at, zone in reversed(rows):
+        if isinstance(when, int):
+            date = bound[0] - datetime.timedelta(days=(bound[0].weekday() - when) % 7)
+            if date == bound[0] and at > bound[1]:
+                date -= datetime.timedelta(days=7)
+            when = date
+        if (when, at) < bound:
+            bound = (when, at)
+        out.append((when, at, zone))
+    return list(reversed(out)), problems
+
+
+PARTS = ("morning", "afternoon", "evening")
+
+
+def parse_routines(data):
+    """Pasted routines -> stated habits {"usual": {"0": [3 zones], "1": [3 zones]}, "outings": [(weekday, slot)]}.
+
+    {"weekdays": {"morning": "kitchen", "afternoon": "living room", "evening": "living room"},
+     "weekends": {...}, "outings": [{"day": "Tue", "part": "afternoon"}]}
+    A list of three zones works in place of the {morning, afternoon, evening} object, and ["Tue", "afternoon"] in
+    place of an outing object. Raises ValueError with what is wrong."""
+    if not isinstance(data, dict):
+        raise ValueError("routines must be an object with weekdays, weekends and outings")
+    usual = {}
+    for key, name in (("0", "weekdays"), ("1", "weekends")):
+        value = data.get(name)
+        if isinstance(value, dict):
+            value = [value.get(part) for part in PARTS]
+        if not isinstance(value, list) or len(value) != 3:
+            raise ValueError("routines.{} needs morning, afternoon and evening".format(name))
+        zones = [ZONE_WORDS.get(str(z).strip().lower().replace(" ", "_").replace("-", "_")) for z in value]
+        if any(z is None or z == "out" for z in zones):
+            raise ValueError("routines.{}: each part of the day needs one of: {}".format(
+                name, ", ".join(NAMES[z].lower() for z in F.ZONE_NAMES)))
+        usual[key] = zones
+    outings = []
+    for item in data.get("outings") or []:
+        day, part = (item.get("day"), item.get("part")) if isinstance(item, dict) else (list(item) + [None, None])[:2]
+        weekday = WEEKDAYS.get(str(day).strip().lower()[:3])
+        if weekday is None or str(part).strip().lower() not in PARTS:
+            raise ValueError("routines.outings: each needs a day (Mon ... Sun) and a part (morning, afternoon, evening)")
+        outings.append((weekday, PARTS.index(str(part).strip().lower())))
+    return {"usual": usual, "outings": sorted(set(outings))}
+
+
 def hhmm(minute):
     return "{:02d}:{:02d}".format(int(minute) // 60 % 24, int(minute) % 60)
 
@@ -78,9 +199,12 @@ def parse_time(text):
 
 class Apartment:
     def __init__(self, seed=0, name="Margarete", now=datetime.datetime.now, sleep=time.sleep, walk=WALK, look=LOOK,
-                 robot=None):
+                 robot=None, model=None):
         self._now, self._sleep, self._walk, self._look = now, sleep, walk, look
         self._robot = robot  # LiveRobot in the apartment scene, or None: a marker walks instead
+        self._model = model  # tabpfn_belief.TabPFNBelief, or None: the counting belief
+        self._predicted = (None, None)  # the last TabPFN belief and what it was for
+        self._habits_version = 0
         self._lock = threading.RLock()
         self._population = population()
         self._thread = None
@@ -101,6 +225,7 @@ class Apartment:
             self.flat = F.random_flat(np.random.default_rng([self.seed, 0]), self.seed)
             self.persona = R.sample_persona(np.random.default_rng([self.seed, 1]), 0, self.flat)
             self.habits = R.stated_habits(self.persona)
+            self._habits_version = getattr(self, "_habits_version", 0) + 1
             self.journal = []
             rng = np.random.default_rng([self.seed, 2])
             today = self._now().date()
@@ -158,6 +283,78 @@ class Apartment:
                                                              NAMES[zone]), "journal")
             return entry
 
+    def import_journal(self, text, replace=True):
+        """Take a pasted journal (see parse_journal). With `replace` it becomes her whole journal, so the belief is
+        built from it alone (plus the population and her stated habits); otherwise the records are added.
+        Returns {"added": n, "problems": [...]}; raises ValueError when no line could be read."""
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                raise ValueError("wait for the search to end before changing the journal")
+            day, _, minute = self.when()
+            rows, problems = parse_journal(str(text), day, minute)
+            if not rows:
+                raise ValueError("no journal records found. " + ("; ".join(problems[:3]) if problems
+                                                                 else "One per line, like: Mon 09:30 kitchen"))
+            if len(rows) > JOURNAL_LIMIT:
+                raise ValueError("at most {} records".format(JOURNAL_LIMIT))
+            if replace:
+                self.journal = []
+            for date, at, zone in rows:
+                self._add(date, at, zone, "pasted")
+            self._say("Journal: {} records pasted{}".format(len(rows), ", replacing the old journal" if replace else ""),
+                      "journal")
+            if problems:
+                self._say("Journal: {} line{} skipped ({})".format(len(problems), "" if len(problems) == 1 else "s",
+                                                                    problems[0]), "info")
+            self._paint()
+            return {"added": len(rows), "problems": problems[:20]}
+
+    def inputs(self):
+        """The two inputs the belief is built from, as one object to copy, edit and paste back (set_inputs)."""
+        with self._lock:
+            return {
+                "routines": {
+                    "weekdays": {part: NAMES[z].lower() for part, z in zip(PARTS, self.habits["usual"]["0"])},
+                    "weekends": {part: NAMES[z].lower() for part, z in zip(PARTS, self.habits["usual"]["1"])},
+                    "outings": [{"day": DAYS[wd], "part": PARTS[slot]} for wd, slot in self.habits["outings"]]},
+                "journal": [{"day": e["day"], "time": e["time"], "zone": NAMES[e["zone"]].lower()} for e in self.journal],
+            }
+
+    def set_inputs(self, data):
+        """Pasted inputs: {"routines": {...}, "journal": [...]}; either may be left out. Routines replace her
+        stated habits (parse_routines); a journal replaces her journal (parse_journal). The belief follows at
+        once: both are features of the row TabPFN predicts. Returns what changed."""
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except ValueError as error:
+                raise ValueError("not valid JSON: {}".format(error))
+        if not isinstance(data, dict) or not ({"routines", "journal"} & set(data)):
+            raise ValueError('expected an object with "routines" and/or "journal"')
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                raise ValueError("wait for the search to end before changing the inputs")
+            habits = parse_routines(data["routines"]) if "routines" in data else None  # check before changing anything
+            result = {"routines": habits is not None, "added": 0, "problems": []}
+            if "journal" in data:
+                if not isinstance(data["journal"], list):
+                    raise ValueError("journal must be a list of {day, time, zone}")
+                result.update(self.import_journal(json.dumps(data["journal"]), replace=True))
+            if habits is not None:
+                self.habits = habits
+                self._habits_version += 1
+                self._say("Routines replaced: weekdays {}, weekends {}, {} outing{}".format(
+                    " / ".join(NAMES[z].lower() for z in habits["usual"]["0"]),
+                    " / ".join(NAMES[z].lower() for z in habits["usual"]["1"]), len(habits["outings"]),
+                    "" if len(habits["outings"]) == 1 else "s"), "journal")
+                self._paint()
+            return result
+
+    def journal_text(self):
+        """Her journal as text that import_journal reads back: one record per line, oldest first."""
+        with self._lock:
+            return "\n".join("{} {} {}".format(e["day"], e["time"], NAMES[e["zone"]].lower()) for e in self.journal)
+
     def remove_entry(self, entry_id):
         with self._lock:
             before = len(self.journal)
@@ -211,12 +408,36 @@ class Apartment:
         return last, days * 1440 + minute - last["minute"]
 
     def stages(self):
-        """The belief step by step (population, + habits, + journal, + last heard) at the check-in time."""
-        _, weekday, minute = self.when()
-        journal = [(e["weekday"], e["slot"], e["zone"]) for e in self._known() if e["slot"] is not None]
+        """The belief step by step at the check-in time: population, + habits, + journal (counting), and
+        "last_heard", the final one: TabPFN's when there is a model (and it is day), else the counting one."""
+        day, weekday, minute = self.when()
+        known = self._known()
+        journal = [(e["weekday"], e["slot"], e["zone"]) for e in known if e["slot"] is not None]
         last = self._last()
-        return S.beliefs(self.flat, minute / 60.0, weekday, self._population, self.habits, journal,
-                         (last[0]["zone"], last[1]) if last else None)
+        last = (last[0]["zone"], last[1]) if last else None
+        out = S.beliefs(self.flat, minute / 60.0, weekday, self._population, self.habits, journal, last)
+        out["counting"] = out["last_heard"]
+        if self._model is not None:
+            key = (day, minute, len(known), known[-1]["id"] if known else 0, self.seed, self._habits_version)
+            if self._predicted[0] != key:
+                records = [(e["weekday"], e["slot"], e["zone"]) for e in known
+                           if e["slot"] is not None and e["day"] < day.isoformat()]  # earlier days, as in the examples
+                try:
+                    self._predicted = (key, self._model.belief(minute / 60.0, weekday, self.habits, records, last))
+                except Exception as error:  # the search must not die with the model
+                    self._say("TabPFN belief failed ({}), using the counting belief".format(error), "info")
+                    self._model = None
+                    return out
+            if self._predicted[1] is not None:
+                out["last_heard"] = self._predicted[1]
+        return out
+
+    def model_info(self):
+        """Which model gives the belief, for the panel."""
+        if self._model is None:
+            return {"name": "counting", "label": "Counting (Bayes)", "detail": "population + habits + journal + last heard"}
+        return {"name": "tabpfn", "label": "TabPFN {}".format(self._model.version.lstrip("v")),
+                "detail": "fit() on {:,} synthetic check-ins".format(self._model.rows)}
 
     # ---- the search ----------------------------------------------------------------------------------
 
@@ -251,7 +472,8 @@ class Apartment:
             self._stop.clear()
             self._say("Check-in {} {}: where is {}?".format(DAYS[weekday], hhmm(minute), self.name), "start")
             top = sorted(((p, z) for z, p in start.items()), reverse=True)[:3]
-            self._say("Belief: " + ", ".join("{} {:.0f}%".format(NAMES[z], 100 * p) for p, z in top), "belief")
+            self._say("Belief ({}): {}".format(self.model_info()["label"], ", ".join(
+                "{} {:.0f}%".format(NAMES[z], 100 * p) for p, z in top)), "belief")
             self._thread = threading.Thread(target=self._loop, args=(truth, miss), daemon=True)
             self._thread.start()
             return True
@@ -282,6 +504,23 @@ class Apartment:
         if thread is not threading.current_thread():
             thread.join(timeout=5)
         return True
+
+    def clear(self):
+        """Ready for another run: ends the search, takes Margarete out of the room, puts the robot back on its
+        dock and forgets the last search. The flat and the journal stay."""
+        self.stop()
+        with self._lock:
+            self.search = None
+            self.run = {"status": "idle", "goal": None, "truth": None, "miss_rate": S.MISS_RATE, "path": []}
+            self.robot = dict(self.flat["dock"])
+            if self._robot is not None:
+                self._robot.person()
+                try:
+                    self._robot.command("reset")
+                except ValueError:
+                    pass
+            self._say("Reset: {} is out of the room, the robot is on its dock".format(self.name), "info")
+            self._paint()
 
     def _loop(self, truth, miss):
         rng = np.random.default_rng()
@@ -462,6 +701,7 @@ class Apartment:
                                      for s in (search.steps if search else [])]},
                 "robot": dict(self._pose() if self._robot is not None else self.robot),
                 "driver": (self._robot.state().get("driver") if self._robot is not None else "marker"),
+                "model": self.model_info(),
                 "log": list(self.log),
             }
 

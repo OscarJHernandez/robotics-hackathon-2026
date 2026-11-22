@@ -38,6 +38,12 @@
    "belief_top1": 0.72,
    "log_loss": 0.766
   },
+  "tabpfn": {
+   "metres": 6.78,
+   "zones_checked": 1.61,
+   "belief_top1": 0.715,
+   "log_loss": 0.808
+  },
   "oracle": {
    "metres": 7.56,
    "zones_checked": 1.78,
@@ -87,6 +93,12 @@
    "zones_checked": 1.94,
    "belief_top1": 0.532,
    "log_loss": 1.233
+  },
+  "tabpfn": {
+   "metres": 8.45,
+   "zones_checked": 2.03,
+   "belief_top1": 0.524,
+   "log_loss": 1.269
   },
   "oracle": {
    "metres": 7.91,
@@ -138,6 +150,12 @@
    "belief_top1": 0.918,
    "log_loss": 0.272
   },
+  "tabpfn": {
+   "metres": 5.05,
+   "zones_checked": 1.17,
+   "belief_top1": 0.916,
+   "log_loss": 0.322
+  },
   "oracle": {
    "metres": 7.19,
    "zones_checked": 1.69,
@@ -163,20 +181,25 @@
    "looks": 2.22,
    "metres": 8.46
   },
+  "tabpfn": {
+   "found": 0.984,
+   "looks": 2.27,
+   "metres": 8.65
+  },
   "certain": {
-   "found": 0.801,
-   "looks": 1.53,
-   "metres": 6.51
+   "found": 0.799,
+   "looks": 1.55,
+   "metres": 6.61
   },
   "nearest": {
-   "found": 0.965,
-   "looks": 4.2,
-   "metres": 9.98
+   "found": 0.975,
+   "looks": 4.23,
+   "metres": 10.08
   },
   "last": {
-   "found": 0.981,
-   "looks": 3.1,
-   "metres": 10.42
+   "found": 0.984,
+   "looks": 3.15,
+   "metres": 10.54
   },
   "came_back": 0.254,
   "out": {

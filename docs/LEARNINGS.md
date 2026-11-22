@@ -43,6 +43,14 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): TabPFN's "where is she" belief went from 33% to 71% right (level with the counting
+  model) by changing what goes into `fit()`, not the model: the examples are now synthetic **check-ins** instead of
+  diary records, and the row has the same inputs as the counting belief (`homes/tabpfn_belief.py`). Diary records,
+  one per part of the day, never show the case "heard a few minutes ago in this part of the day", which is half of
+  all check-ins. Oscar: the search must use TabPFN; the app's default is now `--belief tabpfn`.
+- 2026-11-22 (Oscar's agent): The TabPFN API key lives in a worktree's gitignored `.env` (`TABPFN_TOKEN=...`), and
+  `nav/dagger/envfile.py` only looks in this worktree and the main checkout. A new worktree needs the file copied
+  in (or put it in the main checkout once); without it everything silently falls back to the v2 weights.
 - 2026-11-22 (Oscar's agent): The web app's page keeps long-lived connections open (picture streams, `/api/live`),
   and a browser allows six per host. Two `EventSource`s plus three streams left one for all ordinary requests, and an
   `<img>` stream is not released when the element is removed unless its `src` is emptied first, so adding a polled

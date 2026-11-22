@@ -213,7 +213,7 @@ export interface ApartmentZone {
 export interface ApartmentObstacle { name: string; zone: ZoneName; x: number; y: number; size_x: number; size_y: number }
 export interface JournalEntry {
   id: number; day: string; weekday: number; minute: number; time: string; slot: number | null;
-  zone: ZoneClass; source: "robot" | "entered" | "search";
+  zone: ZoneClass; source: "robot" | "entered" | "search" | "pasted";
 }
 export interface SearchStep { zone: ZoneName; p: number; seen: boolean; metres: number }
 export interface LogLine { id: number; time: string; text: string; kind: string }
@@ -237,6 +237,8 @@ export interface ApartmentState {
   };
   robot: { x: number; y: number; yaw_deg?: number };
   driver: string;
+  /** Who gives the belief: TabPFN (fit() on synthetic check-ins) or the counting model. */
+  model?: { name: "tabpfn" | "counting"; label: string; detail: string };
   log: LogLine[];
 }
 
@@ -260,8 +262,49 @@ async function apartmentPost(action: string, body: object = {}): Promise<{ ok: b
 export const apartmentAddEntry = (zone: ZoneClass, time: string, days_ago: number) =>
   apartmentPost("journal", { zone, time, days_ago });
 export const apartmentRemoveEntry = (id: number) => apartmentPost("journal/remove", { id });
+/** A pasted journal, one record per line ("Mon 09:30 kitchen"). `replace`: it becomes the whole journal. */
+export async function apartmentImportJournal(text: string, replace: boolean): Promise<{ ok: boolean; added?: number; problems?: string[]; error?: string }> {
+  try {
+    const r = await fetch(`${API}/api/apartment/journal/import`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, replace }),
+    });
+    const j = (await r.json().catch(() => ({}))) as { added?: number; problems?: string[]; error?: string };
+    return r.ok ? { ok: true, ...j } : { ok: false, error: j.error ?? `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" };
+  }
+}
+/** Both inputs of the belief as pretty JSON: {"routines": {...}, "journal": [...]}. */
+export async function apartmentInputsJson(): Promise<string | null> {
+  try {
+    const r = await fetch(`${API}/api/apartment/inputs.json`);
+    return r.ok ? JSON.stringify(await r.json(), null, 1).replace(/\{\n\s+"day": ("[^"]+"),\n\s+"(time|part)": ("[^"]+")(?:,\n\s+"zone": ("[^"]+"))?\n\s+\}/g,
+      (_m, d: string, k: string, t: string, z?: string) => (z ? `{"day": ${d}, "${k}": ${t}, "zone": ${z}}` : `{"day": ${d}, "${k}": ${t}}`)) : null;
+  } catch { return null; }
+}
+/** Pasted inputs as JSON text: routines replace her stated habits, a journal replaces her journal. */
+export async function apartmentSetInputs(text: string): Promise<{ ok: boolean; added?: number; routines?: boolean; problems?: string[]; error?: string }> {
+  try {
+    const r = await fetch(`${API}/api/apartment/inputs`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+    });
+    const j = (await r.json().catch(() => ({}))) as { added?: number; routines?: boolean; problems?: string[]; error?: string };
+    return r.ok ? { ok: true, ...j } : { ok: false, error: j.error ?? `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" };
+  }
+}
+/** The whole journal as text in the format apartmentImportJournal reads. */
+export async function apartmentJournalText(): Promise<string | null> {
+  try {
+    const r = await fetch(`${API}/api/apartment/journal.txt`);
+    return r.ok ? await r.text() : null;
+  } catch { return null; }
+}
 export const apartmentClock = (weekday: number | null, time: string | null) =>
   apartmentPost("clock", weekday === null && time === null ? {} : { weekday, time });
 export const apartmentSearch = (where: string) => apartmentPost("search", { where });
 export const apartmentStop = () => apartmentPost("stop");
+/** Ready for another run: the last search is forgotten, Margarete leaves the room, the robot returns to its dock. */
+export const apartmentClear = () => apartmentPost("clear");
 export const apartmentReset = (seed: number) => apartmentPost("reset", { seed });

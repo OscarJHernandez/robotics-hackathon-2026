@@ -3,9 +3,10 @@
 // (useApartment), so every viewer sees the same thing. The 3D view behind shows the same flat in MuJoCo.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Clock, Dices, Eye, EyeOff, Footprints, Plus, ScanEye, Search, Square, Trash2, X } from "lucide-react";
+import { BrainCircuit, Check, ChevronRight, ClipboardPaste, Clock, Copy, RotateCcw, Dices, Eye, EyeOff, Footprints, Plus, ScanEye, Search, Square, Trash2, X } from "lucide-react";
 import {
-  apartmentAddEntry, apartmentClock, apartmentRemoveEntry, apartmentReset, apartmentSearch, apartmentStop,
+  apartmentAddEntry, apartmentClear, apartmentClock, apartmentImportJournal, apartmentInputsJson, apartmentSetInputs, apartmentRemoveEntry, apartmentReset,
+  apartmentSearch, apartmentStop,
   ZONE_CLASSES, ZONE_COLOR, ZONE_LABEL,
   type ApartmentState, type Belief, type Stage, type ZoneClass, type ZoneName,
 } from "@/lib/api";
@@ -75,7 +76,9 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
               {a.search.steps.length} look{a.search.steps.length === 1 ? "" : "s"} · {a.search.metres.toFixed(1)} m
             </span>
           )}
+          <ResetButton a={a} run={run} />
         </div>
+        <Pipeline a={a} />
       </header>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-5 [scrollbar-width:thin]">
@@ -146,11 +149,20 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
             <h3 className="apt-title">Belief</h3>
             <div role="tablist" aria-label="Belief step" className="apt-tabs">
               {STAGES.map((s) => (
-                <button key={s.id} role="tab" aria-selected={stage === s.id} title={s.hint} onClick={() => setStage(s.id)}
-                  className={`apt-tab ${stage === s.id ? "apt-tab-on" : ""}`}>{s.label}</button>
+                <button key={s.id} role="tab" aria-selected={stage === s.id} onClick={() => setStage(s.id)}
+                  title={s.id === "live" && a.model ? `${a.model.label}: ${a.model.detail}, then every look of the search` : s.hint}
+                  className={`apt-tab ${stage === s.id ? "apt-tab-on" : ""}`}>{s.id === "live" && a.model?.name === "tabpfn" ? "TabPFN" : s.label}</button>
               ))}
             </div>
           </div>
+          {a.model && (
+            <p className="mb-2.5 flex items-center gap-1.5 text-[11.5px] text-video/60">
+              <span className={`h-1.5 w-1.5 rounded-full ${a.model.name === "tabpfn" ? "bg-primary" : "bg-video/40"}`} />
+              {stage === "live"
+                ? <><span className="font-semibold text-video/85">{a.model.label}</span> · {a.model.detail}{a.search.steps.length > 0 ? " · updated after every look" : ""}</>
+                : <>Counting step, for comparison: {STAGES.find((s) => s.id === stage)?.hint.toLowerCase()}</>}
+            </p>
+          )}
           <div className="flex flex-col gap-1.5">
             {ZONE_CLASSES.map((z) => (
               <div key={z} className="grid grid-cols-[92px_1fr_40px] items-center gap-2 text-[13px]">
@@ -165,10 +177,56 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
           <Habits a={a} />
         </section>
 
-        <Journal a={a} run={run} />
+        <Journal a={a} run={run} onError={onError} onChanged={onChanged} />
         <Log a={a} />
       </div>
     </aside>
+  );
+}
+
+/**
+ * Who does what in the search, with the step that is running lit up: the model gives the belief from routines and
+ * journal, the most likely zone is picked, the robot walks there, looks, and Bayes' rule updates the belief.
+ */
+function Pipeline({ a }: { a: ApartmentState }) {
+  const tabpfn = a.model?.name === "tabpfn";
+  const s = a.search.status;
+  const active = s === "starting" ? 0 : s === "walking" ? 1 : s === "looking" ? 2 : -1;
+  const steps = [
+    { label: "Belief", by: tabpfn ? a.model!.label : "Counting", hint: `Where she probably is, from her routines and journal${tabpfn ? `: ${a.model!.label}, ${a.model!.detail}` : ""}` },
+    { label: "Walk", by: a.driver === "tabpfn" ? "TabPFN a→b" : a.driver, hint: "The robot walks to the most likely zone" },
+    { label: "Look", by: "mock", hint: "A look at the zone; it misses her 20% of the time" },
+    { label: "Update", by: "Bayes", hint: "Nobody seen: that zone gets less likely, the others more; then the next most likely zone" },
+  ];
+  return (
+    <div className="mt-2.5">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-video/60">
+        <BrainCircuit className={`h-3.5 w-3.5 ${tabpfn ? "text-primary" : ""}`} aria-hidden />
+        <span>{tabpfn ? <><b className="font-semibold text-video/90">{a.model!.label}</b> orchestrates the Bayesian search</> : "Bayesian search (counting belief)"}</span>
+      </div>
+      <ol aria-label="The steps of the search" className="flex items-stretch gap-1">
+        {steps.map((step, i) => (
+          <li key={step.label} title={step.hint} className="flex min-w-0 flex-1 items-center gap-1">
+            <div className={`apt-step ${i === active ? "apt-step-on" : ""} ${i === 0 && tabpfn ? "apt-step-model" : ""}`}>
+              <span className="truncate text-[11.5px] font-semibold leading-tight">{step.label}</span>
+              <span className="truncate text-[10px] leading-tight opacity-70">{step.by}</span>
+            </div>
+            {i < steps.length - 1 && <ChevronRight className="h-3 w-3 shrink-0 text-video/30" aria-hidden />}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/** After a search: forget it, take Margarete out of the room and put the robot back on its dock. */
+function ResetButton({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void> }) {
+  if (a.search.status === "idle" || a.search.running) return null;
+  return (
+    <button type="button" onClick={() => void run(apartmentClear())} title={`Take ${a.name} out of the room and put the robot back on its dock`}
+      className={`flex shrink-0 items-center gap-1 rounded-full border border-current/30 px-2 py-0.5 text-[11.5px] font-medium hover:bg-video/10 ${a.search.steps.length > 0 ? "" : "ml-auto"}`}>
+      <RotateCcw className="h-3 w-3" />Reset
+    </button>
   );
 }
 
@@ -354,7 +412,79 @@ function Habits({ a }: { a: ApartmentState }) {
   );
 }
 
-function Journal({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void> }) {
+const PASTE_EXAMPLE = `{
+ "routines": {
+  "weekdays": {"morning": "kitchen", "afternoon": "living room", "evening": "living room"},
+  "weekends": {"morning": "bedroom", "afternoon": "living room", "evening": "living room"},
+  "outings": [{"day": "Tue", "part": "afternoon"}]
+ },
+ "journal": [
+  {"day": "Mon", "time": "08:10", "zone": "kitchen"},
+  {"day": "Mon", "time": "14:30", "zone": "out"}
+ ]
+}`;
+
+/** Custom inputs: paste routines and a journal (JSON, or journal lines) to change what the belief is built from;
+ *  "Copy current" gives the live ones to edit. */
+function PasteJournal({ a, onError, onChanged }: { a: ApartmentState; onError: (m: string) => void; onChanged: () => void }) {
+  const [text, setText] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const send = async (replace: boolean) => {
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    const json = text.trim().startsWith("{"); // routines and journal as one object; else journal lines
+    const r: { ok: boolean; added?: number; routines?: boolean; problems?: string[]; error?: string } =
+      json ? await apartmentSetInputs(text) : await apartmentImportJournal(text, replace);
+    setBusy(false);
+    if (!r.ok) { onError(r.error ?? "Could not read the inputs"); return; }
+    const skipped = r.problems?.length ?? 0;
+    const parts = [
+      r.routines ? "routines replaced" : "",
+      r.added ? `${r.added} journal record${r.added === 1 ? "" : "s"} ${replace || json ? "are now the journal" : "added"}` : "",
+    ].filter(Boolean);
+    setNote(`${parts.join(" · ")}. The belief is updated.` +
+      (skipped ? ` ${skipped} line${skipped === 1 ? "" : "s"} skipped: ${r.problems![0]}` : ""));
+    setText("");
+    onChanged();
+  };
+  const copy = async () => {
+    const all = await apartmentInputsJson();
+    if (all === null) { onError("Could not get the inputs"); return; }
+    setText(all);
+    try { await navigator.clipboard.writeText(all); setNote("The current routines and journal are in the box and on the clipboard"); }
+    catch { setNote("The current routines and journal are in the box (the browser did not allow the clipboard)"); }
+  };
+  return (
+    <div className="mb-3 rounded-xl border border-video/10 bg-video/[0.03] p-2.5">
+      <textarea aria-label="Custom inputs: routines and journal as JSON, or journal lines" value={text} rows={9} spellCheck={false}
+        onChange={(e) => { setText(e.target.value); setNote(null); }} placeholder={PASTE_EXAMPLE}
+        className="apt-input h-auto w-full resize-y py-1.5 font-mono text-[11.5px] leading-[1.5] placeholder:text-video/30" />
+      <p className="mt-1.5 text-[11px] leading-snug text-video/50">
+        JSON with <b>routines</b> (her stated habits and outings) and <b>journal</b> (where she was heard, oldest first);
+        either can be left out. Plain lines work for a journal too: <span className="font-mono">Mon 08:10 kitchen</span>.
+        Days: Mon, a date, today, yesterday (weekdays count back from the check-in time). Zones: bedroom, living room,
+        dining area, kitchen, hallway, out.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <button type="button" className="apt-add" disabled={busy || a.search.running || !text.trim()} onClick={() => void send(true)}
+          title="The pasted routines and journal replace hers: the belief is built from them">Apply</button>
+        <button type="button" className="apt-ghost" disabled={busy || a.search.running || !text.trim() || text.trim().startsWith("{")}
+          onClick={() => void send(false)} title="For journal lines: add them to her journal instead of replacing it">Add lines</button>
+        <button type="button" className="apt-ghost ml-auto" onClick={() => void copy()} title="Put the current journal in the box and on the clipboard">
+          <Copy className="h-3.5 w-3.5" />Copy current
+        </button>
+      </div>
+      {note && <p role="status" className="mt-2 text-[11.5px] text-term-green">{note}</p>}
+    </div>
+  );
+}
+
+function Journal({ a, run, onError, onChanged }: {
+  a: ApartmentState; run: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void>;
+  onError: (m: string) => void; onChanged: () => void;
+}) {
+  const [paste, setPaste] = useState(false);
   const [zone, setZone] = useState<ZoneClass>("living_room");
   const [daysAgo, setDaysAgo] = useState(0);
   const [time, setTime] = useState("");
@@ -362,10 +492,13 @@ function Journal({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean
   const add = () => void run(apartmentAddEntry(zone, time, daysAgo)).then(() => setTime(""));
   return (
     <section className="apt-card">
-      <div className="mb-2 flex items-baseline justify-between">
-        <h3 className="apt-title">Journal</h3>
-        <span className="text-[11px] text-video/45">{a.journal_total} entries</span>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="apt-title">Journal <span className="ml-1 font-normal normal-case tracking-normal text-video/45">{a.journal_total} entries</span></h3>
+        <button type="button" className="apt-link flex items-center gap-1" aria-expanded={paste} onClick={() => setPaste((o) => !o)}>
+          <ClipboardPaste className="h-3.5 w-3.5" />{paste ? "Hide" : "Custom inputs"}
+        </button>
       </div>
+      {paste && <PasteJournal a={a} onError={onError} onChanged={onChanged} />}
       <form className="mb-2.5 flex flex-wrap items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); add(); }}>
         <select aria-label="Zone" className="apt-input min-w-0 flex-1" value={zone} onChange={(e) => setZone(e.target.value as ZoneClass)}>
           {ZONE_CLASSES.map((z) => <option key={z} value={z}>{ZONE_LABEL[z]}</option>)}
@@ -382,7 +515,7 @@ function Journal({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: ZONE_COLOR[e.zone] }} aria-hidden />
             <span className="w-[118px] shrink-0 whitespace-nowrap font-mono text-[11.5px] tabular-nums text-video/60">{DAYS[e.weekday]} {e.day.slice(8)}.{e.day.slice(5, 7)} {e.time}</span>
             <span className="flex-1 truncate">{ZONE_LABEL[e.zone]}</span>
-            <span className="text-[10.5px] text-video/40">{e.source === "robot" ? "heard" : e.source === "search" ? "seen by robot" : "entered"}</span>
+            <span className="text-[10.5px] text-video/40">{e.source === "robot" ? "heard" : e.source === "search" ? "seen by robot" : e.source === "pasted" ? "pasted" : "entered"}</span>
             <button onClick={() => void run(apartmentRemoveEntry(e.id))} aria-label={`Remove the entry of ${e.time}`}
               className="text-video/35 opacity-0 transition-opacity hover:text-term-red group-hover:opacity-100 focus:opacity-100">
               <Trash2 className="h-3.5 w-3.5" />
@@ -460,7 +593,9 @@ export function ApartmentPhoneCard({ apartment: a, onError, onChanged }: {
             {a.search.steps.length} look{a.search.steps.length === 1 ? "" : "s"} · {a.search.metres.toFixed(1)} m
           </span>
         )}
+        <ResetButton a={a} run={run} />
       </div>
+      <Pipeline a={a} />
       <Plan a={a} belief={a.belief} showHer={found} />
       <Looks a={a} />
       <div className={`grid gap-2 ${a.search.running ? "grid-cols-[1fr_auto]" : "grid-cols-[1fr_auto_auto]"}`}>

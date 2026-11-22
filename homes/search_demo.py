@@ -31,6 +31,7 @@ STRATEGIES = (
     ("habits", "Most likely first: + stated habits"),
     ("journal", "Most likely first: + journal"),
     ("full", "Most likely first: + last heard  (the search)"),
+    ("tabpfn", "Most likely first: TabPFN belief (fit() on synthetic check-ins)"),
     ("oracle", "Most likely first: her true routine (best possible)"),
     ("shortest", "Comparison: full belief, fewest expected metres"),
 )
@@ -76,18 +77,28 @@ def tune(out, population, residents=150):
     return best
 
 
-def cases(out, population):
-    """One dict per test check-in of the test residents, with the belief and every strategy's walk."""
+def cases(out, population, tabpfn=None):
+    """One dict per test check-in of the test residents, with the belief and every strategy's walk.
+    `tabpfn`: a tabpfn_belief.TabPFNBelief; its belief for every check-in is predicted in one call."""
     rng = np.random.default_rng(0)
     rows = []
-    for flat, p, habits, mine, journal, r, last in check_ins(out, "test"):
+    predicted = None
+    if tabpfn is not None:
+        import tabpfn_belief
+        X, _ = tabpfn_belief.frame_rows(out, "test")  # the same check-ins, in the same order as check_ins()
+        predicted = tabpfn.predict(X)
+    for k, (flat, p, habits, mine, journal, r, last) in enumerate(check_ins(out, "test")):
         b = S.beliefs(flat, r.hour, int(r.weekday), population, habits, journal, last)
+        if predicted is not None:
+            b["tabpfn"] = {c: float(v) for c, v in zip(CLASSES, predicted[k])}
         b["oracle"] = zone_probs(p, int(r.weekday), int(r.slot))  # the routine she really draws from (not known)
         orders = {"random": [flat["zones"][i]["name"] for i in rng.permutation(len(flat["zones"]))],
                   "nearest": S.nearest_first(flat), "last": S.nearest_first(flat, last[0] if last else None),
                   "population": S.plan(flat, b["population"])[0], "habits": S.plan(flat, b["habits"])[0],
                   "journal": S.plan(flat, b["journal"])[0], "full": S.plan(flat, b["last_heard"])[0],
                   "shortest": S.plan_shortest(flat, b["last_heard"])[0], "oracle": S.plan(flat, b["oracle"])[0]}
+        if "tabpfn" in b:
+            orders["tabpfn"] = S.plan(flat, b["tabpfn"])[0]
         rows.append({"flat": flat, "persona": p, "habits": habits, "diary": mine, "hour": float(r.hour),
                      "weekday": int(r.weekday), "slot": int(r.slot), "day": int(r.day), "last": last,
                      "truth": r.zone, "beliefs": b, "orders": orders, "recent": same_part_of_today(r.hour, last),
@@ -97,7 +108,7 @@ def cases(out, population):
 
 
 BELIEF_OF = {"population": "population", "habits": "habits", "journal": "journal", "full": "last_heard",
-             "oracle": "oracle"}
+             "oracle": "oracle", "tabpfn": "tabpfn"}
 
 
 def table(rows):
@@ -114,6 +125,8 @@ def table(rows):
                   "{:<54}{:>15}{:>9}{:>12}{:>10}".format("Strategy", "zones checked", "metres", "belief top", "log loss")]
         result[key] = {"check_ins": len(group), "at_home": len(home)}
         for name, label in STRATEGIES:
+            if home and name not in home[0]["walks"]:
+                continue  # TabPFN was not asked for
             metres = float(np.mean([r["walks"][name][0] for r in home]))
             checked = float(np.mean([r["walks"][name][1] for r in home]))
             entry = {"metres": round(metres, 2), "zones_checked": round(checked, 2)}
@@ -278,6 +291,7 @@ def describe(title, r):
 
 LOOP_STRATEGIES = (
     ("bayes", "Bayesian loop: look, update the belief, pick again"),
+    ("tabpfn", "The same loop, starting from TabPFN's belief"),
     ("certain", "Same belief, but a miss rules the zone out (no second look)"),
     ("nearest", "Nearest zone first, round after round"),
     ("last", "Last heard first, then rounds"),
@@ -309,12 +323,15 @@ def loops(rows, miss_rate, seed=0):
         certain = S.run(flat, start, truth, rng["certain"], miss_rate, update_rate=0.0)
         last = r["last"][0] if r["last"] else None
         r["loop"] = steps
-        r["loop_runs"] = {
+        r["loop_runs"] = {} if "tabpfn" not in r["beliefs"] else {"tabpfn": (lambda t: (
+            len(t), t[-1]["metres"] if t else 0.0, bool(t and t[-1]["seen"])))(
+                S.run(flat, r["beliefs"]["tabpfn"], truth, rng["tabpfn"], miss_rate))}
+        r["loop_runs"].update({
             "bayes": (len(steps), steps[-1]["metres"] if steps else 0.0, bool(steps and steps[-1]["seen"])),
             "certain": (len(certain), certain[-1]["metres"] if certain else 0.0, bool(certain and certain[-1]["seen"])),
             "nearest": sweep(flat, S.nearest_first(flat), truth, rng["nearest"], miss_rate),
             "last": sweep(flat, S.nearest_first(flat, last), truth, rng["last"], miss_rate),
-        }
+        })
     return rows
 
 
@@ -328,6 +345,8 @@ def loop_table(rows, miss_rate):
              "{:<62}{:>8}{:>8}{:>9}".format("Strategy (all with the same imperfect look)", "found", "looks", "metres")]
     result = {"miss_rate": miss_rate, "at_home": len(home)}
     for name, label in LOOP_STRATEGIES:
+        if name not in home[0]["loop_runs"]:
+            continue
         runs = [r["loop_runs"][name] for r in home]
         found = [x for x in runs if x[2]]
         entry = {"found": round(len(found) / len(runs), 3), "looks": round(float(np.mean([x[0] for x in found])), 2),
@@ -412,6 +431,9 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default=str(OUT))
     parser.add_argument("--tune", action="store_true", help="find the weights for search.WEIGHTS (train residents) and stop")
+    parser.add_argument("--tabpfn", action="store_true",
+                        help="also measure the TabPFN belief (tabpfn_belief.py): needs TabPFN, takes a minute or two")
+    parser.add_argument("--tabpfn-version", default=None, help="v3.5 (needs the API key) or v2; default: the newest available")
     parser.add_argument("--miss-rate", type=float, default=S.MISS_RATE,
                         help="the search loop's mock look: chance of overlooking her in the zone she is in")
     args = parser.parse_args()
@@ -421,7 +443,12 @@ def main():
         loss, weights = tune(out, population)
         print("lowest log loss on train check-ins {:.3f} with {}".format(loss, weights))
         return
-    rows = cases(out, population)
+    model = None
+    if args.tabpfn:
+        import tabpfn_belief
+        model = tabpfn_belief.TabPFNBelief(version=args.tabpfn_version)
+        print("TabPFN {}: fit() on {} synthetic check-ins".format(model.version, model.rows))
+    rows = cases(out, population, model)
     lines, result = table(rows)
     print("{} test residents (people and flats never seen), {} days of journal each. Metres: walked from the dock "
           "until she is found.".format(result["residents"], args.days - 2))
