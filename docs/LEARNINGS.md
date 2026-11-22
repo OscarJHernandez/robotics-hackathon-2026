@@ -381,6 +381,11 @@ in the same pull request as the work.
 
 ## Process
 
+- 2026-11-22 (Krishna's agent): The pitch deck `Knock it goes and checks on Mum.pdf` has no source in the repo:
+  every page is a flat 3840×2160 image, so a slide cannot be edited in place. To add one, write it as a 1280×720
+  HTML page (Fraunces bold titles, DM Sans text, orange `#c8611e`, navy `#16213a`, backgrounds `#ede6da` and
+  `#f7f3ec`), print it with headless Chrome (`@page { size: 960pt 540pt }`) and splice it in with
+  `qpdf deck.pdf --pages . 1-5 new.pdf . 6-z -- out.pdf`, which keeps the deck's title metadata.
 - 2026-11-22 (Oscar's agent): After PR #27 was squash-merged, PR #28 (stacked on it) showed 15 conflicting files
   against `main` though `main`'s tree equalled #27's head: the squash drops the shared history. Oscar wants such
   work moved to a new branch off `main`, without merging: `git restore --source=<old branch> --staged --worktree
