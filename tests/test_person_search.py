@@ -194,7 +194,7 @@ class DetectRobot(FakeRobot):
                 self.spot.update(x=est[0], y=est[1])
             d = math.hypot(est[0] - self.x, est[1] - self.y) or 1.0
             self.x, self.y = est[0] - stop * (est[0] - self.x) / d, est[1] - stop * (est[1] - self.y) / d
-            self.spot["watch_hits"] = self.approach_hits if is_her else 0
+            self.spot["watch_hits"] = self.approach_hits  # matches on the way in (the check resets them)
             self.approach = {"running": False, "reason": "arrived", "estimate": list(est),
                              "goal": [self.x, self.y], "updates": 2 if self.off else 0}
             self._mode = "goto"
@@ -256,7 +256,9 @@ class DetectorSearchTest(unittest.TestCase):
         self.assertIn("spot reset", robot.commands)
         self.assertIn("look", robot.commands)
         self.assertIn("approach {:.2f}".format(apartment.APPROACH_STOP), robot.commands)
-        self.assertNotIn("watch {}".format(apartment.CHECK_CYCLES), robot.commands)  # checked on the way in
+        self.assertIn("watch {}".format(apartment.CHECK_CYCLES), robot.commands)  # checked at the destination
+        self.assertLess(robot.commands.index("approach {:.2f}".format(apartment.APPROACH_STOP)),
+                        robot.commands.index("watch {}".format(apartment.CHECK_CYCLES)))
         self.assertLess(s["found_error"], 0.01)
         self.assertAlmostEqual(s["robot_to_person"], apartment.APPROACH_STOP, places=2)
 
@@ -273,13 +275,15 @@ class DetectorSearchTest(unittest.TestCase):
         self.assertGreater(s["approach"]["updates"], 0)
         self.assertIn("approach", [e["kind"] for e in a.state()["log"]])
 
-    def test_too_few_hits_on_the_way_then_the_watch_decides(self):
-        robot = DetectRobot(approach_hits=0)
+    def test_hits_on_the_way_do_not_count_only_the_watch_decides(self):
+        robot = DetectRobot(approach_hits=5, decoy=(-3.0, 3.0))  # a look-alike that matched on the way in
         a = make(robot=robot)
         a.start("kitchen")
         finish(a)
-        self.assertIn("watch {}".format(apartment.CHECK_CYCLES), robot.commands)
-        self.assertEqual(a.state()["search"]["status"], "found")
+        s = a.state()["search"]
+        self.assertEqual(s["false_alarms"], 1)
+        self.assertEqual(s["status"], "found")
+        self.assertEqual(a.search.steps[-1]["zone"], "kitchen")
 
     def test_lost_on_the_way_is_a_false_alarm(self):
         robot = DetectRobot(lost=True)

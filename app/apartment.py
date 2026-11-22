@@ -813,22 +813,24 @@ class Apartment:
 
     def _check(self, where, zone):
         """The close-up: the robot walks up to her (its `approach`: every gait cycle the destination is recomputed
-        from the detector's estimate, APPROACH_STOP short of her) and faces her; the strong matches from up close on
-        the way count for the check. Too few by then: it stands and looks CHECK_CYCLES more cycles. (x, y) of the
-        final estimate when CHECK_HITS matches agree, else None (a false alarm)."""
+        from the detector's estimate, APPROACH_STOP short of her), faces her and looks CHECK_CYCLES cycles. (x, y) of
+        the final estimate when CHECK_HITS strong matches agree, else None (a false alarm; also when she was lost on
+        the way)."""
         with self._lock:
             self.run["status"] = "approaching"
             self.run["approach"] = {"goal": None, "estimate": [round(where[0], 2), round(where[1], 2)],
                                     "updates": 0, "reason": None}
-        self._command("spot mark")
         reason = self._approach(where)
+        if reason != "arrived":
+            return None
         with self._lock:
             self.run["status"] = "checking"
+        # The check counts only what the robot sees standing at the destination: counting strong matches on the way
+        # in too gave look-alikes passed close by more chances (bench seeds 7422, 7453: found 2.7 and 1.5 m off).
+        self._command("spot mark")
+        self._command("watch {}".format(CHECK_CYCLES))
+        self._settle(CHECK_CYCLES * 3.0 + 20.0, idle_modes=("watch",))
         spot = self._spotter()
-        if reason == "arrived" and spot.get("watch_hits", 0) < CHECK_HITS:
-            self._command("watch {}".format(CHECK_CYCLES))
-            self._settle(CHECK_CYCLES * 3.0 + 20.0, idle_modes=("watch",))
-            spot = self._spotter()
         if spot.get("watch_hits", 0) >= CHECK_HITS and spot.get("x") is not None:
             return (spot["x"], spot["y"])
         return None
