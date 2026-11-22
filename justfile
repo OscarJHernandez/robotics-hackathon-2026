@@ -90,6 +90,14 @@ dagger-eval *args:
 dagger-bench *args:
     uv run --group ml --group vision python -m nav.dagger.bench {{ args }}
 
+# The target's DINOv2 signature for the horizon band, and how well it matches: just vision-signature full60
+vision-signature *args:
+    uv run --group vision python vision/target_signature.py {{ args }}
+
+# Target detector checks in the sim (expert walks, look-arounds; no TabPFN): just target-check --set final --count 40
+target-check *args:
+    uv run --group ml --group vision python -m nav.dagger.target_check {{ args }}
+
 # Run the DAgger tests
 test-dagger:
     uv run --group ml --group vision python -m unittest tests.test_dagger -v

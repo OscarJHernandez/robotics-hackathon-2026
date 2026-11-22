@@ -165,20 +165,25 @@ def frame_v2(base, meta, columns):
 
 def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy=None, features=None, beta=1.0,
            perturb=None, store_band=False, log=None, timer=None, on_chunk=None, chunk_episodes=25,
-           heartbeat_every=30.0):
+           heartbeat_every=30.0, search=None):
     """Run every planned episode. Each step stores the base row; the student (if any) gets `features.live(...)`.
+
+    `search(env, episode)` (test only, see target.py): makes a TargetSearch per episode. Its goal then replaces
+    the true target in the student's goal columns and in the lidar-map plan, and its look-around commands replace
+    the student's; the stored rows, the expert's labels, goal_x/goal_y and success still use the true target.
+    The episode ends with "not_found" when every location was checked without a match.
 
     `perturb` (expert collections only): {"command": p, "kick": p}. With probability `command` per step a random
     command is executed for 1 to 3 steps; with probability `kick` the robot is turned by a random angle after a
     step. The label is always the expert's command for the state the robot is in (the DART idea).
     Returns (outcome counts, steps).
     """
-    from nav.common import STRIDE_RANGE, TURN_RANGE
+    from nav.common import STRIDE_RANGE, TURN_RANGE, relative
     timer = timer or Timer()
     queue = list(plan)
     total = len(queue)
     n = len(envs)
-    slots, obs, hist = [None] * n, [None] * n, [None] * n
+    slots, obs, hist, searches = [None] * n, [None] * n, [None] * n, [None] * n
     planners = None
     if features is not None and features.cfg.get("lidar_plan"):
         from .lidarmap import LidarPlanner
@@ -197,6 +202,8 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
         hist[k] = None
         if planners is not None:
             planners[k].reset()
+        if search is not None:
+            searches[k] = search(envs[k], episode)
         episode.update(t0=time.time(), nopath_steps=0, random_left=0, random_cmd=None, kicked=False, perturbed_steps=0)
         slots[k] = episode
 
@@ -217,9 +224,19 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
                 cmd = expert.act(envs[k].state())
                 experts.append((cmd, bool(expert.nopath), float(expert.look_bearing)))
         base["look_bearing"] = [e[2] for e in experts]  # used only by the privileged ceiling variant
+        goals = {k: envs[k].goal for k in active}
+        if search is not None:
+            with timer("target_search"):
+                for row, k in enumerate(active):
+                    goals[k], _ = searches[k].update(None if band is None else band[row], obs[k]["depth"],
+                                                     obs[k]["lidar"], obs[k]["robot_pose"])
+            goal_cols = [relative(obs[k]["robot_pose"], *goals[k]) for k in active]
+            base["goal_dist"] = [g[0] for g in goal_cols]
+            base["goal_sin"] = [math.sin(g[1]) for g in goal_cols]
+            base["goal_cos"] = [math.cos(g[1]) for g in goal_cols]
         if planners is not None:
             with timer("lidar_plan"):
-                lp = [planners[k].step(obs[k]["robot_pose"], envs[k].goal, obs[k]["lidar"]) for k in active]
+                lp = [planners[k].step(obs[k]["robot_pose"], goals[k], obs[k]["lidar"]) for k in active]
             base["lp_sin"], base["lp_cos"] = [v[0] for v in lp], [v[1] for v in lp]
         student = None
         if policy is not None and beta < 1.0:
@@ -238,6 +255,9 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
                            else (math.nan, math.nan))
             use_expert = student is None or rng.random() < beta
             executed, perturbed = (expert_cmd if use_expert else student_cmd), False
+            scripted = search is not None and searches[k].command is not None
+            if scripted:
+                executed = searches[k].command
             if student is None and perturb.get("command"):
                 if episode["random_left"] == 0 and rng.random() < perturb["command"]:
                     episode["random_left"] = int(rng.integers(1, 4))
@@ -247,6 +267,9 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
                     episode["random_left"] -= 1
                     episode["perturbed_steps"] += 1
             obs[k], info = env.step(executed)
+            if scripted and searches[k].phase == "not_found" and not info["done"]:
+                info = dict(info, done=True, done_reason="not_found")
+                env.done, obs[k] = True, None
             out.base.append(stored[row])
             if store_band and band is not None:
                 out.band.append(band[row])
@@ -260,6 +283,8 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
                 "y_stride": expert_cmd[0], "y_turn": expert_cmd[1], "beta": beta, "look_bearing": look,
                 "perturbed": perturbed, "kicked": episode["kicked"],
                 "collision": info["collision"], "expert_nopath": nopath, "done_reason": info["done_reason"]})
+            if search is not None:
+                out.meta[-1].update(searches[k].row())
             episode["kicked"] = False
             if not info["done"] and student is None and perturb.get("kick") and rng.random() < perturb["kick"]:
                 obs[k] = env.kick(float(rng.uniform(-math.pi, math.pi)))
@@ -274,6 +299,8 @@ def run_v2(envs, featurizer, expert, plan, rng, stored_columns, round_=0, policy
                            "goal_x": env.goal[0], "goal_y": env.goal[1], "start_dist": round(env.start_dist, 3),
                            "final_dist": round(math.hypot(env.goal[0] - x, env.goal[1] - y), 3),
                            "nopath_steps": episode["nopath_steps"], "perturbed_steps": episode["perturbed_steps"]}
+                if search is not None:
+                    summary.update(searches[k].summary(), reached_with=searches[k].source)
                 out.episodes.append(summary)
                 counts[info["done_reason"]] += 1
                 finished += 1

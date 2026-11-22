@@ -75,6 +75,26 @@ in the same pull request as the work.
   navigation.md, and the "stop and turn" share is 6.6% in LEARNINGS but 6.5% in `dagger-report.md`. The page uses
   the exact per-run table (`promotion.md`). Every number it shows is in `app/web/src/content/howItWorks.ts` with its
   source.
+- 2026-11-22 (Oscar's agent): For a target the lidar cannot see (the pillar), use that as a check: a DINOv2 match
+  the lidar also sees at the depth camera's range is solid furniture. With the real student, v32 drove into such
+  look-alikes in 9 of 13 collisions; the check rejected 29 of 53 false matches and 0 of 1,452 true ones
+  (`target.lidar_sees_target`). A lidar-visible target (a person) needs another check.
+- 2026-11-22 (Oscar's agent): `experiment run` drives only 100 layouts unless `--closed-count 200` is given
+  (CLOSED_DEFAULT); v29's final test used 200. Finished episodes are skipped, so rerun with the count to add the rest.
+- 2026-11-22 (Oscar's agent): To match the target in the DINOv2 horizon band, centre the band columns on the mean
+  background column and keep several prototypes. One plain mean of the target columns found the pillar in no held-out
+  picture beyond 2 m (column recall 42%); centring plus 3 k-means prototypes reached 77% recall at 98% precision and
+  76% of pictures at 2-3 m. See `vision/target_signature.py`.
+- 2026-11-22 (Oscar's agent): A look-around at full turn rate (0.25, 0.53 rad per gait cycle) keeps the target in the
+  62 degree view for only about 2 steps, too few to confirm a match: 75% found at the viewing point. Turning at 0.15
+  (about 20 steps a turn) found 92.5%. Debounce with agreeing detections, not with "2 of the last 3 steps".
+- 2026-11-22 (Oscar's agent): A search must not start its "is it really here?" look-around farther from its
+  estimate than the episode's goal radius (0.25 m). At 0.35 m it spun next to the true pillar, could not confirm it so
+  close, and rejected a correct estimate as a false positive in most episodes.
+- 2026-11-22 (Oscar's agent): The pasted target-search design named `vision/strip_pca.py`, `extract(band=6)`, 23 cells,
+  a leg-aware safety layer and `augment.py`. Those are on `feat/dagger-lidar-depth-recovery`, not on PR 22's
+  `feat/dagger-v2-fixpass`. On PR 22 the band is patch rows 11-14 in `featurize.py` (46 columns), there is no safety
+  layer and no reverse (stride >= 0), and v29 runs through `rollout.run_v2`, not `run_episodes`.
 - 2026-11-22 (Oscar's agent): 8 of v29's 9 final-test collisions are into the table's legs (cylinders 5 cm across):
   the simulated lidar's 36 rays are 10 degrees apart, 17 cm at 1 m, so a leg falls between rays until it is close and is
   missing from the robot's lidar map. Thin obstacles need a denser lidar; see [dagger-report.md](dagger-report.md).
@@ -312,6 +332,9 @@ in the same pull request as the work.
 - 2026-11-22 (Oscar's agent): Run `just student-bench` (40 flats x home/scattered) on vendetta with the real student
   before claiming numbers for the app; the flats are tighter than the training layouts (0.10 m furniture gaps).
 
+- 2026-11-22 (Oscar's agent): Target search: make Margarete lidar-visible (her geoms are contype 0 like the pillar) and
+  build a signature from labelled pictures of her lying and standing, then rerun `v32-target-search` with
+  `range_source: auto`. Also plug `homes/search.py`'s belief in as a Schedule instead of the random order.
 - 2026-11-22 (Oscar's agent): Try a denser simulated lidar (for example 360 rays at 1 degree) aimed at the table-leg
   crashes: a new round 0 (about 15 min) and one refit of v29.
 - 2026-11-22 (Oscar's agent): Check the simulated lidar against the real JetHexa lidar (rays, range, noise) and
