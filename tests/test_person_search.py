@@ -53,6 +53,51 @@ class EstimateTest(unittest.TestCase):
         self.assertIsNotNone(d)
 
 
+def floor_depth(cols, z, top):
+    """A depth picture: the floor everywhere below the horizon, far wall above, and an object at depth `z` in band
+    columns `cols` reaching `top` metres high."""
+    rows = np.arange(T.H) + 0.5
+    below = rows > T.HORIZON
+    d = np.full((T.H, T.W), 8.0, np.float32)
+    d[below] = np.minimum(8.0, T.CAMERA_HEIGHT * T.FOCAL / (rows[below] - T.HORIZON))[:, None]
+    top_row = int(T.HORIZON - (top - T.CAMERA_HEIGHT) * T.FOCAL / z)
+    floor_row = int(T.HORIZON + T.CAMERA_HEIGHT * T.FOCAL / z)
+    for c in cols:
+        p0, p1 = T.column_pixels(c, c)
+        d[max(0, top_row):floor_row, p0:p1] = z
+    return d
+
+
+class HeightTest(unittest.TestCase):
+    def setUp(self):
+        self.sig = {"vectors": np.eye(8, dtype=np.float32)[:1], "center": np.zeros(8, np.float32), "threshold": 0.8,
+                    "name": "t"}
+        band = np.random.default_rng(0).normal(size=(46, 8)).astype(np.float32)
+        band[:, 0] = 0.0
+        band[20:23] = 0.0
+        band[20:23, 0] = 1.0
+        self.band = band
+
+    def detect(self, top, min_height=0.2):
+        cfg = T.target_config({"min_height": min_height})
+        return T.Detector(self.sig, cfg).detect(self.band, floor_depth(range(20, 23), 1.5, top), None, (0, 0, 0))[1]
+
+    def test_something_low_on_the_floor_is_not_her(self):
+        self.assertIsNone(self.detect(0.10))
+
+    def test_lying_or_standing_she_is_high_enough(self):
+        d = self.detect(0.27)
+        self.assertIsNotNone(d)
+        self.assertAlmostEqual(d["range"], 1.5 + T.CAM_X + 0.03, delta=0.1)
+        self.assertIsNotNone(self.detect(1.6))
+
+    def test_without_the_check_the_pillar_rule_is_unchanged(self):
+        """No min_height: the arena's rule (nearest pixel at or above the horizon), no height test."""
+        d = self.detect(0.30, min_height=None)
+        self.assertIsNotNone(d)
+        self.assertAlmostEqual(d["range"], 1.5 + T.CAM_X + 0.03, delta=0.1)
+
+
 class FakeSim:
     def __init__(self):
         self.x = 0.0

@@ -33,6 +33,7 @@ COLS = 46                 # band columns (patch columns)
 CAM_X = 0.0625            # camera, metres ahead of the body centre (sim/jethexa.xml "eye")
 LIDAR_X = -0.023          # lidar, metres ahead of the body centre (lidar_geom)
 FOCAL = (W / 2) / math.tan(HFOV / 2)
+CAMERA_HEIGHT = 0.148     # metres: the level camera above the floor (body 0.078 + 0.07)
 HORIZON = H / 2
 
 DEFAULT_TARGET = {
@@ -50,6 +51,12 @@ DEFAULT_TARGET = {
     # range is something solid, a look-alike: rejected. On v32's first 100 final layouts this removed 29 of 53
     # false matches and 0 of 1,452 true ones. true (a person): no such check.
     "lidar_sees_target": False,
+    # a match whose nearest object (depth camera, floor removed) reaches lower than this is dropped; None: no check
+    # (the pillar). A person lying is 0.27 m high, standing much more; clutter on the floor is lower.
+    "min_height": None,
+    # the lidar look-alike check's tolerance (metres); None: range_tol. Someone standing 0.3 m in front of furniture
+    # has the furniture right behind her on the lidar: 0.25 m called her furniture.
+    "lookalike_tol": None,
     "depth_cap": 8.0, "max_range": 4.0,
     "confirm": 2, "fuse_radius": 0.35, "max_jump": 0.75, "fuse_decay": 0.7, "stale_steps": 6,
     "candidates": 4, "min_gap": 1.0, "view_dist": [0.8, 1.5], "clearance": 0.35, "wall": 0.45,
@@ -149,6 +156,28 @@ class Detector:
         w = np.maximum(sim[c0:c1 + 1] - self.threshold, 0) + 1e-3
         return float((self.bearings[c0:c1 + 1] * w).sum() / w.sum())
 
+    def object_range(self, depth, c0, c1, bearing):
+        """With `min_height` set (a person): (range from the CAMERA, top height in metres) of the nearest thing in the
+        matched columns that is not floor. Every depth pixel of the band (also below the horizon) gets its height
+        above the floor from the level camera (CAMERA_HEIGHT + rows above the horizon x depth / focal length); floor
+        pixels (under 3 cm) are dropped, the nearest of the rest is the object, and its top is the highest pixel of
+        the matched columns within 0.25 m of that depth. (None, None) when nothing is there."""
+        h, w = depth.shape
+        p0, p1 = column_pixels(c0, c1, w)
+        cols = depth[:, p0:p1]
+        rows = (np.arange(h)[:, None] + 0.5) * (H / h)
+        height = CAMERA_HEIGHT + (HORIZON - rows) / FOCAL * cols
+        ok = (cols > 0.05) & (cols < self.cfg["depth_cap"]) & (height > 0.03)
+        r0 = band_pixel_rows(h)[0]
+        r1 = BAND_ROWS[1] * 14 * h // (26 * 14)
+        band_ok = ok[r0:r1]
+        if not band_ok.any():
+            return None, None
+        z = float(cols[r0:r1][band_ok].min())
+        near = ok & (np.abs(cols - z) < 0.25)
+        top = float(height[near].max()) if near.any() else 0.0
+        return z / max(math.cos(bearing), 0.2), top
+
     def depth_range(self, depth, c0, c1, bearing):
         """Horizontal range from the CAMERA along `bearing` to the nearest valid pixel of the matched columns."""
         h, w = depth.shape
@@ -190,7 +219,12 @@ class Detector:
             return best_sim, None
         c0, c1, best = run
         bearing = self.bearing(sim, c0, c1)
-        cam = self.depth_range(depth, c0, c1, bearing) if depth is not None else None
+        if self.cfg.get("min_height") is not None and depth is not None:
+            cam, top = self.object_range(depth, c0, c1, bearing)
+            if cam is None or top < self.cfg["min_height"]:
+                return best_sim, None  # nothing there, or too low to be her (a thing on the floor)
+        else:
+            cam = self.depth_range(depth, c0, c1, bearing) if depth is not None else None
         offset = self.cfg["offset"]
         point_depth = None
         if cam is not None:
@@ -200,8 +234,8 @@ class Detector:
         if not self.cfg["lidar_sees_target"] and point_depth is not None and lidar is not None:
             lb = math.atan2(point_depth[1], point_depth[0] - LIDAR_X)
             lr = self.lidar_range(lidar, lb)
-            if lr is not None and abs(lr + offset - math.hypot(point_depth[0] - LIDAR_X, point_depth[1])) \
-                    < self.cfg["range_tol"]:
+            tol = self.cfg["lookalike_tol"] if self.cfg.get("lookalike_tol") is not None else self.cfg["range_tol"]
+            if lr is not None and abs(lr + offset - math.hypot(point_depth[0] - LIDAR_X, point_depth[1])) < tol:
                 return best_sim, None  # the lidar sees something solid there: not the target
         if self.cfg["range_source"] in ("lidar", "auto"):
             ref = point_depth or (CAM_X + math.cos(bearing), math.sin(bearing))
