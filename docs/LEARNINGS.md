@@ -43,6 +43,20 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): To match the target in the DINOv2 horizon band, centre the band columns on the mean
+  background column and keep several prototypes. One plain mean of the target columns found the pillar in no held-out
+  picture beyond 2 m (column recall 42%); centring plus 3 k-means prototypes reached 77% recall at 98% precision and
+  76% of pictures at 2-3 m. See `vision/target_signature.py`.
+- 2026-11-22 (Oscar's agent): A look-around at full turn rate (0.25, 0.53 rad per gait cycle) keeps the target in the
+  62 degree view for only about 2 steps, too few to confirm a match: 75% found at the viewing point. Turning at 0.15
+  (about 20 steps a turn) found 92.5%. Debounce with agreeing detections, not with "2 of the last 3 steps".
+- 2026-11-22 (Oscar's agent): A search must not start its "is it really here?" look-around farther from its
+  estimate than the episode's goal radius (0.25 m). At 0.35 m it spun next to the true pillar, could not confirm it so
+  close, and rejected a correct estimate as a false positive in most episodes.
+- 2026-11-22 (Oscar's agent): The pasted target-search design named `vision/strip_pca.py`, `extract(band=6)`, 23 cells,
+  a leg-aware safety layer and `augment.py`. Those are on `feat/dagger-lidar-depth-recovery`, not on PR 22's
+  `feat/dagger-v2-fixpass`. On PR 22 the band is patch rows 11-14 in `featurize.py` (46 columns), there is no safety
+  layer and no reverse (stride >= 0), and v29 runs through `rollout.run_v2`, not `run_episodes`.
 - 2026-11-22 (Oscar's agent): 8 of v29's 9 final-test collisions are into the table's legs (cylinders 5 cm across):
   the simulated lidar's 36 rays are 10 degrees apart, 17 cm at 1 m, so a leg falls between rays until it is close and is
   missing from the robot's lidar map. Thin obstacles need a denser lidar; see [dagger-report.md](dagger-report.md).
@@ -274,6 +288,9 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-22 (Oscar's agent): Target search: make Margarete lidar-visible (her geoms are contype 0 like the pillar) and
+  build a signature from labelled pictures of her lying and standing, then rerun `v32-target-search` with
+  `range_source: auto`. Also plug `homes/search.py`'s belief in as a Schedule instead of the random order.
 - 2026-11-22 (Oscar's agent): Try a denser simulated lidar (for example 360 rays at 1 degree) aimed at the table-leg
   crashes: a new round 0 (about 15 min) and one refit of v29.
 - 2026-11-22 (Oscar's agent): Check the simulated lidar against the real JetHexa lidar (rays, range, noise) and

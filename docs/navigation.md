@@ -218,6 +218,50 @@ Commands (all on branch `feat/dagger-v2-fixpass`): `python -m nav.dagger.experim
 `python -m nav.dagger.stage run|analyse`, `python -m nav.dagger.lidarmap add --name <set>`, variants in
 `nav/dagger/variants/*.yaml`, data and results in `data/nav/dagger/v2/` (STATUS.md, incidents.md, experiments/).
 
+## Finding the target itself: DINOv2 signature, range, search (test only, 2026-11-22)
+
+Above, the student is always handed the true target. `nav/dagger/target.py` replaces that with what a real robot
+would have: a few candidate locations and its own sensors. **The student is not refitted**; only the goal it is
+given changes (variant `v32-target-search` = v29 plus a `target:` block).
+
+- **What and which way: the camera.** The horizon band the student already computes every step (DINOv2 features of
+  patch rows 11-14, averaged per patch column: 46 columns of 1.35 degrees, 384 numbers each) is matched to the
+  target's **signature** by cosine similarity on all 384 numbers. The signature comes from `just vision-signature`
+  (`vision/target_signature.py`): band columns that show the target in full60's 48 training layouts, centred on the
+  mean background column, grouped into 3 prototypes. The lidar has no appearance information.
+- **How far: the depth camera** (nearest valid pixel of the matched columns, band rows at or above the horizon, so
+  no floor), or the lidar where it sees the target and the depth camera agrees (`range_source: lidar | auto`).
+  The pillar is invisible to the lidar by design, so it is ranged with depth.
+- **Where to look:** `target.candidates` locations (4), each with a probability: in the test the true target's
+  viewing point (0.8-1.5 m from it, in open space, so walking there does not reach it by itself) plus decoys at
+  random free places at least 1 m apart. The order comes from a `Schedule` (`random` now; `probability` as a
+  second example); another model plugs in as another Schedule.
+- **The search:** walk to the next location, look around (a scripted turn on the spot, about 20 steps a turn),
+  then the next; a match confirmed by 2 agreeing detections (on the way or while looking) becomes the goal, fused
+  over steps, far jumps need confirming again. A look-around marks every location within 2.5 m checked.
+  An estimate that turns out empty is a false positive: it is rejected and the search goes on. Every location
+  checked without a match ends the episode as `not_found`.
+- **What changes in the rollout:** the search's goal replaces the true target in the student's goal columns and in
+  the lidar-map plan; the look-around turns replace the student's command. Stored rows, the expert's labels,
+  goal_x/goal_y and success stay the true target. Every row logs the estimate, its source, the match and its error.
+
+| check | result |
+|---|---|
+| signature, full60 held-out layouts (12): band columns | precision 98.2%, recall 76.9% (one plain mean: 98.4% / 42.1%) |
+| signature, held-out pictures with the pillar | found in 81.5%; by distance 97% (< 1 m), 76% (1-3 m), 1 of 3 (3-4 m) |
+| sim, expert walking 40 final layouts (1,348 steps): pillar in view | hit 81% (< 1 m), 89% (1-2 m), 78% (2-3 m), 61% (3-4 m), 0% beyond 4 m; median error < 1 cm |
+| sim, same walks: matches more than 0.5 m off | 6 steps of 1,348 (0.45%), all one look-alike in one layout |
+| sim, look-around at the true viewing point (40 layouts) | found in 92.5% at turn 0.15 (about 20 steps a turn); 75% at full turn rate 0.25 |
+| sim, whole search with a stand-in driver (pure pursuit on the plan, no TabPFN), 12 final layouts | 12 of 12 reached, 0 false positives, final goal error 1-6 mm |
+
+Commands: `just vision-signature full60`, `just target-check --set final --count 40` (the two sim checks, no
+TabPFN), `python -m nav.dagger.experiment run --variant nav/dagger/variants/v32-target-search.yaml --closed-set
+final --closed-max-steps 600 --closed-stuck-steps 0 --tag final` (the student with the search), then
+`python -m nav.dagger.video --experiment v32-target-search-final --pick-search --copy-to videos/target-search`.
+To swap the target (a person standing or lying): make her signature from labelled pictures of her and set
+`target.signature`, `target.offset` and `target.range_source` in the variant; no code change. Margarete's geoms in
+`sim/apartment_decor.xml` are lidar-transparent like the pillar, so `lidar`/`auto` ranging needs them made visible.
+
 ## Where the data is
 
 Everything is in **`data/nav/` in the main checkout** (gitignored, never committed). Set `NAV_DATA_DIR`
