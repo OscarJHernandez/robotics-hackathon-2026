@@ -182,3 +182,26 @@ class LidarQuotaTest(unittest.TestCase):
         self.assertTrue(set(rare) <= set(picked.index))  # every rare row survives the cap
         uniform = choose_context(table, 300, seed=0, quotas="uniform")
         self.assertLess(len(set(rare) & set(uniform.index)), 10)
+
+
+@unittest.skipUnless(HAVE_ML, "needs the ml packages")
+class LidarShieldTest(unittest.TestCase):
+    def test_stops_and_turns_away_only_when_close_in_front(self):
+        from nav.dagger.policy import LidarShield
+
+        class Walk:
+            def act_batch(self, X):
+                return np.tile([0.3, 0.05], (len(X), 1))
+
+        cols = ["goal_dist"] + ["lr_{}".format(i) for i in range(36)]
+        X = np.full((4, 37), 2.0)
+        X[1, 1 + 6] = 0.2     # 60 degrees left, close: stop, turn right
+        X[2, 1 + 30] = 0.2    # 300 = -60 degrees (right), close: stop, turn left
+        X[3, 1 + 18] = 0.2    # straight behind: ignored
+        out = LidarShield(Walk(), cols, min_range=0.27, fov_deg=90).act_batch(X)
+        np.testing.assert_allclose(out[0], [0.3, 0.05])
+        self.assertEqual(out[1, 0], 0.0)
+        self.assertLess(out[1, 1], 0)
+        self.assertEqual(out[2, 0], 0.0)
+        self.assertGreater(out[2, 1], 0)
+        np.testing.assert_allclose(out[3], [0.3, 0.05])

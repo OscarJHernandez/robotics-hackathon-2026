@@ -329,6 +329,43 @@ class RulePolicy:
         return np.stack([np.clip(stride, *STRIDE_RANGE), turn], axis=1)
 
 
+class LidarShield:
+    """Wraps a student: if any lidar ray within +-`fov_deg` of straight ahead reads under `min_range`, the stride is
+    set to 0 and the robot turns away from that obstacle. A hand-written rule on top of the student, always reported
+    separately ("student + lidar shield"). Expert data shows the robot is almost never this close (18 of 41k rows
+    under 0.26 m), while every student crash happened at 0.15 to 0.31 m."""
+    name = "student + lidar shield"
+
+    def __init__(self, policy, columns, min_range=0.27, fov_deg=90):
+        self.policy, self.min_range, self.fov = policy, min_range, fov_deg
+        self.columns = list(columns)
+        self._rays = [i for i, c in enumerate(self.columns) if c.startswith("lr_")]
+        if not self._rays:
+            raise ValueError("the lidar shield needs lr_ feature columns")
+        n = len(self._rays)
+        angles = np.array([int(self.columns[i][3:]) * 360.0 / n for i in self._rays])
+        self._bearing = np.where(angles > 180, angles - 360, angles)  # degrees, + = left
+        self._front = np.abs(self._bearing) <= fov_deg
+        self.shielded = 0
+
+    def __getattr__(self, name):  # fit, fit_seconds, context_rows ... come from the wrapped policy
+        return getattr(self.__dict__["policy"], name)
+
+    def act_batch(self, rows):
+        X = _matrix(rows, self.columns)
+        out = np.array(self.policy.act_batch(X), float)
+        ranges = X[:, self._rays]
+        front = np.where(self._front, ranges, np.inf)
+        nearest = front.argmin(axis=1)
+        close = front[np.arange(len(X)), nearest] < self.min_range
+        out[close, 0] = 0.0
+        away = -np.sign(self._bearing[nearest[close]])  # obstacle on the left (+) -> turn right (-)
+        away = np.where(away == 0, 1.0, away)
+        out[close, 1] = away * TURN_MAGNITUDE
+        self.shielded = int(close.sum())
+        return out
+
+
 STUDENT_KINDS = ("tabpfn", "gated", "knn", "rule")
 
 
@@ -349,4 +386,7 @@ def make_student(student_cfg, columns, categorical, seed=0):
     shield = student_cfg.get("shield")
     if shield is not None:
         policy = Shield(policy, **shield)
+    lidar_shield = student_cfg.get("lidar_shield")
+    if lidar_shield is not None:
+        policy = LidarShield(policy, columns, **lidar_shield)
     return policy
