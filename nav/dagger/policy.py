@@ -192,7 +192,7 @@ class Shield:
         return out
 
 
-LIDAR_BINS = (0.35, 0.6)  # metres: nearest lidar range < 0.35, 0.35 to 0.6, > 0.6 (legs reach about 0.2 m sideways)
+LIDAR_BINS = (0.27, 0.45)  # metres: nearest lidar range; under 0.27 m is almost absent from expert data (18 of 41k rows) yet every crash happens there
 
 
 def lidar_min(table):

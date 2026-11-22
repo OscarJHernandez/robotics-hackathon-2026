@@ -174,7 +174,7 @@ class LidarQuotaTest(unittest.TestCase):
         for i in range(36):
             table["lr_{}".format(i)] = 2.0
         rare = np.arange(20)  # 20 rows: obstacle 0.25 m beside, expert stops and turns
-        table.loc[rare, "lr_9"] = 0.25
+        table.loc[rare, "lr_9"] = 0.22
         table.loc[rare, "y_stride"] = 0.0
         table.loc[rare, "y_turn"] = 0.25
         picked = choose_context(table, 300, seed=0, quotas="mode_x_lidar")
