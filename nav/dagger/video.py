@@ -141,7 +141,7 @@ def film(run, round_, episode, config, probe, dino, out, table=None, label=None)
     footprints, goal = env.footprints(), env.goal
     outcome = rows["done_reason"].iloc[-1]
     share = rows["used_expert"].mean()
-    driver = ("EXPERT driving" if share == 1 else "STUDENT alone (expert only labels)" if share == 0
+    driver = ("EXPERT driving" if share == 1 else "STUDENT drives alone" if share == 0
               else "mixed: expert {:.0%} of steps".format(share))
     title = "{} ep. {}: {}".format(label or "round {}".format(round_), episode, driver)
     ffmpeg = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
