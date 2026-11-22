@@ -192,10 +192,23 @@ class Shield:
         return out
 
 
-def _group_keys(table):
+LIDAR_BINS = (0.35, 0.6)  # metres: nearest lidar range < 0.35, 0.35 to 0.6, > 0.6 (legs reach about 0.2 m sideways)
+
+
+def lidar_min(table):
+    cols = [c for c in table.columns if c.startswith("lr_")]
+    if not cols:
+        raise ValueError("lidar quotas need lr_ columns in the rows")
+    return table[cols].to_numpy(float).min(axis=1)
+
+
+def _group_keys(table, by="free"):
     mode = mode_labels(table["y_stride"], table["y_turn"])
-    free = np.digitize(np.asarray(table["free_ahead"], float), FREE_BINS)
-    return mode * 3 + free
+    if by == "lidar":
+        near = np.digitize(lidar_min(table), LIDAR_BINS)
+    else:
+        near = np.digitize(np.asarray(table["free_ahead"], float), FREE_BINS)
+    return mode * 3 + near
 
 
 def context_summary(table):
@@ -222,14 +235,14 @@ def choose_context(table, max_rows=None, seed=0, bins=6, quotas="turn_stride"):
     "mode_x_free": rows the student drove (used_expert False) are always kept; the rest get an equal quota per
     non-empty group of mode (walk / stop-left / stop-right) x free-ahead bin (<0.5, 0.5-1, >1 m); the remainder
     is filled at random."""
-    if quotas not in ("turn_stride", "mode_x_free", "uniform"):
+    if quotas not in ("turn_stride", "mode_x_free", "mode_x_lidar", "uniform"):
         raise ValueError(f"unknown quotas {quotas!r}")
     if not max_rows or len(table) <= max_rows:
         return table
     rng = np.random.default_rng(seed)
     if quotas == "uniform":  # a plain random sample
         return table.iloc[np.sort(rng.choice(len(table), max_rows, replace=False))]
-    if quotas == "mode_x_free":
+    if quotas in ("mode_x_free", "mode_x_lidar"):
         if "used_expert" in table.columns:
             student = (~table["used_expert"].astype(bool)).to_numpy()
         else:
@@ -239,7 +252,7 @@ def choose_context(table, max_rows=None, seed=0, bins=6, quotas="turn_stride"):
             keep = rng.choice(keep, max_rows, replace=False)
         room = max_rows - len(keep)
         pool = np.flatnonzero(~student)
-        key = _group_keys(table)[pool]
+        key = _group_keys(table, "lidar" if quotas == "mode_x_lidar" else "free")[pool]
         groups = [pool[key == k] for k in np.unique(key)]
         if room > 0 and groups:
             quota = max(1, room // len(groups))

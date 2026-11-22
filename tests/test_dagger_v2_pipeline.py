@@ -161,3 +161,24 @@ class DaggerRoundSetsTest(unittest.TestCase):
         self.assertFalse({e["scene_id"] for e in rounds[0]} & {e["scene_id"] for e in rounds[1]})
         with self.assertRaises(KeyError):
             set_plan("dagger_r0")
+
+
+@unittest.skipUnless(HAVE_ML, "needs the ml packages")
+class LidarQuotaTest(unittest.TestCase):
+    def test_rare_near_obstacle_stops_are_all_kept(self):
+        from nav.dagger.policy import choose_context
+        rng = np.random.default_rng(0)
+        n = 2000
+        table = pd.DataFrame({"y_stride": np.full(n, 0.3), "y_turn": rng.uniform(-0.1, 0.1, n),
+                              "free_ahead": np.full(n, 3.0), "used_expert": np.ones(n, bool)})
+        for i in range(36):
+            table["lr_{}".format(i)] = 2.0
+        rare = np.arange(20)  # 20 rows: obstacle 0.25 m beside, expert stops and turns
+        table.loc[rare, "lr_9"] = 0.25
+        table.loc[rare, "y_stride"] = 0.0
+        table.loc[rare, "y_turn"] = 0.25
+        picked = choose_context(table, 300, seed=0, quotas="mode_x_lidar")
+        self.assertEqual(len(picked), 300)
+        self.assertTrue(set(rare) <= set(picked.index))  # every rare row survives the cap
+        uniform = choose_context(table, 300, seed=0, quotas="uniform")
+        self.assertLess(len(set(rare) & set(uniform.index)), 10)
