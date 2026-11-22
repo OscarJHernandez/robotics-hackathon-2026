@@ -101,7 +101,7 @@ def build_student(variant, config, log, timer):
     student = make_student(student_cfg, features.columns, features.categorical, ctx_cfg.get("seed", 0))
     frame = pd.DataFrame(X, columns=features.columns)
     frame["y_stride"], frame["y_turn"] = context["y_stride"].to_numpy(), context["y_turn"].to_numpy()
-    info = {"student": type(student).__name__, "kind": student_cfg.get("kind", "tabpfn"), "context_rows": len(context),
+    info = {"student": type(student).__name__, "student_kind": student_cfg.get("kind", "tabpfn"), "context_rows": len(context),
             "context_groups": context_summary(context), "sources": {t["_source"].iloc[0]: len(t) for t in tables},
             "features": features.describe(), "columns_fit": len(features.columns)}
     log.event("fit", "{} fit() on {} rows x {} columns ({})".format(info["student"], len(frame), len(features.columns),
