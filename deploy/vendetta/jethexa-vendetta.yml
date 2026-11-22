@@ -1,0 +1,9 @@
+# cloudflared config for the tunnel jethexa-vendetta: goes to ~/.cloudflared/jethexa-vendetta.yml on vendetta.
+# Replace __HOME__ and __TUNNEL_ID__ (from `cloudflared tunnel create`). The credentials file is a secret: never commit it.
+tunnel: __TUNNEL_ID__
+credentials-file: __HOME__/.cloudflared/__TUNNEL_ID__.json
+
+ingress:
+  - hostname: jethexa-vendetta.alpharelay.dev
+    service: http://127.0.0.1:8795
+  - service: http_status:404

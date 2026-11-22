@@ -27,6 +27,16 @@ in the same pull request as the work.
 - 2026-11-21 (Oscar's agent): MuJoCo is at 4.0.1 and our model and tests pass on it, but the private
   `sophy_jethexa` repo pins `mujoco<4`. If you move code between the two repos, check it on both versions.
 
+- 2026-11-22 (Oscar's agent): https://jethexa.alpharelay.dev is served by the laptop (the `relay` tunnel runs
+  there despite its name `vendetta-mac-apps`), so it goes down when the laptop sleeps. The always-on copy is
+  https://jethexa-vendetta.alpharelay.dev on vendetta; see [deploy/vendetta/README.md](../deploy/vendetta/README.md).
+- 2026-11-22 (Oscar's agent): A fresh host needs the gitignored `data/nav/controllers/default` (328 KB) and
+  `data/nav/dagger/v2/student/v29` (23 MB) copied in, or the app falls back to weaker drivers without an error.
+  Run from a worktree, the app looks for them (and `.env`) in the main checkout.
+- 2026-11-22 (Oscar's agent): On a Mac with `~/.cloudflared/config.yml`, `cloudflared tunnel route dns <name> <host>`
+  routes to the tunnel in that file, not to `<name>`: our new record first pointed at the `voice` tunnel. Pass
+  `--config <the new tunnel's yml>` to every `cloudflared tunnel` command.
+
 ## Hardware and robot
 
 - 2026-11-21 (Nodir's agent): The robot camera sits about 15 cm above the floor, so it cannot see a 75 cm
