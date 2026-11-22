@@ -72,6 +72,9 @@ VERDICT = {
 }
 
 
+ROUND_STUDENT = {1: "v11-lidar", 2: "v18-lidar-dagger1", 3: "v22c-collector", 4: "v26c-collector"}
+
+
 def _load(exp_id):
     d = experiment_dir(exp_id)
     if not (d / "rows.parquet").exists() or not (d / "episodes.json").exists():
@@ -101,9 +104,10 @@ def student_only(rows):
                 and np.allclose(rows["executed_turn"], rows["student_turn"].clip(-0.25, 0.25), atol=1e-6))
 
 
-def _rate(s, key):
+def _rate(s, key, digits=0):
     r = s[key]
-    return "{:.0%} ({:.0%}-{:.0%})".format(r["rate"], r["ci_low"], r["ci_high"]) if key == "goal" else "{:.0%}".format(r["rate"])
+    f = "{:." + str(digits) + "%}"
+    return (f + " (" + f + "-" + f + ")").format(r["rate"], r["ci_low"], r["ci_high"]) if key == "goal" else f.format(r["rate"])
 
 
 def screening_table(n=100):
@@ -155,7 +159,9 @@ def dagger_rounds():
         d = dataset_dir("dagger_r{}".format(k))
         merge = json.loads((d / "merge.json").read_text()) if (d / "merge.json").exists() else {}
         variant = d / "student-variant.yaml"
-        student = yaml.safe_load(variant.read_text())["id"] if variant.exists() else "?"
+        # the round's student; the variant file was written on metacon, where the rounds ran
+        student = (yaml.safe_load(variant.read_text())["id"] if variant.exists()
+                   else ROUND_STUDENT.get(k, "?"))
         rows = pd.read_parquet(d / "rows.parquet", columns=["used_expert", "beta"])
         out.append({"round": k, "student": student, "beta": float(rows["beta"].iloc[0]), "episodes": merge.get("episodes"),
                     "rows": merge.get("rows"), "student_rows": int((~rows["used_expert"]).sum()),
@@ -173,6 +179,8 @@ def write_markdown(folder, screen, expert, promo, rounds):
              "thing against its reference; the comparison is paired on the same 100 layouts and start poses "
              "(wins = goal where the reference did not). The expert on these layouts: goal {:.0%}.".format(
                  expert["goal"]["rate"]), "",
+             "Fit seconds are on the machine that ran the variant: vendetta (M4 Pro, MPS) for all but `v22c-collector` "
+             "(metacon, CPU).", "",
              "| variant | verdict | the one change, and what it showed | cols | context rows | fit s | goal (95% CI) "
              "| collisions | stuck | vs reference: wins/losses, sign p, Wilcoxon p |",
              "|---|---|---|---|---|---|---|---|---|---|"]
@@ -193,7 +201,7 @@ def write_markdown(folder, screen, expert, promo, rounds):
         c = s["collision"]
         lines.append("| {} | {} | {} | {} | {:.1%} ({:.1%}-{:.1%}) | {} | {} |".format(
             r["set"], s["n"], "expert (anchor)" if r["id"] == "expert" else "student `{}`".format(r["id"]),
-            _rate(s, "goal"), c["rate"], c["ci_low"], c["ci_high"], s["stuck"]["count"], s["timeout"]["count"]))
+            _rate(s, "goal", 1), c["rate"], c["ci_low"], c["ci_high"], s["stuck"]["count"], s["timeout"]["count"]))
     (folder / "promotion.md").write_text("\n".join(lines) + "\n")
 
     lines = ["# DAgger rounds (student drives on its own new training layouts, the expert labels every step)", "",
