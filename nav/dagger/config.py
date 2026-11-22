@@ -121,9 +121,20 @@ SETS = {  # name: (first scene id, layouts, start seed, first episode id)
 }
 
 
+def set_spec(name):
+    """(first scene id, layouts, seed, first episode id) of a fixed set, or of a DAgger round "dagger_r<k>"
+    (k = 1..60: student-driven rounds on their own training layouts 10000 + 1000 k, never the held-out ones)."""
+    if name in SETS:
+        return SETS[name]
+    if name.startswith("dagger_r") and name[8:].isdigit() and 1 <= int(name[8:]) <= 60:
+        k = int(name[8:])
+        return (10_000 + 1000 * k, 1000, 10 + k, 20_000_000 + 100_000 * k)
+    raise KeyError("unknown data set {!r}".format(name))
+
+
 def set_plan(name, first=0, count=None):
     """Episodes of a set: [{"episode", "scene_id", "seed"}], optionally only `count` of them from index `first`."""
-    scene0, layouts, seed, episode0 = SETS[name]
+    scene0, layouts, seed, episode0 = set_spec(name)
     count = layouts - first if count is None else count
     return [{"episode": episode0 + i, "scene_id": scene0 + i, "seed": seed} for i in range(first, first + count)]
 

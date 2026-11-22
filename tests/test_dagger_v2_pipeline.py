@@ -146,3 +146,18 @@ class RuleAndPlansTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_ML, "needs the ml packages")
+class DaggerRoundSetsTest(unittest.TestCase):
+    def test_dagger_rounds_are_disjoint_from_everything(self):
+        from nav.dagger.config import SETS, set_plan
+        fixed = {e["scene_id"] for name in SETS for e in set_plan(name)}
+        fixed_ids = {e["episode"] for name in SETS for e in set_plan(name)}
+        rounds = [set_plan("dagger_r{}".format(k)) for k in (1, 2, 3, 60)]
+        for plan in rounds:
+            self.assertFalse({e["scene_id"] for e in plan} & fixed)
+            self.assertFalse({e["episode"] for e in plan} & fixed_ids)
+        self.assertFalse({e["scene_id"] for e in rounds[0]} & {e["scene_id"] for e in rounds[1]})
+        with self.assertRaises(KeyError):
+            set_plan("dagger_r0")

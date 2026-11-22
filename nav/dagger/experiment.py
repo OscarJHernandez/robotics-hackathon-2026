@@ -231,7 +231,7 @@ def run_part(job):
 
 
 def launch(kind, label, folder, plan, config_path, procs, n_envs, max_steps, stuck_steps, beta, variant=None,
-           perturb=None, store_band=False, round_=0, heartbeat=30.0, dino_device=None, threads=None):
+           perturb=None, store_band=False, round_=0, heartbeat=30.0, dino_device=None, threads=None, offline=True):
     """Split the still-missing episodes over `procs` processes (memory permitting) and run them."""
     from .guard import fit_procs
     from .worker import run_jobs
@@ -247,7 +247,7 @@ def launch(kind, label, folder, plan, config_path, procs, n_envs, max_steps, stu
              "n_envs": n_envs, "threads": threads, "config": str(config_path) if config_path else None,
              "max_steps": max_steps, "stuck_steps": stuck_steps, "beta": beta, "variant": variant, "perturb": perturb,
              "store_band": store_band, "round": round_, "heartbeat": heartbeat, "dino_device": dino_device,
-             "stamp": stamp, "rng_salt": int(time.time()) % 100000, "offline": True} for k in range(procs)]
+             "stamp": stamp, "rng_salt": int(time.time()) % 100000, "offline": offline} for k in range(procs)]
     print("{} {}: {} of {} episodes still to run, {} processes".format(kind, label, len(todo), len(plan), procs),
           flush=True)
     started = time.time()
@@ -265,18 +265,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     c = sub.add_parser("collect")
-    c.add_argument("--name", required=True, choices=sorted(SETS))
+    c.add_argument("--name", required=True)
     c.add_argument("--first", type=int, default=0)
     c.add_argument("--count", type=int, default=None)
     c.add_argument("--perturb", default=None, help="P_COMMAND,P_KICK per step, e.g. 0.04,0.03")
     c.add_argument("--max-steps", type=int, default=300)
     c.add_argument("--stuck-steps", type=int, default=None)
+    d = sub.add_parser("dagger", help="a DAgger round: the variant's student drives, the expert labels every step")
+    d.add_argument("--variant", required=True)
+    d.add_argument("--name", required=True, help="dagger_r<k>")
+    d.add_argument("--beta", type=float, required=True, help="chance per step that the expert's command is executed")
+    d.add_argument("--count", type=int, default=200)
+    d.add_argument("--max-steps", type=int, default=150)
+    d.add_argument("--stuck-steps", type=int, default=40)
     r = sub.add_parser("run")
     r.add_argument("--variant", required=True)
     r.add_argument("--closed-first", type=int, default=None)
     r.add_argument("--closed-count", type=int, default=None)
     r.add_argument("--no-closed", action="store_true")
-    for p in (c, r):
+    for p in (c, d, r):
         p.add_argument("--procs", type=int, default=1)
         p.add_argument("--n-envs", type=int, default=None)
         p.add_argument("--config", default=None)
@@ -297,6 +304,14 @@ def main():
         kwargs = dict(kind="collect", label=label, folder=folder, plan=plan, config_path=args.config, procs=args.procs,
                       n_envs=n_envs, max_steps=args.max_steps, stuck_steps=args.stuck_steps, beta=1.0,
                       perturb=perturb, store_band=config["features"]["perception"] == "probe")
+    elif args.command == "dagger":
+        variant = load_variant(args.variant)
+        label, folder = args.name, dataset_dir(args.name)
+        (folder / "student-variant.yaml").write_text(Path(args.variant).read_text())
+        plan = set_plan(args.name, 0, args.count)
+        kwargs = dict(kind="dagger", label=label, folder=folder, plan=plan, config_path=args.config, procs=args.procs,
+                      n_envs=n_envs, max_steps=args.max_steps, stuck_steps=args.stuck_steps, beta=args.beta,
+                      variant=variant, store_band=config["features"]["perception"] == "probe", offline=False)
     else:
         variant = load_variant(args.variant)
         label, folder = variant["id"], experiment_dir(variant["id"])
