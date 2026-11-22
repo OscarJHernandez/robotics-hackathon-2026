@@ -98,8 +98,11 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
               <button key={v} onClick={() => setView(v)}
                 className={`glass-btn h-8 shrink-0 px-3 text-xs font-medium ${v === view ? "glass-btn-on" : ""}`}>{VIEW_LABEL[v]}</button>
             ))}
-            <SpeedControl state={state} live={live} onError={onError} className="ml-auto shrink-0 pl-1.5" />
           </div>
+        )}
+        {!found && (
+          <SpeedControl state={state} live={live} onError={onError}
+            className="absolute right-3 top-[calc(max(12px,env(safe-area-inset-top))+42px)]" />
         )}
       </div>
 
