@@ -57,12 +57,16 @@ class FlatEnv(SimEnv):
         self.sim.set_target(*(person or AWAY))  # place() resets the simulation, which moves the pillar back
         self.goal = (dock["x"], dock["y"])
         self.gait, self.steps, self.path_length, self.done = PHASE0, 0, 0.0, False
+        self.start_dist, self.best_dist, self.since_gain = 0.0, 0.0, 0  # SimEnv.step's stuck rule needs these
         self.scene_id = "flat-{}".format(flat["flat_id"])
 
     def set_goal(self, x, y):
         """A new place to walk to, from where the robot stands now."""
         self.goal = (float(x), float(y))
         self.steps, self.done = 0, False
+        px, py, _ = self.pose()
+        self.start_dist = self.best_dist = math.hypot(px - self.goal[0], py - self.goal[1])
+        self.since_gain = 0
 
     def observe(self):
         if self.render_pictures:
