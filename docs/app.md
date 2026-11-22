@@ -84,12 +84,36 @@ drawn from her routine, or both, to see how the belief and the search change. Th
 **Reset** (in the status strip after a search) forgets the search, takes Margarete out of the room and puts the
 robot back on its dock; the flat and the journal stay. "New flat" starts over with another layout and resident.
 
-**Shuffle obstacles** (beside "New flat" on the floor plan, and on the phone card) drops the loose pieces (stool,
-armchair, crate, plant) at random spots on the open floor, any heading (`scatter` in `homes/flats.py`): at least
-0.5 m from every other piece and wall (the training rule), 0.5 m from every viewing spot, the dock and the doorway,
-and every viewing spot still reachable from the dock. The zones, the resident and the journal stay; the robot goes
-back to its dock. Refused while a search runs; "New flat" puts everything back as built. The floor plan draws the
-loose pieces in a second (amber) tone, dashed once they have been moved. `POST /api/apartment/obstacles`.
+**Clean · Medium · Messy** (in the floor plan's header, and on the phone card) sets how cluttered the room is
+(`scatter(flat, rng, level)` in `homes/flats.py`):
+
+| Level | On the floor |
+|---|---|
+| Clean | Only the fixed furniture (bed, couch, cabinet, table); the stool, armchair, crate and plant are taken out |
+| Medium | The four loose pieces at random spots, plus 4 of the 12 clutter items (8 loose things) |
+| Messy | The four loose pieces plus as many of the 12 clutter items as fit, at least 10 (up to 16 loose things) |
+
+The clutter is twelve small household things (laundry basket, bin, boxes, books, pouf, suitcase, bag, vacuum,
+bucket, toy crate and chest; `sim/clutter.xml`, `CLUTTER` in `homes/flats.py`), solid, 0.2 to 0.45 m across and at
+least 0.3 m tall so the lidar and the A* map both see them, parked outside the room until a level drops them.
+Every dropped thing lands at a random spot, any heading: the pieces keep 0.5 m from every other piece and wall
+(the training rule), the clutter 0.5 m in Medium and 0.4 m in Messy; everything keeps 0.5 m from every viewing
+spot, the dock and the doorway, and every viewing spot stays reachable from the dock on the app's A* map
+(`ROUTE_MARGIN`, 0.42 m). The current level is highlighted; pressing it again draws a new arrangement. The zones, the
+resident and the journal stay; the robot goes back to its dock and the log says how many things are on the floor.
+Refused while a search runs; "New flat" puts everything back as built (`obstacles: "home"`). The floor plan draws
+the loose pieces and the clutter in a second (amber) tone. `POST /api/apartment/obstacles {"level": "messy"}` (no
+level: medium); `GET /api/apartment` says the level in `obstacles`.
+
+**Speed: x1 · x2 · x3 · x5** (under the camera list on a computer, at the end of the view row on a phone) runs the
+simulation that many times faster than real time: the loop waits CONTROL_DT / speed of wall time per 20 ms physics
+step, and renders each view every VIEWS[view] x speed steps, so the streams keep their picture rate. One robot, so
+the speed is shared by every viewer and kept until someone changes it ("Reset" and "New flat" keep it). Every
+steering decision makes the loop wait (the a-to-b controller's local `predict()`, the student's API call of about
+0.7 s per simulated second), so the asked speed is not always reached: the robot's state carries `speed` and
+`speed_actual` (simulated seconds per wall second over the last 3 s), and the control shows "x5 (running x3.4)"
+when they differ by more than 10%. The search's walk and turn timeouts are wall-clock and only get easier.
+`POST /api/speed {"speed": 2}` (rate-limited); `/api/state` and `/api/health` report it.
 
 **Who walks.** First choice is the **TabPFN student** (`--driver student`, the default): the obstacle-avoiding
 student of `nav/dagger` (v29, "lidar-map plan"; see [navigation.md](navigation.md)), through the hosted TabPFN API.
@@ -124,10 +148,11 @@ starts a new touch).
 arena (grey checker floor, 4.5 m walls, the red pillar at the goal); the apartment has a wood floor, 0.7 m walls,
 zone patches, rugs, cushions, a door and Margarete, and the camera feeds 75 of the student's 116 inputs. So the
 student never looks at the apartment: `app/student.py` keeps a second MuJoCo model of the plain arena, and before
-each decision copies the robot's joint state and the eight furniture poses into it, puts the red pillar at the
-goal, and renders the camera picture and depth there. The lidar is cast in the real scene (rays skip geoms without
+each decision copies the robot's joint state and the poses of every obstacle body (the eight pieces of furniture
+and the twelve clutter items: the twin is `sim/arena_clutter.xml`, the plain arena plus `sim/clutter.xml`) into it,
+puts the red pillar at the goal, and renders the camera picture and depth there. The lidar is cast in the real scene (rays skip geoms without
 collisions, so zones, decor and Margarete are invisible to it). `tests/test_student_twin.py` checks, for 20 flats
-and poses (half of them shuffled), that these inputs equal those of the plain `FlatEnv` (`homes/sim_bridge.py`) at
+and poses (as built and at each mess level, with clutter), that the twin mirrors every obstacle body, that these inputs equal those of the plain `FlatEnv` (`homes/sim_bridge.py`) at
 the same layout and pose, that the lidar in the dressed scene equals the twin's, and that painting the zones,
 moving Margarete and moving the decor change none of them (while they do change the app's own camera picture).
 

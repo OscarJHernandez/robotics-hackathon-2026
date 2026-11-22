@@ -149,42 +149,118 @@ class FlatsTest(unittest.TestCase):
 
 
 class ScatterTest(unittest.TestCase):
-    """scatter(): the loose pieces dropped at random on the open floor (the app's "Shuffle obstacles")."""
+    """scatter(): the app's mess levels. clean: nothing loose on the floor; medium: the loose pieces and 4 clutter
+    items dropped at random; messy: the loose pieces and up to 12 clutter items (at least 10)."""
 
-    def test_zones_and_fixed_pieces_stay_and_every_clearance_holds(self):
-        for seed in range(200):
-            flat = make_flat(seed % 40)
-            out = F.scatter(flat, np.random.default_rng([seed, 5]))
-            self.assertEqual([z["name"] for z in out["zones"]], [z["name"] for z in flat["zones"]])
-            for a, b in zip(out["zones"], flat["zones"]):
-                for key in ("x", "y", "size_x", "size_y", "view_x", "view_y", "person_x", "person_y"):
-                    self.assertEqual(a[key], b[key])  # zones and their main spots stay
-            self.assertEqual((out["door"], out["dock"]), (flat["door"], flat["dock"]))
-            before = {p["name"]: p for p in flat["furniture"]}
-            pieces = {p["name"]: p for p in out["furniture"]}
-            for name, p in pieces.items():
-                if name in F.LOOSE:
-                    self.assertTrue(p["moved"])
-                else:
-                    self.assertEqual(p, before[name])  # bed, couch, cabinet, table: as built
-            corners = {name: F.piece_corners(p) for name, p in pieces.items()}
-            for name in F.LOOSE:
-                c = corners[name]
-                self.assertLessEqual(max(max(abs(x), abs(y)) for x, y in c), F.HALF - F.PASSAGE + 1e-6)
-                for other in pieces:
-                    if other != name:
-                        self.assertGreaterEqual(F._poly_dist(c, corners[other]), F.PASSAGE - 1e-6, (seed, name, other))
-                spots = [(s["view_x"], s["view_y"]) for z in out["zones"] for s in z["spots"]]
-                for x, y in spots + [(out["dock"]["x"], out["dock"]["y"])]:
-                    self.assertGreaterEqual(F._poly_point_dist(c, x, y), F.SPOT_GAP - 1e-6)
-                for z in out["zones"]:
-                    for s in z["spots"]:
-                        self.assertGreaterEqual(F._poly_point_dist(c, s["person_x"], s["person_y"]),
-                                                F.PERSON_SPOT_GAP - 1e-6)
-            self.assertTrue(all(F.reachable_spots(out).values()), seed)
-            living = F.zone(out, "living_room")
-            self.assertNotIn("armchair", [s["name"] for s in living["spots"]])  # its spot went with it
-            self.assertTrue(living["spots"])
+    def check(self, flat, out, level, seed):
+        what = (level, seed)
+        rule = F.LEVELS[level]
+        self.assertEqual(out["level"], level)
+        self.assertEqual([z["name"] for z in out["zones"]], [z["name"] for z in flat["zones"]])
+        for a, b in zip(out["zones"], flat["zones"]):
+            for key in ("x", "y", "size_x", "size_y", "view_x", "view_y", "person_x", "person_y"):
+                self.assertEqual(a[key], b[key])  # zones and their main spots stay
+        self.assertEqual((out["door"], out["dock"]), (flat["door"], flat["dock"]))
+        before = {p["name"]: p for p in flat["furniture"]}
+        pieces = {p["name"]: p for p in out["furniture"]}
+        self.assertEqual(len(pieces), len(out["furniture"]))  # names are unique
+        self.assertTrue(set(F.PIECES) <= set(pieces))  # the 8 pieces are always listed
+        clutter = [n for n, p in pieces.items() if p.get("clutter")]
+        self.assertTrue(set(clutter) <= set(F.CLUTTER))
+        for name, p in pieces.items():
+            if name in F.CLUTTER:
+                self.assertEqual(p["body"], F.CLUTTER[name]["body"])
+                self.assertTrue(p["moved"] and p["clutter"])
+            elif name in F.LOOSE:
+                self.assertTrue(p["moved"])
+                self.assertEqual(bool(p.get("parked")), not rule["pieces"])
+                if p.get("parked"):  # outside the room, at its own parking spot
+                    self.assertEqual((p["x"], p["y"]), F.PARK[p["body"]])
+            else:
+                self.assertEqual(p, before[name])  # bed, couch, cabinet, table: as built
+        # how many loose things are on the floor
+        n = F.loose_count(out)
+        if level == "clean":
+            self.assertEqual(n, 0, what)
+            self.assertEqual(clutter, [])
+        elif level == "medium":
+            self.assertEqual((n, len(clutter)), (8, 4), what)
+        else:
+            self.assertGreaterEqual(len(clutter), 10, what)
+            self.assertLessEqual(n, 16)
+        # every clearance rule, for every loose thing on the floor
+        floor = {p["name"]: p for p in F.on_floor(out)}
+        outline = {name: F.piece_corners(p) for name, p in floor.items()}
+        spots = [(s["view_x"], s["view_y"]) for z in out["zones"] for s in z["spots"]]
+        tol = 2e-3  # the flat stores centres rounded to 1 mm and headings to 0.1 degree
+        for name in [m for m in floor if m in F.LOOSE or m in F.CLUTTER]:
+            c = outline[name]
+            passage = F.PASSAGE if name in F.LOOSE else rule["passage"]
+            self.assertLessEqual(max(max(abs(x), abs(y)) for x, y in c), F.HALF - passage + tol, what)
+            for other in floor:
+                if other != name:  # the pieces keep 0.5 m between them; a clutter item keeps its level's passage
+                    gap = rule["passage"] if name in F.CLUTTER or other in F.CLUTTER else F.PASSAGE
+                    self.assertGreaterEqual(F._poly_dist(c, outline[other]), gap - tol, (what, name, other))
+            for x, y in spots + [(out["dock"]["x"], out["dock"]["y"])]:
+                self.assertGreaterEqual(F._poly_point_dist(c, x, y), F.SPOT_GAP - tol, (what, name))
+            for z in out["zones"]:
+                for s in z["spots"]:
+                    self.assertGreaterEqual(F._poly_point_dist(c, s["person_x"], s["person_y"]),
+                                            F.PERSON_SPOT_GAP - tol, (what, name))
+            self.assertEqual(floor[name]["zone"], F.zone_at(out, floor[name]["x"], floor[name]["y"]))
+        # every viewing spot reachable from the dock, on the app's A* map
+        self.assertTrue(all(F.reachable_spots(out, inflate=F.ROUTE_MARGIN).values()), what)
+        living = F.zone(out, "living_room")
+        self.assertNotIn("armchair", [s["name"] for s in living["spots"]])  # its spot went with it
+        self.assertTrue(living["spots"])
+
+    def test_every_level_over_100_seeds(self):
+        for level in F.LEVELS:
+            for seed in range(100):
+                flat = make_flat(seed % 40)
+                self.check(flat, F.scatter(flat, np.random.default_rng([seed, 5]), level), level, seed)
+
+    def test_the_default_level_is_medium_and_an_unknown_one_is_refused(self):
+        flat = make_flat(1)
+        self.assertEqual(F.scatter(flat, np.random.default_rng(3)), F.scatter(flat, np.random.default_rng(3), "medium"))
+        with self.assertRaises(ValueError):
+            F.scatter(flat, np.random.default_rng(3), "tidy")
+
+    def test_a_scattered_flat_scatters_from_its_furniture_as_built(self):
+        flat = make_flat(6)
+        messy = F.scatter(flat, np.random.default_rng(1), "messy")
+        clean = F.scatter(messy, np.random.default_rng(2), "clean")
+        self.assertFalse([p for p in clean["furniture"] if p.get("clutter")])
+        self.assertEqual(len(clean["furniture"]), len(F.PIECES))
+
+    def test_the_clutter_table_matches_the_xml(self):
+        import xml.etree.ElementTree as ET
+        root = ET.parse(REPO / "sim" / "clutter.xml").getroot()
+        bodies = {b.get("name"): b for b in root.iter("body")}
+        self.assertEqual(sorted(bodies), sorted(c["body"] for c in F.CLUTTER.values()))
+        for name, c in F.CLUTTER.items():
+            geoms = list(bodies[c["body"]].iter("geom"))
+            self.assertEqual(len(geoms), 1)
+            g = geoms[0]
+            size = [float(v) for v in g.get("size").split()]
+            rgba = [float(v) for v in g.get("rgba").split()]
+            self.assertTrue(g.get("name").startswith("obs_"))
+            self.assertEqual(g.get("type"), "cylinder" if c["shape"] == "circle" else "box")
+            self.assertEqual(tuple(rgba[:3]), c["color"])
+            self.assertFalse(rgba[0] > 0.6 and rgba[1] < 0.35 and rgba[2] < 0.35, name)  # not red (the target)
+            height = 2 * (size[1] if c["shape"] == "circle" else size[2])
+            self.assertGreaterEqual(height, 0.3 - 1e-9, name)  # the lidar (0.15 m) and the A* map (0.25 m) see it
+            across = (2 * size[0], 2 * size[0]) if c["shape"] == "circle" else (2 * size[0], 2 * size[1])
+            self.assertTrue(all(0.2 - 1e-9 <= v <= 0.45 + 1e-9 for v in across), name)
+            if c["shape"] == "circle":
+                self.assertAlmostEqual(c["half"][0], size[0])
+                self.assertAlmostEqual(c["radius"], size[0])
+            else:
+                self.assertEqual(c["half"], (size[0], size[1]))
+                self.assertAlmostEqual(c["radius"], math.hypot(size[0], size[1]), places=3)
+            pos = [float(v) for v in bodies[c["body"]].get("pos").split()]
+            self.assertEqual(tuple(pos[:2]), F.PARK[c["body"]])  # parked outside the room
+            self.assertGreater(max(abs(pos[0]), abs(pos[1])), F.HALF + 5)
 
     def test_the_home_flats_spots_are_reachable_and_a_blocked_one_is_not(self):
         flat = make_flat(2)
@@ -195,12 +271,19 @@ class ScatterTest(unittest.TestCase):
         crate.update(x=z["view_x"], y=z["view_y"])  # a crate on the bedroom's viewing spot
         reach = F.reachable_spots(boxed)
         self.assertFalse(reach["{}:{}".format(z["name"], z["spots"][0]["name"])])
+        bucket = dict(name="bucket", body="obs_c9", clutter=True, x=z["view_x"], y=z["view_y"], yaw_deg=0.0)
+        reach = F.reachable_spots(dict(flat, furniture=flat["furniture"] + [bucket]))  # a round item there too
+        self.assertFalse(reach["{}:{}".format(z["name"], z["spots"][0]["name"])])
 
     def test_same_seed_same_scatter(self):
         flat = make_flat(4)
-        self.assertEqual(F.scatter(flat, np.random.default_rng(1)), F.scatter(flat, np.random.default_rng(1)))
-        self.assertNotEqual(F.scatter(flat, np.random.default_rng(1)), F.scatter(flat, np.random.default_rng(2)))
+        for level in F.LEVELS:
+            self.assertEqual(F.scatter(flat, np.random.default_rng(1), level), F.scatter(flat, np.random.default_rng(1), level))
+            if level != "clean":
+                self.assertNotEqual(F.scatter(flat, np.random.default_rng(1), level),
+                                    F.scatter(flat, np.random.default_rng(2), level))
         self.assertNotIn("moved", flat["furniture"][3])  # the input flat is not changed
+        self.assertEqual(len(flat["furniture"]), len(F.PIECES))
 
 
 class ResidentsTest(unittest.TestCase):

@@ -1,0 +1,64 @@
+<!-- Clutter: twelve small household things (obs_c0 .. obs_c11) for the app's "Medium" and "Messy" rooms.
+
+     Included by apartment.xml and apartment_simple.xml (the app) and by arena_clutter.xml and
+     arena_clutter_simple.xml (the plain twin the student looks at, and homes/sim_bridge.FlatEnv). NOT included by
+     arena.xml or arena_simple.xml: vision/scene.py Arena.randomize walks every obs_ body, so adding them there would
+     change every recorded training layout.
+
+     Each is a mocap body made of one solid shape with collisions, 0.2 to 0.45 m across and at least 0.3 m tall, so
+     the lidar (at 0.15 m) and the A* map (app/robot.py footprints: shapes reaching below 0.25 m) both see it. Geom
+     names start with "obs_" (pixel class "obstacle", the contact rule, the A* map). Nothing is red (the target is).
+     All are parked far outside the room until homes/flats.py scatter() drops some on the floor; the sizes here are
+     homes/flats.py CLUTTER, keep the two in step. -->
+<mujoco>
+  <worldbody>
+    <!-- laundry basket -->
+    <body name="obs_c0" mocap="true" pos="20 30 0">
+      <geom name="obs_c0_geom" type="cylinder" pos="0 0 0.175" size="0.2 0.175" rgba="0.84 0.78 0.62 1" group="0"/>
+    </body>
+    <!-- waste bin -->
+    <body name="obs_c1" mocap="true" pos="22 30 0">
+      <geom name="obs_c1_geom" type="cylinder" pos="0 0 0.2" size="0.13 0.2" rgba="0.46 0.5 0.55 1" group="0"/>
+    </body>
+    <!-- cardboard box -->
+    <body name="obs_c2" mocap="true" pos="24 30 0">
+      <geom name="obs_c2_geom" type="box" pos="0 0 0.15" size="0.2 0.15 0.15" rgba="0.72 0.57 0.38 1" group="0"/>
+    </body>
+    <!-- stack of books -->
+    <body name="obs_c3" mocap="true" pos="26 30 0">
+      <geom name="obs_c3_geom" type="box" pos="0 0 0.15" size="0.13 0.1 0.15" rgba="0.3 0.38 0.58 1" group="0"/>
+    </body>
+    <!-- pouf -->
+    <body name="obs_c4" mocap="true" pos="28 30 0">
+      <geom name="obs_c4_geom" type="cylinder" pos="0 0 0.175" size="0.2 0.175" rgba="0.55 0.6 0.45 1" group="0"/>
+    </body>
+    <!-- toy crate -->
+    <body name="obs_c5" mocap="true" pos="30 30 0">
+      <geom name="obs_c5_geom" type="box" pos="0 0 0.15" size="0.2 0.15 0.15" rgba="0.92 0.78 0.3 1" group="0"/>
+    </body>
+    <!-- suitcase, standing up -->
+    <body name="obs_c6" mocap="true" pos="32 30 0">
+      <geom name="obs_c6_geom" type="box" pos="0 0 0.3" size="0.22 0.12 0.3" rgba="0.26 0.3 0.36 1" group="0"/>
+    </body>
+    <!-- gym bag -->
+    <body name="obs_c7" mocap="true" pos="34 30 0">
+      <geom name="obs_c7_geom" type="box" pos="0 0 0.15" size="0.22 0.12 0.15" rgba="0.3 0.5 0.46 1" group="0"/>
+    </body>
+    <!-- vacuum cleaner -->
+    <body name="obs_c8" mocap="true" pos="36 30 0">
+      <geom name="obs_c8_geom" type="cylinder" pos="0 0 0.175" size="0.15 0.175" rgba="0.6 0.55 0.7 1" group="0"/>
+    </body>
+    <!-- bucket -->
+    <body name="obs_c9" mocap="true" pos="38 30 0">
+      <geom name="obs_c9_geom" type="cylinder" pos="0 0 0.15" size="0.14 0.15" rgba="0.36 0.6 0.75 1" group="0"/>
+    </body>
+    <!-- two moving boxes, stacked -->
+    <body name="obs_c10" mocap="true" pos="40 30 0">
+      <geom name="obs_c10_geom" type="box" pos="0 0 0.25" size="0.17 0.17 0.25" rgba="0.66 0.53 0.37 1" group="0"/>
+    </body>
+    <!-- toy chest -->
+    <body name="obs_c11" mocap="true" pos="42 30 0">
+      <geom name="obs_c11_geom" type="box" pos="0 0 0.175" size="0.2 0.12 0.175" rgba="0.5 0.4 0.3 1" group="0"/>
+    </body>
+  </worldbody>
+</mujoco>

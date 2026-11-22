@@ -5,13 +5,16 @@
 One simulated robot is shared by everyone who opens the page. The front end (app/web, built into
 app/web/dist with `just app-build`) is served from /, the API from /api:
 
-    GET  /api/health                 {"ok": true, "model": ..., "llm": true/false}
+    GET  /api/health                 {"ok": true, "model": ..., "llm": true/false, "speed": 1, "speed_actual": 1.0, ...}
     GET  /api/state                  robot position, heading, mode and target
     GET  /api/views                  {"views": ["chase", "orbit", "overhead", "eye"]}
     GET  /api/stream/<view>          MJPEG stream (use as <img src>): chase (behind the robot), orbit
                                      (three-quarter view), overhead (whole floor), eye (robot camera)
     GET  /api/frame/<view>.jpg       one JPEG
     POST /api/command  {"text": "goto 1 0.5"}            -> {"ok": true, "command": "goto 1.00 0.50"}
+    POST /api/speed    {"speed": 2}  run the simulation x1, x2, x3 or x5 faster than real time (one robot, so the
+                       speed is shared by every viewer) -> {"ok": true, "speed": 2}; /api/state and /api/health carry
+                       "speed" and "speed_actual" (what the loop reaches: each TabPFN decision makes it wait)
     POST /api/chat     {"messages": [{"role", "content"}], "call": id?} -> text/event-stream, events:
          {"type": "token", "text": "..."}  piece of the answer
          {"type": "command", "text": "goto 1 0.5", "ok": true, "error": null}  a command the model ran
@@ -53,8 +56,10 @@ The apartment (app/apartment.py): the flat's zones and obstacles, the journal, t
     POST /api/apartment/stop            {}
     POST /api/apartment/clear           {}  ready for another run: no search, Margarete out, the robot on its dock
     POST /api/apartment/reset           {"seed": 3?}  a new random flat and resident
-    POST /api/apartment/obstacles       {}  shuffle: the loose pieces (stool, armchair, crate, plant) to random spots
-                                        on the open floor (homes/flats.py scatter); 400 while a search runs
+    POST /api/apartment/obstacles       {"level": "clean" | "medium" | "messy"}  the mess level (no level: medium):
+                                        clean takes the loose pieces out, medium drops the 4 loose pieces and 4
+                                        clutter items at random, messy the 4 plus up to 12 clutter items
+                                        (homes/flats.py scatter); a new arrangement each time; 400 while a search runs
 
 metacon narrates the search (app/narrate.py): each step is one short line on /api/live,
     {"type": "narration", "id", "kind", "text", "source": "metacon" | "template"}, then the same id again with
@@ -94,7 +99,7 @@ from robot import HELP, VIEWS, LiveRobot  # noqa: E402
 WEB = Path(__file__).resolve().parent / "web" / "dist"
 # Requests per window (seconds), per visitor. Transcriptions are also capped per call (call.MAX_INTERIM).
 LIMITS = {"chat": (20, 600), "command": (60, 60), "call": (20, 600), "transcribe": (300, 600), "speak": (30, 600),
-          "knock": (60, 600), "apartment": (240, 60), "obstacles": (20, 600)}
+          "knock": (60, 600), "apartment": (240, 60), "obstacles": (20, 600), "speed": (30, 60)}
 MAX_STREAMS = 40  # open picture streams across all visitors
 MAX_LISTENERS = 200  # open /api/live streams across all visitors
 MAX_BODY = 64 * 1024
@@ -114,7 +119,7 @@ HITS_LOCK = threading.Lock()
 STREAMS = threading.BoundedSemaphore(MAX_STREAMS)
 LISTENERS = threading.BoundedSemaphore(MAX_LISTENERS)
 CHATS = threading.BoundedSemaphore(2)  # metacon runs one model; do not queue up many answers
-POST_ROUTES = {"/api/command": "command", "/api/chat": "chat", "/api/call/start": "call", "/api/call/end": None,
+POST_ROUTES = {"/api/command": "command", "/api/speed": "speed", "/api/chat": "chat", "/api/call/start": "call", "/api/call/end": None,
                "/api/transcribe": "transcribe", "/api/speak": "speak", "/api/knock/call": "knock",
                "/api/knock/find": "knock", "/api/knock/stop": None, "/api/knock/choice": "knock",
                "/api/apartment/journal": "apartment", "/api/apartment/journal/remove": "apartment",
@@ -220,7 +225,9 @@ class Handler(BaseHTTPRequestHandler):
                                  "apartment": APARTMENT is not None, "narration": NARRATOR is not None,
                                  "driver": ROBOT.state().get("driver") if ROBOT is not None else None,
                                  "student": (ROBOT.state().get("student", {"status": "off"}) if ROBOT is not None
-                                             else {"status": "off"})})
+                                             else {"status": "off"}),
+                                 "speed": ROBOT.speed if ROBOT is not None else 1,
+                                 "speed_actual": ROBOT.state().get("speed_actual") if ROBOT is not None else None})
         elif path == "/api/apartment/inputs.json" and APARTMENT is not None:
             self.send_json(200, APARTMENT.inputs())
         elif path == "/api/apartment/journal.txt" and APARTMENT is not None:
@@ -307,6 +314,11 @@ class Handler(BaseHTTPRequestHandler):
             self.knock(path[11:], body)
         elif path.startswith("/api/apartment/"):
             self.apartment(path[15:], body)
+        elif kind == "speed":
+            try:
+                self.send_json(200, {"ok": True, "speed": ROBOT.set_speed(body.get("speed"))})
+            except ValueError as error:
+                self.send_json(400, {"ok": False, "error": str(error)})
         elif kind == "command":
             try:
                 self.send_json(200, {"ok": True, "command": ROBOT.command(str(body.get("text", "")))})
@@ -416,7 +428,7 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "stop":
                 self.send_json(200, {"ok": APARTMENT.stop()})
             elif action == "obstacles":
-                self.send_json(200, {"ok": True, "obstacles": APARTMENT.shuffle()})
+                self.send_json(200, {"ok": True, "obstacles": APARTMENT.shuffle(body.get("level"))})
             elif action == "clear":
                 APARTMENT.clear()
                 self.send_json(200, {"ok": True})

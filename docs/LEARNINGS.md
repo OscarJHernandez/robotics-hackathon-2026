@@ -43,6 +43,21 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): New obstacle bodies must never go into `sim/arena_furniture.xml` (or `arena.xml`,
+  `arena_simple.xml`): `vision/scene.py` `Arena.randomize` places every `obs_` body, so one more body changes every
+  recorded DAgger layout. The app's clutter lives in `sim/clutter.xml`, included only by the apartment files and the
+  twin `sim/arena_clutter*.xml`; `tests/test_student_twin.py` pins a `randomize` layout to catch a change.
+- 2026-11-22 (Oscar's agent): A `mujoco.Renderer` must be closed on the thread that made it. If a `LiveRobot` sim
+  thread ends and the renderer is garbage-collected on the main thread, macOS hangs in CGL `make_current` (no error,
+  0% CPU). `LiveRobot(max_steps=...)` closes both renderers before the thread ends.
+- 2026-11-22 (Oscar's agent): The app's speed-up (x2, x3, x5) only paces the loop; each TabPFN decision still
+  blocks it, so the reached rate is lower than asked when TabPFN is slow. Read `speed_actual`, not `speed`, when
+  timing anything at a higher speed. Measured on this Mac with the local a-to-b controller walking: x1 0.84, x2 1.4,
+  x5 2.4; idle x5 reaches 5.0.
+- 2026-11-22 (Oscar's agent): Since the mess levels, `flats.scatter(flat, rng)` defaults to "medium" (the four loose
+  pieces plus 4 clutter items) and checks reachability at the app's ROUTE_MARGIN (0.42 m), so flatbench's
+  "scattered" legs now include clutter: numbers recorded before 2026-11-22 for "scattered" had the four pieces only.
+
 - 2026-11-22 (Oscar's agent): TabPFN API (tabpfn-client 0.10.1) costs, measured with the v29 export (31,586 rows
   stacked to 63,172 x 117): `fit()` is free; with `fit_mode="fit_with_cache"` a `predict()` costs 10,000 credits and
   takes 0.6 to 3.5 s; with the server default ("fit_preprocessors") every `predict()` re-runs the whole context:
@@ -325,6 +340,11 @@ in the same pull request as the work.
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Suggestions (open)
+
+- 2026-11-22 (Oscar's agent): Measure the student itself in the Medium and Messy rooms (`just student-bench --levels
+  medium,messy`, real student) once the TabPFN API's daily limit allows; so far only A* + a-to-b was run there.
+- 2026-11-22 (Oscar's agent): The clutter has fixed household colours, while the student was trained on random
+  furniture colours; if it misses clutter in the camera, give the clutter random colours in the twin as in training.
 
 - 2026-11-22 (Oscar's agent): The live student costs 10,000 TabPFN API credits per gait cycle (about a million per
   search). If it is to run often, fit it locally on a machine that can (about 9 GB, 4 min on vendetta) and serve

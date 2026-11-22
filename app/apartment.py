@@ -232,8 +232,8 @@ class Apartment:
         with self._lock:
             self.seed = int(seed)
             self.flat = F.random_flat(np.random.default_rng([self.seed, 0]), self.seed)
-            self.home_flat = self.flat  # the flat as built; shuffle() moves its loose pieces
-            self.obstacles = "home"
+            self.home_flat = self.flat  # the flat as built; shuffle() moves its loose pieces and drops clutter
+            self.obstacles = "home"  # or the mess level of the last shuffle: clean, medium, messy
             self.persona = R.sample_persona(np.random.default_rng([self.seed, 1]), 0, self.flat)
             self.habits = R.stated_habits(self.persona)
             self._habits_version = getattr(self, "_habits_version", 0) + 1
@@ -255,15 +255,20 @@ class Apartment:
             self._paint()
             self._say("New flat {} for {}: {} days of journal".format(self.seed, self.name, JOURNAL_DAYS), "info")
 
-    def shuffle(self, rng=None):
-        """The loose pieces (stool, armchair, crate, plant) dropped at random spots on the open floor
-        (homes/flats.py scatter), to watch the robot avoid furniture it was not told about. The zones, the
-        journal and the resident stay; the robot goes back to its dock. Refused while a search runs."""
+    def shuffle(self, level="medium", rng=None):
+        """The room at a mess level (homes/flats.py scatter): "clean" (nothing loose on the floor: the stool,
+        armchair, crate and plant taken out), "medium" (those four dropped at random spots on the open floor plus
+        4 clutter items) or "messy" (the four plus up to 12 clutter items), to watch the robot avoid things it was
+        not told about. A new arrangement every time, also at the same level. The zones, the journal and the
+        resident stay; the robot goes back to its dock. Refused while a search runs. Returns the level."""
+        level = "medium" if level in (None, "") else str(level)
+        if level not in F.LEVELS:
+            raise ValueError("level must be one of: " + ", ".join(F.LEVELS))
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 raise ValueError("wait for the search to end before moving the furniture")
-            self.flat = F.scatter(self.home_flat, rng or np.random.default_rng())
-            self.obstacles = "scattered"
+            self.flat = F.scatter(self.home_flat, rng or np.random.default_rng(), level)
+            self.obstacles = level
             self.robot = dict(self.flat["dock"])
             self.search = None
             self.run = {"status": "idle", "goal": None, "truth": None, "miss_rate": S.MISS_RATE, "path": []}
@@ -271,9 +276,15 @@ class Apartment:
                 self._robot.load(self.flat)
                 self._robot.person()
             self._paint()
-            moved = [p for p in self.flat["furniture"] if p.get("moved")]
-            self._say("Obstacles shuffled: {} moved to random spots".format(
-                ", ".join(p["name"] for p in moved)), "info")
+            n = F.loose_count(self.flat)
+            title = {"clean": "Clean room", "medium": "Medium messy room", "messy": "Messy room"}[level]
+            wanted = F.LEVELS[level]["clutter"] + (len(F.LOOSE) if F.LEVELS[level]["pieces"] else 0)
+            if n == 0:
+                self._say("{}: nothing loose on the floor, only the fixed furniture".format(title), "info")
+            else:
+                self._say("{}: {} thing{} on the floor{}".format(
+                    title, n, "" if n == 1 else "s", " ({} of {} fitted)".format(n, wanted) if n < wanted else ""),
+                    "info")
             return self.obstacles
 
     def _draw(self, weekday, rng):
@@ -936,10 +947,12 @@ class Apartment:
                                    for z in flat["zones"]],
                          "obstacles": [dict({k: f[k] for k in ("name", "zone", "x", "y", "size_x", "size_y",
                                                                       "yaw_deg")},
-                                            length=2 * F.PIECES[f["name"]]["half"][0],
-                                            width=2 * F.PIECES[f["name"]]["half"][1],
-                                            moved=bool(f.get("moved")), loose=f["name"] in F.LOOSE)
-                                       for f in flat["furniture"]]},
+                                            length=2 * F.shape(f["name"])["half"][0],
+                                            width=2 * F.shape(f["name"])["half"][1],
+                                            round=F.shape(f["name"])["shape"] == "circle",
+                                            moved=bool(f.get("moved")), clutter=bool(f.get("clutter")),
+                                            loose=f["name"] in F.LOOSE or bool(f.get("clutter")))
+                                       for f in F.on_floor(flat)]},
                 "obstacles": self.obstacles,
                 "habits": {"usual": self.habits["usual"], "outings": [list(o) for o in self.habits["outings"]]},
                 "now": {"weekday": weekday, "minute": minute, "time": hhmm(minute), "day": day.isoformat(),

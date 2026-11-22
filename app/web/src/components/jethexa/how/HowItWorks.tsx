@@ -360,7 +360,7 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
           <Section id="how-avoid" num="04" title="Avoiding furniture" status="live" statusDetail="in the app · simulation"
             lede={<>A student model that drives to the target through a furnished room from its own sensors, picking stride and
               turn every second. <strong className="text-video">In the app it walks the search:</strong> it is not told
-              where the furniture is, so it also gets round obstacles you shuffle with “Shuffle obstacles”.</>}>
+              where the furniture is, so it also gets round what you drop with “Medium” or “Messy”.</>}>
             <Block title="In the app">
               <div className="how-prose mb-4">
                 <p>

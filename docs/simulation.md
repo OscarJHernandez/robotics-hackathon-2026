@@ -156,6 +156,13 @@ armchair, crate and plant pot. The room is in [sim/arena_furniture.xml](../sim/a
 with MJCF `<include>`, so the robot files stay untouched. The walls are 4.5 m high so they fill the camera's
 picture from anywhere in the room: no sky. Every obstacle is a mocap body, so code moves it like the target.
 
+The web app's room adds twelve small clutter bodies (`obs_c0` to `obs_c11`, [sim/clutter.xml](../sim/clutter.xml):
+basket, bin, boxes, books and the like, parked outside the room until the app's Medium or Messy level drops them).
+They are included by `apartment.xml` and `apartment_simple.xml` and by the student's plain twin
+`arena_clutter.xml` / `arena_clutter_simple.xml` (`Arena(clutter=True)`), but **not** by `arena.xml`,
+`arena_simple.xml` or `arena_furniture.xml`: `Arena.randomize` places every `obs_` body, so adding bodies there
+would change every recorded training layout (`tests/test_student_twin.py` checks it does not).
+
 Use it through `vision/scene.py`, which also makes the floor big enough and matte and sets the lights:
 
 ```python

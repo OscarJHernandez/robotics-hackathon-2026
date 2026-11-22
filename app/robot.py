@@ -9,12 +9,19 @@ Commands (the same words the chat understands): goto X Y, forward M, turn DEG, s
 red pillar), random (moves the red end-point pillar to a random spot; a robot walking to the pillar follows it).
 
 Two scenes: "floor" (the robot alone) and "apartment" (the furnished room with zones; see LiveRobot).
+
+Speed (`set_speed`, x1, x2, x3 or x5): the loop advances its clock by CONTROL_DT / speed of wall time per physics
+step, so the robot moves that many times faster than real time; pictures are rendered every VIEWS[view] x speed
+steps, so the streams keep their wall-clock rate. Every steering decision blocks the loop (TabPFN), so the asked
+speed is not always reached: state()["speed_actual"] is the measured rate (simulated seconds per wall second over
+the last SPEED_WINDOW seconds).
 """
 
 import io
 import math
 import queue
 import random
+from collections import deque
 import sys
 import threading
 import time
@@ -44,7 +51,8 @@ ARENA = 2.6  # metres: goto points are kept inside this square (the floor is 3 m
 APARTMENT = 3.2  # the same in the apartment scene (walls at 3.54 m)
 APARTMENT_REACHED = 0.27  # metres: the planner stops 0.25 m from a goto point in the apartment
 WALL_HEIGHT = 0.7  # metres: the apartment's walls are cut down to this, so the outside views can look in
-# The home look of the apartment scene (sim/apartment_decor.xml). Colors per piece of furniture (arena body):
+# The home look of the apartment scene (sim/apartment_decor.xml). Colors per piece of furniture (arena body); the
+# clutter (sim/clutter.xml, obs_c0..obs_c11) keeps the household colors of its XML (never red, the target's color):
 FURNITURE_COLORS = {"obs_0": (0.62, 0.49, 0.36), "obs_1": (0.33, 0.41, 0.50), "obs_2": (0.76, 0.75, 0.72),
                     "obs_3": (0.60, 0.48, 0.35), "obs_4": (0.52, 0.39, 0.27), "obs_5": (0.68, 0.54, 0.26),
                     "obs_6": (0.64, 0.54, 0.40), "obs_7": (0.60, 0.38, 0.28)}
@@ -67,6 +75,8 @@ VIEW_SIZE = (1280, 720)  # width, height of the outside views
 # Picture views: control steps between pictures (4 = 12.5 per second). "eye" is the robot's own camera.
 VIEWS = {"chase": 4, "orbit": 4, "overhead": 6, "eye": 6}
 WATCHED = 3.0  # seconds: a view is rendered only while someone asked for it this recently
+SPEEDS = (1, 2, 3, 5)  # how many times faster than real time the simulation may run (set_speed)
+SPEED_WINDOW = 3.0  # seconds of wall time over which speed_actual is measured
 
 HELP = ("goto X Y (metres, floor is -{a} to {a}), forward M (metres), turn DEG (positive = left), "
         "stop, reset, target (walk to the red pillar), random (new random end point), "
@@ -314,12 +324,25 @@ class ApartmentScene:
         mujoco.mj_forward(model, sim.data)
         self.shapes = footprints(model, sim.data)
         self.home = (0.0, 0.0, 0.0)
+        # Where each obstacle body stands in the XML: the clutter is parked outside the room there (sim/clutter.xml).
+        key = model.key("stand").id
+        self._obstacles = [model.body(b).name for b in range(model.nbody)
+                           if model.body(b).name.startswith("obs_") and model.body_mocapid[b] >= 0]
+        self._default = {name: model.key_mpos[key].reshape(-1, 3)[int(model.body(name).mocapid[0])].copy()
+                         for name in self._obstacles}
 
     def load(self, flat):
-        """The flat's furniture, zone patches and decoration; the robot at the dock; nobody home. Returns home."""
+        """The flat's furniture and clutter, zone patches and decoration; the robot at the dock; nobody home.
+        Every obstacle body the flat does not list (clutter of an earlier, messier arrangement) goes back to its
+        XML spot outside the room. Returns home."""
         sim, model = self.sim, self.sim.model
         key = model.key("stand").id
         mpos, mquat = model.key_mpos[key].reshape(-1, 3), model.key_mquat[key].reshape(-1, 4)
+        listed = {piece["body"] for piece in flat["furniture"]}
+        for name in self._obstacles:
+            if name not in listed:
+                m = int(model.body(name).mocapid[0])
+                mpos[m], mquat[m] = self._default[name], (1.0, 0.0, 0.0, 0.0)
         for piece in flat["furniture"]:
             m = int(model.body(piece["body"]).mocapid[0])
             yaw_ = math.radians(piece["yaw_deg"])
@@ -383,14 +406,16 @@ class LiveRobot:
     Every control step counts touches of walls and furniture (`contacts`). state()["driver"] says who walks."""
 
     def __init__(self, scene="floor", driver="tabpfn", controller="default", student=None, ab=None, realtime=True,
-                 stuck_cycles=None, student_calls=None, spotter=None):
+                 stuck_cycles=None, student_calls=None, clock=time.monotonic, sleep=time.sleep, max_steps=None,
+                 spotter=None):
         """`student`: an app/student.py Student to use (tests pass a fake); with driver "student" and none given,
         one is made and loaded in the background. `ab`: the first a-to-b driver to try under the student (default
         the next in DRIVERS). `realtime` False runs the physics as fast as it goes (tests). `stuck_cycles`: the
         stuck rule's cycles (default the trainer's 40). `student_calls`: at most this many TabPFN API calls (each
-        10,000 credits) for the student made here; None: as many as the credit floor allows. `spotter`: an
-        app/spotter.py Spotter (the person detector, apartment only); it sees once per gait cycle while the robot
-        walks, looks around (`look`) or watches (`watch N`)."""
+        10,000 credits) for the student made here; None: as many as the credit floor allows. `clock` and `sleep`
+        pace the loop (tests pass a virtual clock); `max_steps`: the thread ends after that many physics steps
+        (tests; `finished` is set then). `spotter`: an app/spotter.py Spotter (the person detector, apartment
+        only); it sees once per gait cycle while the robot walks, looks around (`look`) or watches (`watch N`)."""
         self.scene = scene
         self._driver, self._controller = driver, controller
         self._ab_first = ab
@@ -413,6 +438,11 @@ class LiveRobot:
         self._state = {}
         self._ready = threading.Event()
         self._error = None
+        self._speed = 1
+        self._paced = deque()  # (wall time, sim time) samples for speed_actual
+        self._clock, self._sleep, self._max_steps = clock, sleep, max_steps
+        self.finished = threading.Event()
+        self.renders = dict((view, 0) for view in VIEWS)  # pictures rendered per view (tests)
         threading.Thread(target=self._run, name="sim", daemon=True).start()
 
     # ---- called from web threads ----
@@ -453,6 +483,22 @@ class LiveRobot:
     def state(self):
         with self._lock:
             return dict(self._state)
+
+    def set_speed(self, speed):
+        """Run the simulation `speed` times faster than real time (one of SPEEDS); shared by every viewer.
+        Returns the new speed. Raises ValueError for any other value."""
+        try:
+            value = float(speed)
+        except (TypeError, ValueError):
+            raise ValueError("speed must be one of: " + ", ".join("x{}".format(s) for s in SPEEDS))
+        if value not in SPEEDS:
+            raise ValueError("speed must be one of: " + ", ".join("x{}".format(s) for s in SPEEDS))
+        self._speed = int(value)
+        return self._speed
+
+    @property
+    def speed(self):
+        return self._speed
 
     def load(self, flat):
         """Apartment scene: put the furniture and zone patches where `flat` (homes/flats.py) has them, and the
@@ -538,7 +584,7 @@ class LiveRobot:
         progress = Progress(self._stuck_cycles) if self._stuck_cycles else Progress()
         twin_checked = False
         route = []  # the A* route of the current goto (walked by the a-to-b driver, only shown for the student)
-        next_tick = time.monotonic()
+        next_tick = self._clock()
 
         def fall_back(reason, x, y):
             """The student hands this goto to A* + the a-to-b driver."""
@@ -680,7 +726,7 @@ class LiveRobot:
                                 stride, turn = self._student.act(sim, goal)
                             except Exception as error:  # noqa: BLE001 - API down, no credits: A* + a-to-b
                                 fall_back("the student is unavailable ({})".format(error), x, y)
-                            next_tick = time.monotonic()  # the physics waited while the student decided
+                            next_tick = self._clock()  # the physics waited while the student decided
                     leg = legs[0] if legs else goal
                     if mode in ("look", "watch", "idle"):
                         pass  # the look-around set stride and turn above (idle: it just ended)
@@ -691,7 +737,7 @@ class LiveRobot:
                         poses.append((x, y, yaw))
                         del poses[:-4]
                         prev = (stride, turn)
-                        next_tick = time.monotonic()  # the physics waited while TabPFN predicted
+                        next_tick = self._clock()  # the physics waited while TabPFN predicted
                     elif mode == "goto" and expert is not None:  # the nav/dagger planner
                         stride, turn = expert.act({"key": (layout, goal), "footprints": scene.shapes,
                                                    "half": scene.half, "goal": goal, "pose": (x, y, yaw)})
@@ -722,16 +768,39 @@ class LiveRobot:
             else:
                 self._driver_name = "student" if student is not None and student.ready else driver
             self._publish(sim, step, mode, goal)
+            if self._max_steps is not None and step >= self._max_steps:
+                # Close the renderers on this thread: an OpenGL context freed from another thread hangs on macOS.
+                renderer.close()
+                if getattr(sim, "_renderer", None) is not None:
+                    sim._renderer.close()
+                    sim._renderer = None
+                self.finished.set()
+                return
 
             if not self._realtime:
                 time.sleep(0)
                 continue
-            next_tick += CONTROL_DT
-            delay = next_tick - time.monotonic()
+            next_tick += CONTROL_DT / self._speed
+            delay = next_tick - self._clock()
             if delay > 0:
-                time.sleep(delay)
+                self._sleep(delay)
             elif delay < -0.5:  # fell behind (laptop asleep, slow render): do not try to catch up
-                next_tick = time.monotonic()
+                next_tick = self._clock()
+
+    def _measure(self, now, sim_time):
+        """Simulated seconds per wall second over the last SPEED_WINDOW seconds (0 before there are two samples)."""
+        paced = self._paced
+        if not paced or now - paced[-1][0] >= 0.1:
+            paced.append((now, sim_time))
+        while len(paced) > 2 and now - paced[1][0] >= SPEED_WINDOW:
+            paced.popleft()
+        if sim_time < paced[0][1]:  # the clock went back (reset): start again
+            paced.clear()
+            paced.append((now, sim_time))
+        wall = now - paced[0][0]
+        if wall < 0.5:  # too short to tell yet
+            return float(self._speed)
+        return round((sim_time - paced[0][1]) / wall, 2)
 
     def _publish(self, sim, step, mode, goal):
         renderer, cameras = self._views
@@ -750,9 +819,11 @@ class LiveRobot:
                     camera.lookat[i] += 0.12 * (value - camera.lookat[i])
                 if view == "chase":
                     camera.azimuth += 0.08 * (((yaw - camera.azimuth) + 180.0) % 360.0 - 180.0)  # behind it
+        speed = self._speed
         for view in watched:
-            if step % VIEWS[view]:
+            if step % (VIEWS[view] * speed):  # the same pictures per wall second at any speed
                 continue
+            self.renders[view] += 1
             if view == "eye":
                 frames[view] = to_jpeg(sim.render())
             else:
@@ -764,7 +835,8 @@ class LiveRobot:
                  "target_y": round(ty, 3), "sim_time": round(sim.time, 2),
                  # where the pillar is seen from the robot: metres, and degrees (positive = to its left)
                  "target_dist": round(math.hypot(tx - x, ty - y), 2),
-                 "target_bearing_deg": round(math.degrees(wrap(math.atan2(ty - y, tx - x) - math.radians(yaw))))}
+                 "target_bearing_deg": round(math.degrees(wrap(math.atan2(ty - y, tx - x) - math.radians(yaw)))),
+                 "speed": speed, "speed_actual": self._measure(self._clock(), sim.time)}
         if mode == "turn":
             state["turn_to_deg"] = round(math.degrees(goal), 1)
         if self.scene == "apartment":

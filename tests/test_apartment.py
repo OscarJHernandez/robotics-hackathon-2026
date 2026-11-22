@@ -330,9 +330,9 @@ class ApartmentTest(unittest.TestCase):
         self.assertFalse(any(o["moved"] for o in s["flat"]["obstacles"]))
         self.assertEqual(sum(o["loose"] for o in s["flat"]["obstacles"]), 4)
         before = {o["name"]: (o["x"], o["y"]) for o in s["flat"]["obstacles"]}
-        self.assertEqual(a.shuffle(np.random.default_rng(3)), "scattered")
+        self.assertEqual(a.shuffle(rng=np.random.default_rng(3)), "medium")  # no level: medium
         s = a.state()
-        self.assertEqual(s["obstacles"], "scattered")
+        self.assertEqual(s["obstacles"], "medium")
         self.assertEqual(len(robot.loaded), 2)  # the new arrangement went into the simulator
         for o in s["flat"]["obstacles"]:
             self.assertEqual(o["moved"], o["loose"])
@@ -343,18 +343,61 @@ class ApartmentTest(unittest.TestCase):
         a.reset(1)
         self.assertEqual(a.state()["obstacles"], "home")  # a new flat starts as built
 
+    def test_shuffle_levels(self):
+        robot = FakeRobot()
+        a = make(robot=robot)
+        fixed = {o["name"]: (o["x"], o["y"]) for o in a.state()["flat"]["obstacles"]
+                 if o["name"] not in apartment.F.LOOSE}
+        seen = {}
+        for k, level in enumerate(("clean", "medium", "messy", "messy", "clean", "medium")):
+            self.assertEqual(a.shuffle(level, np.random.default_rng([k, 4])), level)
+            s = a.state()
+            self.assertEqual(s["obstacles"], level)
+            obstacles = s["flat"]["obstacles"]
+            loose = [o for o in obstacles if o["loose"]]
+            clutter = [o for o in obstacles if o["clutter"]]
+            if level == "clean":
+                self.assertEqual(loose, [])  # parked pieces are not drawn
+                self.assertEqual(len(obstacles), 4)
+            elif level == "medium":
+                self.assertEqual((len(loose), len(clutter)), (8, 4))
+            else:
+                self.assertGreaterEqual(len(clutter), 10)
+                self.assertEqual(len(loose), 4 + len(clutter))
+            for o in obstacles:
+                self.assertTrue(o["length"] > 0 and o["width"] > 0)
+                self.assertEqual(o["round"], o["name"] in apartment.F.CLUTTER
+                                 and apartment.F.CLUTTER[o["name"]]["shape"] == "circle")
+                if o["name"] in fixed:
+                    self.assertEqual((o["x"], o["y"]), fixed[o["name"]])
+            self.assertEqual(robot.loaded[-1], a.flat["flat_id"])
+            line = s["log"][-1]["text"]
+            self.assertTrue(line.startswith({"clean": "Clean room", "medium": "Medium messy room",
+                                             "messy": "Messy room"}[level]), line)
+            if level != "clean":
+                self.assertIn("{} things on the floor".format(len(loose)), line)
+            arrangement = sorted((o["name"], o["x"], o["y"]) for o in loose)
+            if level in seen and level != "clean":  # pressing the same level again: a new arrangement
+                self.assertNotEqual(arrangement, seen[level])
+            seen[level] = arrangement
+        self.assertEqual(len(robot.loaded), 7)
+        with self.assertRaises(ValueError):
+            a.shuffle("tidy")
+        self.assertEqual(a.state()["obstacles"], "medium")
+
     def test_shuffle_is_refused_while_a_search_runs(self):
         import threading
         gate = threading.Event()
         a = apartment.Apartment(seed=0, now=lambda: NOW, sleep=lambda s: gate.wait(5), walk=1.0, look=0.0)
         self.assertTrue(a.start("kitchen"))
-        with self.assertRaises(ValueError):
-            a.shuffle()
+        for level in ("clean", "medium", "messy"):
+            with self.assertRaises(ValueError):
+                a.shuffle(level)
         self.assertEqual(a.state()["obstacles"], "home")
         gate.set()
         a.stop()
         finish(a)
-        self.assertEqual(a.shuffle(np.random.default_rng(0)), "scattered")
+        self.assertEqual(a.shuffle("messy", np.random.default_rng(0)), "messy")
 
     def test_the_search_treats_a_fallback_as_normal_walking_and_says_so(self):
         class FallbackRobot(FakeRobot):

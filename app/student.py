@@ -5,10 +5,12 @@ the red pillar standing at the goal. The app's apartment looks different (wood f
 cushions, a door, Margarete on the floor), and the camera feeds 75 of the student's 116 inputs. So the student never
 looks at the apartment: it looks at a **plain twin**.
 
-    PlainTwin     a second MuJoCo model, the plain training arena (vision/scene.py `Arena`, the same mesh/simple
-                  choice as the app). Before each decision it gets the robot's joint state (qpos) and the eight
-                  furniture poses from the app's model, the red pillar is put at the goal (as in training), and the
-                  student's camera picture and depth are rendered there.
+    PlainTwin     a second MuJoCo model, the plain training arena plus the clutter of sim/clutter.xml
+                  (sim/arena_clutter.xml: vision/scene.py `Arena(clutter=True)`, the same mesh/simple choice as the
+                  app). Before each decision it gets the robot's joint state (qpos) and the poses of every obs_ body
+                  (the eight pieces of furniture and the twelve clutter items, parked or on the floor) from the app's
+                  model, the red pillar is put at the goal (as in training), and the student's camera picture and
+                  depth are rendered there.
     lidar         cast in the app's own scene: rays skip geoms without collisions, so zones, decor and Margarete
                   are invisible to it; tests/test_student_twin.py checks it equals the twin's lidar.
     LidarPlanner  the robot's own map of lidar hits and its planned bearing (nav/dagger/lidarmap.py), reset per goto.
@@ -81,21 +83,22 @@ class PlainTwin:
         from scene import Arena  # vision/scene.py
 
         import flats as F  # homes/flats.py (only for the furniture colours of a flat)
-        self.arena = Arena(simple)
+        self.arena = Arena(simple, clutter=True)
         self.sim = self.arena.sim
         model = self.sim.model
         self._obstacles = [o["name"] for o in self.arena.obstacles]
         self._mocap = {name: int(model.body(name).mocapid[0]) for name in self._obstacles}
         self._target = int(model.body("target").mocapid[0])
-        # The furniture's colours: those of the arena file (homes/flats.py PIECES), as homes/sim_bridge.FlatEnv uses.
-        colors = {p["body"]: list(p["color"]) for p in F.PIECES.values()}
+        # The furniture's and clutter's colours: those of the XML files (homes/flats.py PIECES and CLUTTER), as
+        # homes/sim_bridge.FlatEnv uses.
+        colors = {p["body"]: list(p["color"]) for p in list(F.PIECES.values()) + list(F.CLUTTER.values())}
         layout = {"obstacles": [{"name": o["name"], "x": 0.0, "y": 0.0, "yaw": 0.0, "radius": o["radius"],
                                  "color": colors.get(o["name"], [0.5, 0.5, 0.5])} for o in self.arena.obstacles],
                   "target": (50.0, 50.0)}
         self.arena.apply(layout)
 
     def check_compatible(self, model):
-        """Raise if `model` (the app's) does not carry the same robot (qpos layout) and furniture bodies."""
+        """Raise if `model` (the app's) does not carry the same robot (qpos layout) and obstacle bodies."""
         twin = self.sim.model
         if model.nq != twin.nq:
             raise RuntimeError("the app's model has {} qpos, the twin {}".format(model.nq, twin.nq))
@@ -106,7 +109,8 @@ class PlainTwin:
             model.body(name)  # raises KeyError if missing
 
     def sync(self, model, data, goal):
-        """Copy the robot's joint state and the furniture poses from the app's (model, data); pillar at `goal`."""
+        """Copy the robot's joint state and every obstacle pose (furniture and clutter) from the app's (model, data);
+        the pillar at `goal`."""
         twin, tdata = self.sim.model, self.sim.data
         tdata.qpos[:] = data.qpos[:twin.nq]
         tdata.qvel[:] = 0.0

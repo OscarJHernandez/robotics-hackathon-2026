@@ -356,8 +356,23 @@
 @utility apt-tab {
   padding: 3px 8px; border-radius: 7px; font-size: 11px; color: oklch(1 0 0 / 60%); transition: all .15s;
   &:hover { color: var(--color-video); }
+  &:disabled { opacity: .4; pointer-events: none; }
 }
 @utility apt-tab-on { background: oklch(1 0 0 / 14%); color: var(--color-video); font-weight: 600; }
+/* The speed-up (SpeedControl.tsx): a small segmented control on the video, next to the camera list. */
+@utility speed-seg {
+  display: inline-flex; align-items: center; gap: 1px; padding: 2px; border-radius: 999px;
+  background: var(--glass-bg); border: 1px solid var(--glass-border); backdrop-filter: blur(12px);
+}
+@utility speed-opt {
+  min-width: 30px; height: 26px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  font-variant-numeric: tabular-nums; color: oklch(1 0 0 / 62%); transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  &:hover { color: var(--color-video); background: oklch(1 0 0 / 10%); }
+  &:disabled { opacity: .45; }
+}
+@utility speed-opt-on { background: var(--color-video); color: var(--stage); &:hover { background: var(--color-video); color: var(--stage); } }
+@utility speed-note { font-size: 10.5px; color: var(--color-term-amber); font-variant-numeric: tabular-nums; white-space: nowrap; }
 @utility apt-status {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px;
   font-size: 11.5px; font-weight: 600; white-space: nowrap; border: 1px solid oklch(1 0 0 / 14%); background: oklch(1 0 0 / 6%);
