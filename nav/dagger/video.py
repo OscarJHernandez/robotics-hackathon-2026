@@ -125,7 +125,7 @@ class Filmer:
         return np.concatenate([top, bottom], axis=0)
 
 
-def film(run, round_, episode, config, probe, dino, out, table=None):
+def film(run, round_, episode, config, probe, dino, out, table=None, label=None):
     if table is None:
         table = pd.read_parquet(run_dir(run) / "round_{}.parquet".format(round_number(round_)))
     rows = table[table["episode"] == episode].sort_values("step").reset_index(drop=True)
@@ -141,9 +141,9 @@ def film(run, round_, episode, config, probe, dino, out, table=None):
     footprints, goal = env.footprints(), env.goal
     outcome = rows["done_reason"].iloc[-1]
     share = rows["used_expert"].mean()
-    driver = ("expert driving" if share == 1 else "student alone (no expert help)" if share == 0
+    driver = ("EXPERT driving" if share == 1 else "STUDENT alone (expert only labels)" if share == 0
               else "mixed: expert {:.0%} of steps".format(share))
-    title = "round {} ep. {}: scene {}, {}".format(round_, episode, int(rows["scene_id"][0]), driver)
+    title = "{} ep. {}: {}".format(label or "round {}".format(round_), episode, driver)
     ffmpeg = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
                                "-s", "{}x{}".format(2 * W, 2 * H), "-r", str(FPS), "-i", "-", "-c:v", "libx264",
                                "-pix_fmt", "yuv420p", "-crf", "23", str(out)], stdin=subprocess.PIPE)
@@ -196,7 +196,8 @@ def main():
     for episode in args.episodes:
         name = "episode{}.mp4".format(episode) if args.experiment else "round{}-episode{}.mp4".format(
             round_number(args.round), episode)
-        print(film(args.run, args.round, episode, config, probe, dino, folder / name, table), flush=True)
+        label = "{} test".format(args.experiment.rsplit("-", 1)[-1]) if args.experiment else None
+        print(film(args.run, args.round, episode, config, probe, dino, folder / name, table, label), flush=True)
 
 
 if __name__ == "__main__":
