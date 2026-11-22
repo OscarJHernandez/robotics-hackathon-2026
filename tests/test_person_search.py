@@ -144,7 +144,7 @@ class SpotterTest(unittest.TestCase):
         for _ in range(3):
             s.see(sim)
         self.assertEqual(s.state()["watch_hits"], 2)
-        s.detector.script = [det(2.0, 1.0, rng=1.3)]  # strong, but from too far: not a close-up hit
+        s.detector.script = [det(2.0, 1.0, rng=1.8)]  # strong, but from too far: not a close-up hit
         s.see(sim)
         self.assertEqual(s.state()["watch_hits"], 2)
         s.reject()
@@ -494,6 +494,32 @@ class ApproachModeTest(unittest.TestCase):
         self.assertEqual(st["approach"]["reason"], "lost")
         self.assertEqual(st["mode"], "idle")
         self.assertGreater(math.hypot(st["x"], st["y"] - 2.5), 1.0)  # stopped where it was
+
+
+@unittest.skipUnless(gl_available(), "needs MuJoCo rendering")
+class PendingCommandTest(unittest.TestCase):
+    def test_state_keeps_a_command_the_loop_has_not_read_yet(self):
+        """Live, the loop publishes the paused scene while the student decides (up to 2 s) before it reads new
+        commands; that state must not say "idle" / "approach over" for a command still waiting."""
+        import queue as queue_module
+        from robot import LiveRobot
+
+        class Busy(queue_module.Queue):  # the loop cannot read it yet: as while the student decides
+            def get_nowait(self):
+                raise queue_module.Empty
+
+        robot = LiveRobot("apartment", "rule", realtime=False)
+        robot.wait_ready(120)
+        time.sleep(0.2)
+        robot._commands = Busy()
+        robot.command("look")
+        time.sleep(0.5)  # the loop keeps publishing meanwhile
+        self.assertEqual(robot.state()["mode"], "look")
+        robot.command("approach")
+        time.sleep(0.5)
+        st = robot.state()
+        self.assertEqual(st["mode"], "goto")
+        self.assertTrue(st["approach"]["running"])
 
 
 class ParseTest(unittest.TestCase):

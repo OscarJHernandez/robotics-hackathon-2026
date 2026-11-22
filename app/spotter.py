@@ -45,10 +45,11 @@ CHECK_RADIUS = 1.0
 # pictures (median 0.84-0.89), while the look-alikes that passed the 0.65 threshold in the bench scored 0.66-0.67
 # (the edge of a brown cylinder, seed 7110). Two such matches in CHECK_CYCLES looks are needed.
 CHECK_SIM = 0.75
-# metres: only matches from this close count for the close-up check. 1.5 m let a mis-ranged sighting pass: the depth
-# of something in front of her (the lidar does not see it) put her 2 m too close, and two strong matches from 1.3-1.5 m
-# on the way in called her found there (bench seed 7431); at the destination, 0.6 m from that point, nothing matched.
-CHECK_RANGE = 1.0
+# metres: only matches from this close count for the close-up check (her signature was checked at "up close" = under
+# 1.5 m). The check only counts what the robot sees standing at its destination (app/apartment.py), which is what keeps
+# a mis-ranged sighting out (bench seed 7431). 1.0 m was too strict: lying, the robot stops about 0.9 m from her middle
+# and its matches range 0.9-1.1 m, so a live search rejected her (2026-11-22).
+CHECK_RANGE = 1.5
 APPROACH_DECAY = 0.4  # fuse_decay while walking up to her (normally 0.7): newer, closer matches count more
 
 
