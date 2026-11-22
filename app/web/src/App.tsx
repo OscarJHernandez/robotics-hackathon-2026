@@ -190,7 +190,7 @@ export function App() {
         <div className="flex flex-col items-end gap-3">
           <ViewList views={views} active={main} onPick={setMain} mapOpen={mapOpen} onToggleMap={() => setMapOpen((o) => !o)}
             onRandom={() => run("random")} apartment={hasApartment ? aptOpen : undefined} onToggleApartment={() => setAptOpen((o) => !o)}
-            scene={health?.scene} onHowItWorks={openHow} />
+            scene={health?.scene} onHowItWorks={openHow} state={state} live={live} onError={(m) => toast.error(m)} />
           {mapOpen && !apt && <MiniMapCard s={state} onGoto={(x, y) => run(`goto ${x} ${y}`)} />}
         </div>
       </header>

@@ -7,7 +7,7 @@ import { BrainCircuit, Check, ChevronRight, ClipboardPaste, Clock, Copy, RotateC
 import {
   apartmentAddEntry, apartmentClear, apartmentClock, apartmentRandom, apartmentImportJournal, apartmentInputsJson, apartmentSetInputs, apartmentRemoveEntry, apartmentReset,
   apartmentSearch, apartmentShuffle, apartmentStop,
-  ZONE_CLASSES, ZONE_COLOR, ZONE_LABEL,
+  MESS_LEVELS, ZONE_CLASSES, ZONE_COLOR, ZONE_LABEL,
   type ApartmentState, type Belief, type Stage, type ZoneClass, type ZoneName,
 } from "@/lib/api";
 import { unlockAudio } from "@/lib/audio";
@@ -152,15 +152,14 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
                 {showHer ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}{showHer ? "Hide her" : "Show her"}
               </button>
               <button className="apt-link flex items-center gap-1" disabled={a.search.running}
-                onClick={() => void run(apartmentShuffle())}
-                title="Move the loose pieces (stool, armchair, crate, plant) to random spots: the robot is not told where">
-                <Shuffle className="h-3.5 w-3.5" />Shuffle obstacles
-              </button>
-              <button className="apt-link flex items-center gap-1" disabled={a.search.running}
                 onClick={() => void run(apartmentReset(a.seed + 1))} title="A new random flat and resident">
                 <Dices className="h-3.5 w-3.5" />New flat
               </button>
             </div>
+          </div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-[11.5px] text-video/60">{messText(a)}</span>
+            <MessControl a={a} run={run} />
           </div>
           <Plan a={a} belief={belief} showHer={showHer || found} />
           <Legend />
@@ -262,6 +261,38 @@ function Pipeline({ a }: { a: ApartmentState }) {
 }
 
 /** After a search: forget it, take Margarete out of the room and put the robot back on its dock. */
+const PRETTY = (name: string) => name.replace(/_/g, " ");
+
+/** How many loose things are on the floor, in words. */
+function messText(a: ApartmentState): string {
+  const n = a.flat.obstacles.filter((o) => o.loose).length;
+  if (n === 0) return "Nothing loose on the floor";
+  return `${n} loose thing${n === 1 ? "" : "s"} on the floor`;
+}
+
+/**
+ * Clean · Medium · Messy: how cluttered the room is. The current level is highlighted; pressing it again draws a
+ * new arrangement. The robot is not told where anything is. Refused (disabled) while a search runs.
+ */
+export function MessControl({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void> }) {
+  const current = a.obstacles && a.obstacles !== "home" ? a.obstacles : null;
+  return (
+    <div role="group" aria-label="How messy the room is" className="apt-tabs shrink-0">
+      {MESS_LEVELS.map((l) => {
+        const on = current === l.id;
+        return (
+          <button key={l.id} type="button" aria-pressed={on} disabled={a.search.running}
+            onClick={() => void run(apartmentShuffle(l.id))}
+            title={a.search.running ? "Wait for the search to end" : on ? `${l.hint}. Press again for a new arrangement` : l.hint}
+            className={`apt-tab flex items-center gap-1 ${on ? "apt-tab-on" : ""}`}>
+            {on && <Shuffle aria-hidden className="h-3 w-3 opacity-70" />}{l.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ResetButton({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void> }) {
   if (a.search.status === "idle" || a.search.running) return null;
   return (
@@ -331,13 +362,20 @@ export function Plan({ a, belief, showHer }: { a: ApartmentState; belief: Belief
       })}
       {obstacles.map((o) => (
         <g key={o.name}>
-          {o.loose && o.length && o.width ? (
-            // A loose piece (stool, armchair, crate, plant) in a second tone, turned by its own heading.
-            <rect x={o.x - o.length / 2} y={-o.y - o.width / 2} width={o.length} height={o.width} rx={0.05}
+          {o.loose && o.round && o.length ? (
+            // A round clutter item (basket, bin, pouf, vacuum, bucket) in the loose tone.
+            <circle cx={o.x} cy={-o.y} r={o.length / 2}
+              fill="oklch(0.45 0.09 75)" fillOpacity={0.55} stroke="oklch(0.85 0.12 80)" strokeOpacity={0.85} strokeWidth={0.025}
+              strokeDasharray="0.06 0.04">
+              <title>{`Clutter: ${PRETTY(o.name)}`}</title>
+            </circle>
+          ) : o.loose && o.length && o.width ? (
+            // A loose piece (stool, armchair, crate, plant) or a clutter item in a second tone, turned by its heading.
+            <rect x={o.x - o.length / 2} y={-o.y - o.width / 2} width={o.length} height={o.width} rx={o.clutter ? 0.03 : 0.05}
               transform={`rotate(${-(o.yaw_deg ?? 0)} ${o.x} ${-o.y})`}
               fill="oklch(0.45 0.09 75)" fillOpacity={0.55} stroke="oklch(0.85 0.12 80)" strokeOpacity={0.85} strokeWidth={0.025}
               strokeDasharray={o.moved ? "0.06 0.04" : undefined}>
-              <title>{`Loose piece: ${o.name}${o.moved ? " (moved by Shuffle obstacles)" : ""}`}</title>
+              <title>{o.clutter ? `Clutter: ${PRETTY(o.name)}` : `Loose piece: ${o.name}${o.moved ? " (moved at random)" : ""}`}</title>
             </rect>
           ) : (
             <rect x={o.x - o.size_x / 2} y={-o.y - o.size_y / 2} width={o.size_x} height={o.size_y} rx={0.06}
@@ -420,7 +458,7 @@ function Legend() {
       <span className={item}><svg viewBox="-1 -1 2 2" className="h-3 w-3"><path d="M0.8 0 L-0.5 0.55 L-0.2 0 L-0.5 -0.55 Z" fill="oklch(0.78 0.13 172)" /></svg>robot</span>
       <span className={item}><span className="h-2.5 w-2.5 rounded-[3px] border border-video/80 bg-[oklch(0.17_0.012_255)]" />dock</span>
       <span className={item}><span className="h-2.5 w-3.5 rounded-[3px] border border-video/50 bg-[oklch(0.17_0.012_255)]/60" />obstacle</span>
-      <span className={item}><span className="h-2.5 w-3.5 rounded-[3px] border border-[oklch(0.85_0.12_80)] bg-[oklch(0.45_0.09_75)]/60" />loose piece</span>
+      <span className={item}><span className="h-2.5 w-3.5 rounded-[3px] border border-[oklch(0.85_0.12_80)] bg-[oklch(0.45_0.09_75)]/60" />loose piece or clutter</span>
       <span className={item}><span className="text-[11px] font-bold leading-none text-[oklch(0.66_0.21_25)]">×</span>touch</span>
       <span className={item}><span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-video text-[8px] font-bold">1</span>look</span>
       <span className={item}><span className="h-[3px] w-3.5 rounded-full bg-term-amber" />door</span>
@@ -698,11 +736,8 @@ export function ApartmentPhoneCard({ apartment: a, onError, onChanged, narration
       <Pipeline a={a} />
       <Plan a={a} belief={a.belief} showHer={found} />
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="apt-chip flex items-center gap-1" disabled={a.search.running} onClick={() => void run(apartmentShuffle())}
-          title="Move the loose pieces (stool, armchair, crate, plant) to random spots: the robot is not told where">
-          <Shuffle className="h-3.5 w-3.5" />Shuffle obstacles
-        </button>
-        <span className="min-w-0 truncate text-[11.5px] text-video/60">{driverText(a).value}</span>
+        <MessControl a={a} run={run} />
+        <span className="min-w-0 flex-1 truncate text-right text-[11.5px] text-video/60">{driverText(a).value}</span>
       </div>
       <Looks a={a} />
       <div className={`grid gap-2 ${a.search.running ? "grid-cols-[1fr_auto]" : "grid-cols-[1fr_auto_auto]"}`}>

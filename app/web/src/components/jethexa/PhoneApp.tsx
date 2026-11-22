@@ -14,6 +14,7 @@ import { ApartmentPhoneCard } from "./ApartmentPanel";
 import { HexMark } from "./Brand";
 import { KnockCard, KnockSteps, knockActive } from "./KnockCard";
 import { LiveCallCard } from "./LiveCallCard";
+import { SpeedControl } from "./SpeedControl";
 import { Stream, VIEW_LABEL } from "./Stream";
 import { SpeakerToggle, TalkButton } from "./TalkButton";
 import { statusText, type Line } from "./Terminal";
@@ -92,11 +93,12 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
           )}
         </div>
         {!found && (
-          <div className="absolute inset-x-0 bottom-0 flex gap-1.5 overflow-x-auto px-3 pb-3 [scrollbar-width:none]">
+          <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 overflow-x-auto px-3 pb-3 [scrollbar-width:none]">
             {views.map((v) => (
               <button key={v} onClick={() => setView(v)}
                 className={`glass-btn h-8 shrink-0 px-3 text-xs font-medium ${v === view ? "glass-btn-on" : ""}`}>{VIEW_LABEL[v]}</button>
             ))}
+            <SpeedControl state={state} live={live} onError={onError} className="ml-auto shrink-0 pl-1.5" />
           </div>
         )}
       </div>

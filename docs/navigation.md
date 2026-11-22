@@ -252,6 +252,10 @@ number of legs; `--budget-calls` is required and the credits left are checked fi
 is the app's A* route walked by the TabPFN a-to-b controller (local, no credits). Writes `bench.json` and `bench.md`
 (goal without contact, collisions, stuck, with 95% Wilson intervals). Dry run without TabPFN:
 `just student-bench --flats 1 --max-legs 2 --policy fake --no-baseline`. Not run with the real student yet.
+`--levels clean,medium,messy` walks the app's mess levels instead of home/scattered (`flats.scatter(flat, rng,
+level)`, with clutter; the `FlatEnv` loads `sim/arena_clutter.xml`), and `--driver baseline-only` runs only A* +
+a-to-b (no export, no DINOv2, no API): `just student-bench --flats 10 --levels clean,medium,messy --driver
+baseline-only`.
 
 ## Where the data is
 
