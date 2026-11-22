@@ -16,12 +16,17 @@ looks at the apartment: it looks at a **plain twin**.
     LidarPlanner  the robot's own map of lidar hits and its planned bearing (nav/dagger/lidarmap.py), reset per goto.
     Featurizer    frozen DINOv2 + patch probe on the twin's picture: the horizon band (nav/dagger/featurize.py).
     Features      the exported v29 pipeline (nav/dagger/export.py: column order and band PCA from fit time).
-    policy        TabPFN through the hosted API (tabpfn-client, `ClientTabPFNPolicy`): fit() once on the exported
-                  31,586 rows (free), one predict() per decision (10,000 credits each).
+    policy        backend "client" (default): TabPFN through the hosted API (tabpfn-client, `ClientTabPFNPolicy`):
+                  fit() once on the exported 31,586 rows (free), one predict() per decision (10,000 credits each,
+                  about 0.6 s). Backend "local": the tabpfn package on this machine (`TabPFNPolicy`, two
+                  regressors): fit() takes about 4 min and 3 GB on vendetta (M4 Pro, MPS), then a predict() takes
+                  about 0.18 s and costs no credits. Both are TabPFN's own fit()/predict(); no weights change.
 
 `Student` loads all of that on a background thread (status: loading | ready | failed | no_credits, with a reason),
 so the server starts at once with the a-to-b driver, and the student takes over when it is ready. Below
-MIN_CREDITS credits left, it does not start; its budget stops it before the account drops below that floor.
+MIN_CREDITS credits left, the client backend does not start; its budget stops it before the account drops below that
+floor. `act(sim, goal, wait)` makes the decision on a helper thread and calls `wait()` until it is made, so the app
+keeps sending pictures while the student thinks.
 
 Also here, used by app/robot.py for every driver: `ContactCounter` (the trainer's collision rule: any contact between
 a robot geom and a wall_/obs_ geom; counted, not ended) and `Progress` (the trainer's stuck rule: no new best of
@@ -48,6 +53,7 @@ STUCK_GAIN = 0.2
 MIN_CREDITS = 150_000  # the student is not started (or stops) when the account would drop below this
 VARIANT = "v29"
 STATUSES = ("off", "loading", "ready", "failed", "no_credits")
+BACKENDS = ("client", "local")  # the hosted TabPFN API, or the tabpfn package on this machine
 
 
 def export_dir(variant=VARIANT):
@@ -195,8 +201,12 @@ class Student:
     """
 
     def __init__(self, policy=None, features=None, featurizer=None, twin=None, simple=None, export=None,
-                 min_credits=MIN_CREDITS, max_calls=None, log=print):
-        """`max_calls`: at most this many API calls in this process (on top of the MIN_CREDITS floor)."""
+                 min_credits=MIN_CREDITS, max_calls=None, backend="client", log=print):
+        """`max_calls`: at most this many API calls in this process (on top of the MIN_CREDITS floor; client only).
+        `backend`: "client" (the hosted TabPFN API) or "local" (the tabpfn package on this machine)."""
+        if backend not in BACKENDS:
+            raise ValueError("unknown student backend {!r} (one of {})".format(backend, ", ".join(BACKENDS)))
+        self.backend = backend
         self.policy, self.features, self.featurizer, self.twin = policy, features, featurizer, twin
         self.simple, self.export, self.min_credits, self._log = simple, export, min_credits, log
         self.max_calls = max_calls
@@ -233,7 +243,7 @@ class Student:
         folder = Path(self.export) if self.export else export_dir()
         if not (folder / "features.parquet").exists():
             raise RuntimeError("no student export at {} (nav/dagger/export.py, see docs/navigation.md)".format(folder))
-        if self.policy is None:
+        if self.policy is None and self.backend == "client":
             if not client_login():
                 raise RuntimeError("no TABPFN_TOKEN (environment or the repo's .env)")
             left = credits_left()
@@ -246,6 +256,13 @@ class Student:
         features, table, meta = load_export(folder)
         if self.features is None:
             self.features = features
+        if self.policy is None and self.backend == "local":
+            config = load_config()
+            # TabPFN 3.5's weights need the token (nav/dagger/envfile.py); fit() stores the examples, nothing is trained.
+            policy = make_student(dict(config["student"], kind="tabpfn", backend="local"), features.columns,
+                                  features.categorical, seed=0)
+            policy.fit(table)
+            self.policy = policy
         if self.policy is None:
             calls = None if left is None else max(0, (left - self.min_credits) // CREDITS_PER_PREDICT)
             if self.max_calls is not None:
@@ -262,9 +279,9 @@ class Student:
         if self.twin is None:
             self.twin = PlainTwin(self.simple)
         self.status, self.reason = "ready", ""
-        self._log("[student] ready in {:.0f} s: {} fit() on {:,} examples x {} columns ({})".format(
+        self._log("[student] ready in {:.0f} s: {} fit() on {:,} examples x {} columns ({}, backend {})".format(
             time.time() - started, getattr(self.policy, "name", "policy"), len(table), len(features.columns),
-            meta.get("variant")))
+            meta.get("variant"), self.backend))
 
     @property
     def ready(self):
@@ -300,14 +317,38 @@ class Student:
         X, _ = self.features.live(base, band, [None])
         return X, obs
 
-    def act(self, sim, goal):
+    def decide(self, X, wait=None, interval=0.08):
+        """The policy's command for the row X. With `wait`, predict() runs on a helper thread and `wait()` is called
+        (on this thread) every `interval` seconds until it returns, so the caller can keep rendering; the result is
+        taken as soon as it is there. Errors are raised here as usual."""
+        if wait is None:
+            return self.policy.act_batch(X)[0]
+        out = {}
+
+        def run():
+            try:
+                out["cmd"] = self.policy.act_batch(X)[0]
+            except BaseException as error:  # noqa: BLE001 - handed to the caller's thread
+                out["error"] = error
+
+        worker = threading.Thread(target=run, name="student-predict", daemon=True)
+        worker.start()
+        while worker.is_alive():
+            wait()
+            worker.join(interval)  # returns early when the decision is made
+        if "error" in out:
+            raise out["error"]
+        return out["cmd"]
+
+    def act(self, sim, goal, wait=None, interval=0.08):
         """(stride, turn) for the next gait cycle. Raises when the API fails or the budget is used up (the caller
-        then hands the walk to the a-to-b driver)."""
+        then hands the walk to the a-to-b driver). `wait`: called every `interval` seconds while predict() runs (see
+        decide()); the inputs are read from `sim` before, on the caller's thread."""
         from nav.dagger.policy import OutOfCredits
         started = time.perf_counter()
         X, _ = self.inputs(sim, goal)
         try:
-            cmd = self.policy.act_batch(X)[0]
+            cmd = self.decide(X, wait, interval)
         except OutOfCredits as error:
             self.status, self.reason = "no_credits", str(error)
             raise
@@ -324,7 +365,7 @@ class Student:
         return self.last_command
 
     def info(self):
-        out = {"status": self.status, "decisions": self.decisions}
+        out = {"status": self.status, "decisions": self.decisions, "backend": self.backend}
         if self.reason:
             out["reason"] = self.reason
         if self.last_seconds is not None:

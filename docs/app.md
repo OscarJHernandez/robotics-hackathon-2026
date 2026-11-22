@@ -43,7 +43,73 @@ Margarete as a figure lying where she really is. On a computer the **Apartment**
 
 **Find Margarete** runs the loop of `homes/search.py` (`Search`): the most likely zone → the robot walks to its
 viewing pose and turns to face it → a look → Bayes' update → the next zone, until she is found or `out` reaches
-95%. Finding her adds a journal entry. The look is still a mock (it misses her 20% of the time).
+95%. Finding her adds a journal entry. The look is the robot's own camera (below); with `--no-detector`, or while
+the detector loads, it is the old mock (a die roll that misses her 20% of the time), and the panel says which.
+
+### The robot's own eyes: finding her with DINOv2
+
+`app/spotter.py` (`Spotter`), on the simulator thread, once per gait cycle while the robot walks, looks around or
+watches:
+
+1. The robot camera's picture and depth of the dressed flat (what "Robot eye" shows), DINOv2 on the picture, and
+   the horizon strip: patch rows 11-14 averaged per patch column, 46 columns of 1.35 degrees.
+2. Each column is compared with **her signature** (cosine similarity, after centring on the average background
+   column): 3 typical looks lying and 3 standing. The best stretch must pass the threshold (0.65) and clearly beat
+   everything else in view. The matched columns give the direction, the nearest depth pixel in them the distance
+   (+0.10 m to her middle), the pose turns that into a floor point.
+3. Her geoms have no collisions, so the lidar does not see her: a match the lidar also sees at that range is
+   furniture and is dropped (`nav/dagger/target.py`, `lidar_sees_target: false`).
+4. Two matches within 0.5 m confirm someone there (`Estimate`). The search then walks to 0.8 m from that point,
+   faces it and watches 4 cycles: 2 matches within 1.0 m of it (she is 1.6 m long) and she is **found**, in the
+   zone the point is in; otherwise it was a **false alarm**, that spot is ignored from then on, and the search
+   goes on.
+
+At each zone the robot **looks around**: the new command `look` turns it once on the spot (turn 0.15, about 20
+cycles, the setting the arena test found best). It stops early when she is confirmed, and skips the turn when the
+lidar shows something within 0.33 m. She can be spotted while walking, during a look-around, or in a neighbouring
+zone; the search then ends in the zone where she was seen (`Search.report_found`). The Bayesian update assumes a
+look overlooks her 10% of the time (`DETECT_MISS_RATE`, measured with `just search-bench`). The robot never reads
+where the app put her; `search.person` and `found_error` are only for the panel and the bench.
+
+**How well it works** (`just search-bench`, run on vendetta in 6 processes: 60 whole searches, new flats at every
+mess level, A* walker, about 16 s each):
+
+| | result |
+|---|---|
+| found, in the zone she is in | 53 of 57 (93%, 95% CI 83-97%); 32 of them seen while walking, before any look-around |
+| standing | 25 of 26 found within 1 m of her (median 0.11 m) |
+| lying | 21 of 31 within 1 m (median 0.56 m); 3 found in the wrong zone (1.5-3.1 m off) |
+| not found | 1 (gave up after 12 looks) |
+| nobody home | 3 of 3 not "found" (1 nobody home, 2 gave up after 12 looks) |
+| look-arounds in her zone that missed her | 4 of 57 (7%; the update assumes 10%) |
+| contacts, fallbacks | 0, 0 |
+
+With the student walking (live, TabPFN API, ×3): she was found lying in the dining area of a messy flat (3 looks,
+86 decisions, 0.20 m off) and standing in the bedroom (seen on the way, 38 decisions, 0.11 m off), with no
+contacts and no fallbacks.
+
+Open: lying she is 1.6 m long and lies 0.3 m in front of furniture, so a match can be ranged on the furniture
+behind her or on another thing in the zone: 10 of 31 lying finds were more than 1 m off.
+
+What the bench found and what was changed for her (the pillar test is unchanged):
+the lidar look-alike check called her furniture when she stood in front of the bed (tolerance 0.25 -> 0.12 m);
+a dark blue roll of clutter matched her trousers (height check: the nearest thing, floor removed, must reach 0.2
+m); up close her two legs were two matches and each failed the other's margin (margin only against places more
+than 0.8 m to the side); a weak look-alike passed the close-up (it now needs matches of 0.75 or more).
+
+Her signature comes from the app's own scene: `just person-data` renders 3,000 pictures (100 random flats at every
+mess level, her lying or standing at zone spots, the robot 0.5-4 m away; a fifth with nobody home) with her pixels
+labelled by MuJoCo, then `python vision/target_signature.py person-v2 --band --name margarete`. On 20 flats it had
+never seen: found in 97.7% of the pictures that show her (lying 98.6%, standing 96.6%; 0-4 m: 98-100%, beyond 4 m:
+58%), false alarms in 0 of 213 pictures without her. Both live in `data/vision/person-v2/` (gitignored); without the
+signature the detector stays off and the look is the mock.
+
+**She can stand.** "She is" next to "She really is": lying on the floor, standing, or either at random
+(`POST /api/apartment/search {"pose"}`). Standing is the same figure turned upright (`ApartmentScene.person`).
+
+**The camera now sees close up.** MuJoCo puts the near clipping plane at 0.01 × the model's size, and the decor
+parked 40-50 m away made the apartment model 112 m big: nothing within 1.1 m of the robot camera was drawn (nor in
+its depth), so it was blind at the viewing pose, 0.6 m from her. `ApartmentScene` sets the near plane to 5 cm.
 
 **Who says where she is: TabPFN.** The belief the search starts from comes from TabPFN
 (`homes/tabpfn_belief.py`, `--belief tabpfn`, the default): `fit()` on 2,000 synthetic check-ins, then
@@ -162,7 +228,15 @@ over a million. With `fit_mode="fit_with_cache"` (the default) a call takes 0.6 
 re-runs the whole 63,000-row context every call (13 s, 11,400 credits). At start the app checks the account: under
 150,000 credits left the student is not started (`no_credits`), and its budget stops it before the account drops
 below that; `--student-calls N` caps the calls further. The a-to-b drivers run locally and cost nothing. The
-physics waits while the student decides (about 1 to 4 s per gait cycle), so a walk is slower than real time.
+physics waits while the student decides (0.6 to 4 s per gait cycle through the API), so a walk is slower than real
+time; the camera streams keep their rate meanwhile (the paused scene is rendered while the decision is made).
+
+**Local student (`--student-backend local`).** The same student with TabPFN's `fit()` and `predict()` run by the
+`tabpfn` package on the server instead of the API (`TabPFNPolicy`, one regressor for stride and one for turn; still no
+weight changes). On vendetta (M4 Pro, MPS) `fit()` takes about 4 min at start (the a-to-b driver walks meanwhile) and
+3 GB, then a `predict()` takes 0.18 s and costs no credits. Measured on vendetta 2026-11-22 with the same walks: the
+chase stream stays at 11 pictures per second while the student walks (2 to 3 before this change), and x3 reaches
+x1.5 to x1.7 (about x1 through the API). Use it on a machine with a GPU; on a laptop CPU the fit is too slow.
 
 `--scene floor` gives the old empty floor (the panel then moves a marker on the plan only). `--flat N` picks the
 layout and resident. The home look and Margarete are in `sim/apartment_decor.xml`, which only `sim/apartment.xml`
