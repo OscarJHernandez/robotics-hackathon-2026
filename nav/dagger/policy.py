@@ -382,15 +382,171 @@ class LidarShield:
         return out
 
 
+# ---------------------------------------------------------------------------------------------
+# The hosted TabPFN API (tabpfn-client): the same fit()/predict(), run by Prior Labs. Used by the app's student.
+# ---------------------------------------------------------------------------------------------
+
+CREDITS_PER_PREDICT = 10_000  # measured 2026-11-22: every predict() costs a flat 10,000 credits, whatever the rows
+
+
+class OutOfCredits(RuntimeError):
+    """The TabPFN API budget (a CreditBudget, or the account's credits) would be exceeded."""
+
+
+class CreditBudget:
+    """At most `max_calls` predict() calls; `spend()` raises OutOfCredits before the call that would exceed it."""
+
+    def __init__(self, max_calls):
+        self.max_calls = None if max_calls is None else int(max_calls)
+        self.calls = 0
+
+    def spend(self, n=1):
+        if self.max_calls is not None and self.calls + n > self.max_calls:
+            raise OutOfCredits("TabPFN API budget of {} predict calls used up".format(self.max_calls))
+        self.calls += n
+
+    @property
+    def left(self):
+        return None if self.max_calls is None else self.max_calls - self.calls
+
+    def credits(self):
+        return self.calls * CREDITS_PER_PREDICT
+
+
+def client_login():
+    """Give tabpfn_client the key from $TABPFN_TOKEN or the gitignored .env (never printed). False without a key."""
+    import os
+
+    from .envfile import load_token
+    os.environ.setdefault("TABPFN_NO_BROWSER", "1")
+    if load_token() is None:
+        return False
+    import tabpfn_client
+    tabpfn_client.set_access_token(os.environ["TABPFN_TOKEN"])
+    return True
+
+
+def parse_usage(usage):
+    """{"used", "limit", "left", "reset"} from the API's usage dict (current_usage, usage_limit, reset_time) or
+    from tabpfn_client.get_api_usage()'s sentence. limit and left are None when the limit is unlimited (-1)."""
+    import re
+    if isinstance(usage, str):
+        m = re.search(r"used (\d+) of the allowed limit of (Unlimited|-?\d+) credits(?:\. The limit will reset at (.*?)\.?$)?",
+                      usage.strip())
+        if not m:
+            raise ValueError("cannot read the TabPFN API usage")
+        used, limit, reset = int(m.group(1)), (-1 if m.group(2) == "Unlimited" else int(m.group(2))), m.group(3)
+    else:
+        used, limit, reset = int(usage["current_usage"]), int(usage["usage_limit"]), usage.get("reset_time")
+    if limit == -1:
+        return {"used": used, "limit": None, "left": None, "reset": reset}
+    return {"used": used, "limit": limit, "left": limit - used, "reset": reset}
+
+
+def api_usage():
+    """The account's usage through tabpfn_client (one small request, no credits). Needs client_login() first."""
+    try:
+        from tabpfn_client.client import ServiceClient
+        from tabpfn_client.config import get_access_token
+        return parse_usage(ServiceClient.get_api_usage(get_access_token()))
+    except ImportError:
+        import tabpfn_client
+        return parse_usage(tabpfn_client.get_api_usage())
+
+
+def credits_left():
+    """Credits left on the TabPFN API account: an int, or None when the limit is unlimited."""
+    return api_usage()["left"]
+
+
+class ClientTabPFNPolicy:
+    """The student through the hosted TabPFN API: ONE regressor for both commands, so one decision is one call.
+
+    fit(): the context rows stacked twice with an `output` column (0 = stride, 1 = turn) and the matching label.
+    act_batch(rows): 2n rows (each row once with output 0 and once with output 1) in ONE predict() call, clipped to
+    the command ranges. Still TabPFN's fit()/predict() only: no weights change (AGENTS.md).
+    `budget` (CreditBudget) is charged once per predict() call, before it is made.
+    """
+    name = "tabpfn-client"
+
+    def __init__(self, columns, categorical=(), n_estimators=4, model_version="v3.5", seed=0, budget=None,
+                 fit_mode=None, estimator=None):
+        self.columns = list(columns)
+        self.categorical_idx = [self.columns.index(c) for c in categorical if c in self.columns]
+        self.n_estimators, self.model_version, self.seed, self.fit_mode = n_estimators, model_version, seed, fit_mode
+        self.budget = budget if budget is not None else CreditBudget(None)
+        self._estimator = estimator  # a factory for tests (a fake); default: tabpfn_client.TabPFNRegressor
+        self.model = None
+        self.fit_seconds = 0.0
+        self.context_rows = 0
+        self.calls = 0
+        self.last_seconds = None
+
+    def _make(self):
+        if self._estimator is not None:
+            return self._estimator()
+        from tabpfn_client import TabPFNRegressor
+        kw = dict(n_estimators=self.n_estimators, random_state=self.seed, ignore_pretraining_limits=True,
+                  categorical_features_indices=self.categorical_idx + [len(self.columns)])  # `output` is categorical
+        if self.fit_mode:
+            kw["fit_mode"] = self.fit_mode
+        return TabPFNRegressor.create_default_for_version(self.model_version, **kw)
+
+    @staticmethod
+    def stack(X, outputs=(0.0, 1.0)):
+        """(n, k) -> (2n, k + 1): the rows with output 0, then the same rows with output 1."""
+        X = np.asarray(X, np.float32)
+        return np.concatenate([np.column_stack([X, np.full(len(X), o, np.float32)]) for o in outputs])
+
+    def fit(self, context):
+        X = np.asarray(context[self.columns], np.float32)
+        y = np.concatenate([np.asarray(context[label], np.float32) for label in LABELS])
+        start = time.perf_counter()
+        self.model = self._make()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.model.fit(self.stack(X), y)
+        self.fit_seconds = time.perf_counter() - start
+        self.context_rows = len(X)
+        return self.fit_seconds
+
+    def act_batch(self, rows):
+        X = _matrix(rows, self.columns)
+        self.budget.spend(1)
+        start = time.perf_counter()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            pred = np.asarray(self.model.predict(self.stack(X)), float).reshape(-1)
+        self.last_seconds = time.perf_counter() - start
+        self.calls += 1
+        n = len(X)
+        return np.stack([np.clip(pred[:n], *STRIDE_RANGE), np.clip(pred[n:2 * n], *TURN_RANGE)], axis=1)
+
+
 STUDENT_KINDS = ("tabpfn", "gated", "knn", "rule")
 
 
-def make_student(student_cfg, columns, categorical, seed=0):
-    """Build the student from config: kind tabpfn | gated | knn | rule, optional shield {free_ahead_min}."""
+BACKENDS = ("local", "client")
+
+
+def make_student(student_cfg, columns, categorical, seed=0, budget=None):
+    """Build the student from config: kind tabpfn | gated | knn | rule, optional shield {free_ahead_min}.
+
+    `backend` (kind tabpfn only): "local" (default: the tabpfn package on this machine, two regressors) or
+    "client" (the hosted TabPFN API, one stacked regressor, one call per decision; `budget` caps the calls)."""
     kind = student_cfg.get("kind", "tabpfn")
+    backend = student_cfg.get("backend", "local")
+    if backend not in BACKENDS:
+        raise ValueError(f"unknown backend {backend!r}")
+    if backend == "client" and kind != "tabpfn":
+        raise ValueError("the client backend is for kind tabpfn only")
     if kind == "rule":
         return RulePolicy(columns, student_cfg.get("threshold", 0.8), student_cfg.get("gain", 0.6))
-    if kind == "tabpfn":
+    if kind == "tabpfn" and backend == "client":
+        policy = ClientTabPFNPolicy(columns, categorical, student_cfg.get("n_estimators", 4),
+                                    student_cfg.get("model_version", "v3.5"), seed, budget,
+                                    student_cfg.get("fit_mode"))
+    elif kind == "tabpfn":
         policy = TabPFNPolicy.from_config(student_cfg, columns, categorical, seed)
     elif kind == "gated":
         policy = GatedPolicy(columns, categorical, student_cfg["device"], student_cfg["n_estimators"],

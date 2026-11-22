@@ -28,6 +28,9 @@ sys.path.insert(0, str(REPO / "sim"))
 from fetch_meshes import meshes_available  # noqa: E402
 from jethexa_sim import SIM_DIR, JetHexaSim, tripod_targets  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from student import ContactCounter, Progress  # noqa: E402
+
 CONTROL_DT = 0.02  # seconds between new joint targets
 CYCLE = 1.0  # seconds per gait cycle; the steering command changes once per cycle
 PHASE0 = 0.25  # gait clock start: both tripods mid-sweep, so walking starts without a jump
@@ -204,7 +207,8 @@ def footprints(model, data, below=0.25):
 
 ROUTE_MARGIN = 0.42  # metres the route keeps the robot's centre away from furniture and walls
 WAYPOINT = 0.30  # metres: close enough to a point on the way to turn to the next one
-DRIVERS = ("tabpfn", "planner", "rule")
+DRIVERS = ("student", "tabpfn", "planner", "rule")
+STUDENT_REACHED = 0.25  # metres: the student's goal radius, as in its training (nav/dagger/dagger.yaml)
 
 
 def load_tabpfn(name):
@@ -273,18 +277,105 @@ def plan_route(shapes, half, start, goal):
     return points
 
 
+class ApartmentScene:
+    """The apartment model with the home look, without a thread or a window: the furnished 50 m² room
+    (sim/apartment.xml), wood floor, low walls, recoloured furniture, zone patches, decor and Margarete.
+    LiveRobot runs one; tests build one to compare with the student's plain twin (app/student.py)."""
+
+    def __init__(self, simple=None):
+        if simple is None:
+            simple = not meshes_available()
+        self.simple = simple
+        self.sim = sim = JetHexaSim(SIM_DIR / ("apartment_simple.xml" if simple else "apartment.xml"))
+        model = sim.model
+        self.half = math.sqrt(50.0) / 2
+        model.geom_size[model.geom("floor").id, :2] = self.half + 0.1  # the robot file's floor is 6 x 6 m
+        model.light_active[0] = 0  # the robot file's lamp; the room has its own even lights
+        model.mat_reflectance[model.geom_matid[model.geom("floor").id]] = 0.0
+        wood_floor(model)
+        dress(model)
+        self._person = int(model.body("person").mocapid[0])
+        self.zone_geoms = dict((model.geom(g).name[5:], g) for g in range(model.ngeom)
+                               if model.geom(g).name.startswith("zone_"))
+        mujoco.mj_forward(model, sim.data)
+        self.shapes = footprints(model, sim.data)
+        self.home = (0.0, 0.0, 0.0)
+
+    def load(self, flat):
+        """The flat's furniture, zone patches and decoration; the robot at the dock; nobody home. Returns home."""
+        sim, model = self.sim, self.sim.model
+        key = model.key("stand").id
+        mpos, mquat = model.key_mpos[key].reshape(-1, 3), model.key_mquat[key].reshape(-1, 4)
+        for piece in flat["furniture"]:
+            m = int(model.body(piece["body"]).mocapid[0])
+            yaw_ = math.radians(piece["yaw_deg"])
+            mpos[m] = (piece["x"], piece["y"], 0.0)
+            mquat[m] = (math.cos(yaw_ / 2), 0.0, 0.0, math.sin(yaw_ / 2))
+        for zone in flat["zones"]:
+            g = self.zone_geoms[zone["name"]]
+            model.geom_pos[g][:2] = (zone["x"], zone["y"])
+            model.geom_size[g][:2] = (zone["size_x"] / 2 - 0.02, zone["size_y"] / 2 - 0.02)
+        furnish(model, flat)
+        dock = flat["dock"]
+        self.home = (dock["x"], dock["y"], math.atan2(-dock["y"], -dock["x"]))  # at the dock, facing the room
+        self.place(self.home)  # sim.reset() also puts the furniture where the keyframe now says
+        sim.set_target(*PARKED)
+        self.person()
+        self.shapes = footprints(model, sim.data)
+        return self.home
+
+    def place(self, pose):
+        """Standing at (x, y, yaw)."""
+        sim = self.sim
+        sim.reset()
+        sim.data.qpos[0], sim.data.qpos[1] = pose[0], pose[1]
+        sim.data.qpos[3:7] = (math.cos(pose[2] / 2), 0.0, 0.0, math.sin(pose[2] / 2))
+        mujoco.mj_forward(sim.model, sim.data)
+
+    def paint(self, belief):
+        for name, g in self.zone_geoms.items():
+            self.sim.model.geom_rgba[g][3] = 0.04 + 0.36 * max(0.0, min(1.0, belief.get(name, 0.0)))
+
+    def person(self, x=None, y=None, yaw=0.0):
+        """Margarete with her middle at (x, y), head towards `yaw` (radians); no point: out of sight."""
+        data = self.sim.data
+        if x is None:
+            x, y = PARKED[0], PARKED[1] + 2.0
+        data.mocap_pos[self._person] = (x, y, 0.0)
+        data.mocap_quat[self._person] = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
+
+
 class LiveRobot:
     """scene "floor": the robot alone on its 6 m floor. scene "apartment": the 50 m² room with furniture and
     zone patches (sim/apartment.xml); `load(flat)` arranges it and `paint(belief)` shades the zones.
 
-    In the apartment a goto is a route of straight legs around the furniture (plan_route), and `driver` walks
-    each leg: "tabpfn" is the a-to-b controller built with `just controller` (TabPFN picks stride and turn every
-    gait cycle), "planner" the nav/dagger expert, "rule" the steer-to-bearing rule. A driver that cannot be
-    loaded falls back to the next one; state()["driver"] says which one walks."""
+    Drivers in the apartment, first choice first: "student" (app/student.py: the obstacle-avoiding TabPFN student
+    from nav/dagger, through the TabPFN API; it walks straight to the end point with its own lidar map and camera,
+    the A* route is only shown), then the a-to-b drivers, which walk a route of straight legs around the known
+    furniture (plan_route): "tabpfn" the a-to-b controller built with `just controller`, "planner" the nav/dagger
+    expert, "rule" the steer-to-bearing rule. A driver that cannot be loaded falls back to the next one. The
+    student loads on a background thread; until it is ready the a-to-b driver walks. When the student gets stuck
+    (the trainer's rule) or the API fails, the goto is handed to A* + the a-to-b driver (`fallbacks` in state).
+    Every control step counts touches of walls and furniture (`contacts`). state()["driver"] says who walks."""
 
-    def __init__(self, scene="floor", driver="tabpfn", controller="default"):
+    def __init__(self, scene="floor", driver="tabpfn", controller="default", student=None, ab=None, realtime=True,
+                 stuck_cycles=None):
+        """`student`: an app/student.py Student to use (tests pass a fake); with driver "student" and none given,
+        one is made and loaded in the background. `ab`: the first a-to-b driver to try under the student (default
+        the next in DRIVERS). `realtime` False runs the physics as fast as it goes (tests). `stuck_cycles`: the
+        stuck rule's cycles (default the trainer's 40)."""
         self.scene = scene
         self._driver, self._controller = driver, controller
+        self._ab_first = ab
+        self._realtime = realtime
+        self._stuck_cycles = stuck_cycles
+        if scene == "apartment" and driver == "student" and student is None:
+            from student import Student
+            student = Student(simple=not meshes_available()).load_async()
+        self._student = student if scene == "apartment" else None
+        self._contacts = None
+        self._fallbacks, self._fallback = 0, None
+        self._ab = None
         self.limit = APARTMENT if scene == "apartment" else ARENA
         self._commands = queue.Queue()
         self._lock = threading.Lock()
@@ -352,27 +443,20 @@ class LiveRobot:
 
     def _run(self):
         home = (0.0, 0.0, 0.0)  # where reset puts the robot: x, y, yaw
-        expert, policy, driver, layout, shapes = None, None, "rule", 0, []
+        expert, policy, driver, layout = None, None, "rule", 0
         legs, poses, prev = [], [], (0.0, 0.0)  # the route's points still to reach; the body pose at each cycle start
         reached = REACHED
+        scene = None
         try:
             if self.scene == "apartment":
-                sim = JetHexaSim(SIM_DIR / ("apartment.xml" if meshes_available() else "apartment_simple.xml"))
-                model = sim.model
-                half = math.sqrt(50.0) / 2
-                model.geom_size[model.geom("floor").id, :2] = half + 0.1  # the robot file's floor is 6 x 6 m
-                model.light_active[0] = 0  # the robot file's lamp; the room has its own even lights
-                model.mat_reflectance[model.geom_matid[model.geom("floor").id]] = 0.0
-                wood_floor(model)
-                dress(model)
-                person = int(model.body("person").mocapid[0])
-                zone_geoms = dict((model.geom(g).name[5:], g) for g in range(model.ngeom)
-                                  if model.geom(g).name.startswith("zone_"))
-                mujoco.mj_forward(model, sim.data)
-                shapes = footprints(model, sim.data)
+                scene = ApartmentScene()
+                sim = scene.sim
                 reached = APARTMENT_REACHED
-                wanted = DRIVERS[DRIVERS.index(self._driver):] if self._driver in DRIVERS else DRIVERS
-                for name in wanted:
+                first = self._ab_first if self._ab_first in DRIVERS else self._driver
+                wanted = DRIVERS[DRIVERS.index(first):] if first in DRIVERS else DRIVERS
+                for name in wanted:  # the a-to-b driver: walks while the student loads, and takes over from it
+                    if name == "student":
+                        continue
                     try:
                         if name == "tabpfn":
                             policy = load_tabpfn(self._controller)
@@ -386,7 +470,9 @@ class LiveRobot:
                         break
                     except Exception as error:
                         print("[app] driver '{}' is not available ({}), trying the next".format(name, error), flush=True)
-                print("[app] apartment scene, driver: {}".format(driver), flush=True)
+                self._contacts = ContactCounter(sim.model)
+                print("[app] apartment scene, driver: {}{}".format(
+                    "student (loading), then " if self._student is not None else "", driver), flush=True)
             else:
                 sim = JetHexaSim()
             sim.set_target(1.0, 0.0)
@@ -401,6 +487,7 @@ class LiveRobot:
                 camera.distance, camera.azimuth, camera.elevation = distance, azimuth, elevation
                 camera.lookat[:] = (0.0, 0.0, 0.0) if view == "overhead" else sim.body_position()
             self._views = (renderer, cameras)
+            self._ab = driver
             with self._lock:  # first pictures of every view, so a new page never starts empty
                 self._wanted = dict((view, time.monotonic()) for view in VIEWS)
             self._publish(sim, 0, "idle", None)
@@ -413,7 +500,22 @@ class LiveRobot:
         mode, goal = "idle", None  # goal: (x, y) for "goto", a yaw for "turn"
         gait, cycle_at, stride, turn = PHASE0, -1.0, 0.0, 0.0
         step = 0
+        walker = driver  # who walks the current goto: "student" or the a-to-b driver
+        progress = Progress(self._stuck_cycles) if self._stuck_cycles else Progress()
+        twin_checked = False
+        route = []  # the A* route of the current goto (walked by the a-to-b driver, only shown for the student)
         next_tick = time.monotonic()
+
+        def fall_back(reason, x, y):
+            """The student hands this goto to A* + the a-to-b driver."""
+            nonlocal legs, walker, poses, prev
+            legs = plan_route(scene.shapes, scene.half, (x, y), goal)
+            walker, poses, prev = driver, [], (0.0, 0.0)
+            self._fallbacks += 1
+            self._fallback = {"n": self._fallbacks, "reason": reason, "x": round(x, 2), "y": round(y, 2),
+                              "goal": [round(goal[0], 2), round(goal[1], 2)], "driver": driver}
+            print("[app] student -> {} (A* route): {}".format(driver, reason), flush=True)
+
         while True:
             while True:
                 try:
@@ -422,45 +524,21 @@ class LiveRobot:
                     break
                 x, y, _ = sim.body_position()
                 yaw = sim.body_yaw()
-                if cmd[0] == "layout":  # apartment: a new flat
-                    flat = cmd[1]
-                    model = sim.model
-                    key = model.key("stand").id
-                    mpos, mquat = model.key_mpos[key].reshape(-1, 3), model.key_mquat[key].reshape(-1, 4)
-                    for piece in flat["furniture"]:
-                        m = int(model.body(piece["body"]).mocapid[0])
-                        yaw_ = math.radians(piece["yaw_deg"])
-                        mpos[m] = (piece["x"], piece["y"], 0.0)
-                        mquat[m] = (math.cos(yaw_ / 2), 0.0, 0.0, math.sin(yaw_ / 2))
-                    for zone in flat["zones"]:
-                        g = zone_geoms[zone["name"]]
-                        model.geom_pos[g][:2] = (zone["x"], zone["y"])
-                        model.geom_size[g][:2] = (zone["size_x"] / 2 - 0.02, zone["size_y"] / 2 - 0.02)
-                    furnish(model, flat)
-                    dock = flat["dock"]
-                    home = (dock["x"], dock["y"], math.atan2(-dock["y"], -dock["x"]))  # at the dock, facing the room
-                    sim.reset()  # also puts the furniture where the keyframe now says
-                    sim.data.qpos[0], sim.data.qpos[1] = home[0], home[1]
-                    sim.data.qpos[3:7] = (math.cos(home[2] / 2), 0.0, 0.0, math.sin(home[2] / 2))
-                    sim.set_target(*PARKED)
-                    sim.data.mocap_pos[person] = (PARKED[0], PARKED[1] + 2.0, 0.0)
-                    shapes = footprints(model, sim.data)
+                if cmd[0] == "layout":  # apartment: a new flat (or the same flat with its loose pieces moved)
+                    home = scene.load(cmd[1])
                     layout += 1
                     mode, goal = "idle", None
                 elif cmd[0] == "zones":
-                    for name, g in zone_geoms.items():
-                        sim.model.geom_rgba[g][3] = 0.04 + 0.36 * max(0.0, min(1.0, cmd[1].get(name, 0.0)))
+                    scene.paint(cmd[1])
                     continue
                 elif cmd[0] == "person":  # Margarete: where she lies, or out of sight
-                    sim.data.mocap_pos[person] = (cmd[1], cmd[2], 0.0)
-                    sim.data.mocap_quat[person] = (math.cos(cmd[3] / 2), 0.0, 0.0, math.sin(cmd[3] / 2))
+                    scene.person(cmd[1], cmd[2], cmd[3])
                     continue
                 elif cmd[0] == "reset":
-                    sim.reset()
-                    sim.data.qpos[0], sim.data.qpos[1] = home[0], home[1]
-                    sim.data.qpos[3:7] = (math.cos(home[2] / 2), 0.0, 0.0, math.sin(home[2] / 2))
-                    mujoco.mj_forward(sim.model, sim.data)
-                    if self.scene != "apartment":
+                    if scene is not None:
+                        scene.place(home)
+                    else:
+                        sim.reset()
                         sim.set_target(1.0, 0.0)
                     mode, goal = "idle", None
                 elif cmd[0] == "target":  # move the pillar; a walk to the pillar follows it
@@ -482,15 +560,34 @@ class LiveRobot:
                     # The pillar stays put: only `random` moves it. (Moving it to every goto end point made a
                     # misread "walk to the target", e.g. [[forward 1]], put the pillar right in front of the robot.)
                     mode, goal = "goto", (tx, ty)
-                    legs = plan_route(shapes, math.sqrt(50.0) / 2, (x, y), goal) if self.scene == "apartment" else [goal]
+                    walker = driver
+                    if scene is not None:
+                        route = plan_route(scene.shapes, scene.half, (x, y), goal)
+                        legs = route
+                        student = self._student
+                        if student is not None and student.ready and not twin_checked:
+                            try:
+                                student.twin.check_compatible(sim.model)
+                            except Exception as error:  # noqa: BLE001
+                                student.status, student.reason = "failed", str(error)
+                            twin_checked = True
+                        if student is not None and student.ready:
+                            walker, legs = "student", [goal]  # the student walks to the end point itself
+                            student.start(goal)
+                            progress.reset(math.hypot(goal[0] - x, goal[1] - y))
+                    else:
+                        route, legs = [], [goal]
                     poses, prev = [], (0.0, 0.0)
                 gait, cycle_at = PHASE0, -1.0
 
             x, y, _ = sim.body_position()
             yaw = sim.body_yaw()
+            if self._contacts is not None and self._contacts.update(sim.data, (x, y)):
+                print("[app] contact {} at ({:.2f}, {:.2f})".format(self._contacts.count, x, y), flush=True)
+            goal_radius = STUDENT_REACHED if walker == "student" else reached
             if sim.body_upright() < FALLEN:
                 mode, goal = "fallen", None
-            elif mode == "goto" and math.hypot(goal[0] - x, goal[1] - y) < reached:
+            elif mode == "goto" and math.hypot(goal[0] - x, goal[1] - y) < goal_radius:
                 mode, goal, legs = "idle", None, []
             elif mode == "goto" and len(legs) > 1 and math.hypot(legs[0][0] - x, legs[0][1] - y) < WAYPOINT:
                 legs = legs[1:]  # on to the next point of the route
@@ -500,16 +597,27 @@ class LiveRobot:
             if mode in ("goto", "turn"):
                 if gait - cycle_at >= CYCLE:  # new steering command once per gait cycle
                     cycle_at = gait
+                    if mode == "goto" and walker == "student":  # the student: own sensors, own map, the end point
+                        if progress.update(math.hypot(goal[0] - x, goal[1] - y)):
+                            fall_back("stuck: not {:.1f} m closer in {} cycles".format(progress.gain, progress.cycles), x, y)
+                        else:
+                            try:
+                                stride, turn = self._student.act(sim, goal)
+                            except Exception as error:  # noqa: BLE001 - API down, no credits: A* + a-to-b
+                                fall_back("student unavailable: {}".format(error), x, y)
+                            next_tick = time.monotonic()  # the physics waited while the student decided
                     leg = legs[0] if legs else goal
-                    if mode == "goto" and policy is not None:  # the TabPFN a-to-b controller walks this leg
+                    if mode == "goto" and walker == "student":
+                        pass
+                    elif mode == "goto" and policy is not None:  # the TabPFN a-to-b controller walks this leg
                         stride, turn = (float(v) for v in policy.act([nav_row((x, y, yaw), poses, prev, leg)])[0])
                         poses.append((x, y, yaw))
                         del poses[:-4]
                         prev = (stride, turn)
                         next_tick = time.monotonic()  # the physics waited while TabPFN predicted
                     elif mode == "goto" and expert is not None:  # the nav/dagger planner
-                        stride, turn = expert.act({"key": (layout, goal), "footprints": shapes,
-                                                   "half": math.sqrt(50.0) / 2, "goal": goal, "pose": (x, y, yaw)})
+                        stride, turn = expert.act({"key": (layout, goal), "footprints": scene.shapes,
+                                                   "half": scene.half, "goal": goal, "pose": (x, y, yaw)})
                     elif mode == "goto":
                         dist = math.hypot(leg[0] - x, leg[1] - y)
                         bearing = wrap(math.atan2(leg[1] - y, leg[0] - x) - yaw)
@@ -526,10 +634,21 @@ class LiveRobot:
                 sim.set_targets(sim.stand)
             sim.step(CONTROL_DT)
             step += 1
-            self._route = [list(p) for p in legs] if mode == "goto" else []
-            self._driver_name = driver if self.scene == "apartment" else "rule"
+            following = mode == "goto" and walker != "student"
+            self._route = [list(p) for p in (legs if following else route if mode == "goto" else [])]
+            self._route_followed = following
+            student = self._student
+            if self.scene != "apartment":
+                self._driver_name = "rule"
+            elif mode == "goto":
+                self._driver_name = walker
+            else:
+                self._driver_name = "student" if student is not None and student.ready else driver
             self._publish(sim, step, mode, goal)
 
+            if not self._realtime:
+                time.sleep(0)
+                continue
             next_tick += CONTROL_DT
             delay = next_tick - time.monotonic()
             if delay > 0:
@@ -573,7 +692,15 @@ class LiveRobot:
             state["turn_to_deg"] = round(math.degrees(goal), 1)
         if self.scene == "apartment":
             state["driver"] = getattr(self, "_driver_name", "rule")
+            state["ab_driver"] = self._ab
             state["route"] = getattr(self, "_route", [])
+            state["route_followed"] = getattr(self, "_route_followed", True)
+            state["student"] = self._student.info() if self._student is not None else {"status": "off"}
+            if self._contacts is not None:
+                state["contacts"] = self._contacts.count
+                state["contact_points"] = list(self._contacts.points)
+            state["fallbacks"] = self._fallbacks
+            state["fallback"] = self._fallback
             if mode == "goto":
                 state["goal_x"], state["goal_y"] = round(goal[0], 3), round(goal[1], 3)
         with self._lock:
