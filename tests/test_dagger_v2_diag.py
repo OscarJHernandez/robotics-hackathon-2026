@@ -334,3 +334,19 @@ class JournalTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StudentOnlyCheckTest(unittest.TestCase):
+    def test_only_runs_driven_entirely_by_the_student_pass(self):
+        import pandas as pd
+
+        from nav.dagger.report import student_only
+        rows = pd.DataFrame({"used_expert": [False, False], "student_stride": [0.2, 0.35], "student_turn": [0.1, -0.3],
+                             "executed_stride": [0.2, 0.3], "executed_turn": [0.1, -0.25]})
+        self.assertTrue(student_only(rows))  # executed = the student's command (clipped to the gait's range)
+        mixed = rows.copy()
+        mixed.loc[1, "used_expert"] = True
+        self.assertFalse(student_only(mixed))  # one step driven by the expert
+        other = rows.copy()
+        other.loc[0, "executed_turn"] = 0.0
+        self.assertFalse(student_only(other))  # executed something else than the student's command
