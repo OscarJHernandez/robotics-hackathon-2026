@@ -410,8 +410,8 @@ minute, and runs at most 2 chats at once. The server must have the voice setting
 
 A second copy runs on vendetta, Oscar's always-on Mac, at https://jethexa-vendetta.alpharelay.dev (since
 2026-11-22; `main` at `76455c3`). It has its own Cloudflare tunnel and launchd agents, so it restarts after a crash or
-reboot. It runs the student with `--student-backend local` (TabPFN on vendetta's GPU, no API credits; see "Local
-student" above), so it does not draw on the laptop copy's TabPFN API credits. Setup, updates and teardown:
+reboot. Its student uses the TabPFN API like the laptop copy (Oscar's choice), so both draw on the same account's
+credits. Setup, updates and teardown:
 [deploy/vendetta/README.md](../deploy/vendetta/README.md).
 
 ## Settings
