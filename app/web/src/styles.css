@@ -414,3 +414,163 @@
 @utility apt-role-k { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: oklch(1 0 0 / 55%); }
 @utility apt-role-v { font-size: 13px; font-weight: 700; color: var(--color-video); }
 @utility apt-role-d { font-size: 10.5px; line-height: 1.3; color: oklch(1 0 0 / 55%); }
+
+/* The "How it works" page (components/jethexa/how/): a long-form article on the dark stage, with its own
+   scroll container because both app shells are 100dvh with hidden overflow. Text colours are white at fixed
+   opacities; teal is the accent, amber means "in progress". */
+@utility how-page {
+  position: fixed; inset: 0; z-index: 40; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; color: var(--color-video);
+  background: radial-gradient(120% 50% at 50% -8%, oklch(0.24 0.035 190 / 60%), transparent 65%), var(--stage);
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+@utility how-bar {
+  position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top);
+  background: var(--stage);
+  border-bottom: 1px solid oklch(1 0 0 / 8%);
+}
+@utility how-back {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 10px; border-radius: 999px;
+  font-size: 13.5px; font-weight: 500; color: var(--color-video); background: oklch(1 0 0 / 7%);
+  border: 1px solid oklch(1 0 0 / 14%); transition: background .15s;
+  &:hover { background: oklch(1 0 0 / 12%); }
+  &:focus-visible { outline: 2px solid oklch(0.78 0.13 172); outline-offset: 2px; }
+}
+@utility how-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; flex-shrink: 0;
+  font-size: 12.5px; white-space: nowrap; color: oklch(1 0 0 / 68%); border: 1px solid oklch(1 0 0 / 11%);
+  transition: all .15s;
+  &:hover { color: var(--color-video); background: oklch(1 0 0 / 6%); }
+  &[aria-current="true"] { color: var(--color-video); background: oklch(1 0 0 / 10%); border-color: oklch(1 0 0 / 22%); }
+}
+@utility how-nav-link {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 0 7px 14px; text-align: left;
+  font-size: 13.5px; line-height: 1.35; color: oklch(1 0 0 / 55%); border-left: 1px solid oklch(1 0 0 / 10%);
+  transition: color .15s, border-color .15s;
+  &:hover { color: oklch(1 0 0 / 85%); }
+  &[aria-current="true"] { color: var(--color-video); border-left-color: oklch(0.78 0.13 172); }
+}
+@utility how-dot-progress { width: 7px; height: 7px; border-radius: 999px; background: oklch(0.82 0.15 80); flex-shrink: 0; }
+@utility how-dot-live { width: 7px; height: 7px; border-radius: 999px; background: oklch(0.79 0.18 150); flex-shrink: 0; }
+
+@utility how-section { scroll-margin-top: 124px; padding-top: 72px; @media (min-width: 1280px) { scroll-margin-top: 88px; } }
+@utility how-eyebrow {
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: oklch(0.84 0.09 172);
+}
+@utility how-h1 {
+  font-size: clamp(30px, 5.2vw, 46px); line-height: 1.08; letter-spacing: -0.022em; font-weight: 600;
+  text-wrap: balance; outline: none;
+}
+@utility how-h2 { font-size: clamp(25px, 3.4vw, 32px); line-height: 1.15; letter-spacing: -0.016em; font-weight: 600; text-wrap: balance; }
+@utility how-h3 {
+  margin: 44px 0 14px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: oklch(1 0 0 / 52%);
+}
+@utility how-lead { font-size: clamp(17px, 2vw, 19px); line-height: 1.6; color: oklch(1 0 0 / 80%); text-wrap: pretty; }
+@utility how-prose {
+  font-size: 16px; line-height: 1.7; color: oklch(1 0 0 / 74%); text-wrap: pretty;
+  & p + p { margin-top: 14px; }
+  & strong { color: oklch(1 0 0 / 94%); font-weight: 600; }
+  & em { color: oklch(1 0 0 / 88%); }
+  & code { font-family: var(--font-mono); font-size: 0.86em; padding: 1px 5px; border-radius: 5px; background: oklch(1 0 0 / 7%); color: oklch(1 0 0 / 88%); }
+}
+@utility how-term { color: oklch(1 0 0 / 94%); font-weight: 600; }
+@utility how-rule { height: 1px; background: oklch(1 0 0 / 9%); border: 0; }
+
+/* Numbered steps (the loop, DAgger) */
+@utility how-steps {
+  counter-reset: how-step; display: grid; gap: 2px;
+  & > li { counter-increment: how-step; position: relative; padding: 14px 0 14px 46px; border-top: 1px solid oklch(1 0 0 / 8%); }
+  & > li:last-child { border-bottom: 1px solid oklch(1 0 0 / 8%); }
+  & > li::before {
+    content: counter(how-step); position: absolute; left: 0; top: 13px; width: 28px; height: 28px; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12.5px;
+    font-weight: 600; color: oklch(0.86 0.09 172); background: oklch(0.78 0.13 172 / 13%); border: 1px solid oklch(0.78 0.13 172 / 35%);
+  }
+}
+
+/* Tables: hairlines, small caps head, numbers right-aligned. how-table-stack turns rows into blocks on phones. */
+@utility how-table {
+  width: 100%; border-collapse: collapse; font-size: 14.5px; line-height: 1.5;
+  & th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(1 0 0 / 48%); padding: 0 16px 10px 0; border-bottom: 1px solid oklch(1 0 0 / 14%); vertical-align: bottom; }
+  & td { padding: 12px 16px 12px 0; border-bottom: 1px solid oklch(1 0 0 / 8%); vertical-align: top; color: oklch(1 0 0 / 76%); }
+  & th:last-child, & td:last-child { padding-right: 0; }
+  & td:first-child { color: oklch(1 0 0 / 94%); font-weight: 500; }
+  & .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  & .mono { font-family: var(--font-mono); font-size: 12.5px; }
+}
+@utility how-table-stack {
+  @media (max-width: 639px) {
+    & thead { display: none; }
+    & tr { display: block; padding: 14px 0; border-bottom: 1px solid oklch(1 0 0 / 10%); }
+    & td { display: block; padding: 3px 0; border: 0; }
+    & td:first-child { font-size: 15.5px; padding-bottom: 6px; }
+    & td[data-label]:not(:first-child)::before {
+      content: attr(data-label); display: block; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: oklch(1 0 0 / 45%); margin-top: 6px;
+    }
+    & .num { text-align: left; }
+  }
+}
+
+/* Figures: video, picture, chart, diagram */
+@utility how-figure {
+  margin: 28px 0 0; padding: 14px; border-radius: 20px; background: oklch(1 0 0 / 3.5%); border: 1px solid oklch(1 0 0 / 9%);
+  @media (max-width: 639px) { padding: 10px; border-radius: 16px; }
+}
+@utility how-media {
+  position: relative; overflow: hidden; border-radius: 12px; background: oklch(0.1 0.01 240); aspect-ratio: 16 / 9;
+  & video, & img { display: block; width: 100%; height: 100%; object-fit: contain; }
+}
+@utility how-caption { margin-top: 12px; padding: 0 4px; font-size: 14px; line-height: 1.55; color: oklch(1 0 0 / 70%); }
+@utility how-source { margin-top: 6px; padding: 0 4px; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: oklch(1 0 0 / 42%); overflow-wrap: anywhere; }
+
+/* Stats */
+@utility how-stats { display: grid; gap: 1px; border-radius: 16px; overflow: hidden; background: oklch(1 0 0 / 9%); border: 1px solid oklch(1 0 0 / 9%); }
+@utility how-stat { background: oklch(0.155 0.01 240); padding: 16px 18px; }
+@utility how-stat-v { font-size: 30px; line-height: 1.1; font-weight: 600; letter-spacing: -0.02em; color: var(--color-video); }
+@utility how-stat-l { margin-top: 6px; font-size: 13px; line-height: 1.45; color: oklch(1 0 0 / 64%); }
+
+/* "What did not work" items */
+@utility how-fail {
+  padding: 14px 0 14px 18px; border-left: 2px solid oklch(0.71 0.17 22 / 55%);
+}
+
+/* Expandable details */
+@utility how-details {
+  margin-top: 18px; border-radius: 14px; border: 1px solid oklch(1 0 0 / 10%); background: oklch(1 0 0 / 2.5%);
+  & > summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    font-size: 14px; font-weight: 500; color: oklch(1 0 0 / 86%);
+  }
+  & > summary::-webkit-details-marker { display: none; }
+  & > summary:focus-visible { outline: 2px solid oklch(0.78 0.13 172); outline-offset: -2px; border-radius: 14px; }
+  & > summary .how-chev { transition: transform .2s; color: oklch(1 0 0 / 50%); }
+  &[open] > summary .how-chev { transform: rotate(90deg); }
+  & > .how-details-body { padding: 2px 16px 16px; }
+}
+
+/* The night run */
+@utility how-timeline {
+  position: relative; display: grid; gap: 0;
+  & > li { display: grid; grid-template-columns: 64px 1fr; gap: 14px; padding: 10px 0; position: relative; }
+  & > li::before { content: ""; position: absolute; left: 80px; top: 0; bottom: 0; width: 1px; background: oklch(1 0 0 / 12%); }
+  & > li:first-child::before { top: 18px; }
+  & > li:last-child::before { bottom: calc(100% - 18px); }
+  & time { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: oklch(1 0 0 / 90%); padding-top: 1px; font-variant-numeric: tabular-nums; }
+  & p { position: relative; padding-left: 22px; font-size: 15px; line-height: 1.55; color: oklch(1 0 0 / 74%); }
+  & p::before { content: ""; position: absolute; left: -2px; top: 7px; width: 9px; height: 9px; border-radius: 999px; background: var(--stage); border: 2px solid oklch(0.82 0.15 80); }
+}
+
+@utility how-note {
+  padding: 16px 18px; border-radius: 16px; background: oklch(0.78 0.13 172 / 8%); border: 1px solid oklch(0.78 0.13 172 / 24%);
+}
+@utility how-note-progress {
+  padding: 14px 18px; border-radius: 16px; background: oklch(0.82 0.15 80 / 8%); border: 1px solid oklch(0.82 0.15 80 / 30%);
+}
+@utility how-zoom {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: oklch(0.08 0.01 240 / 92%); backdrop-filter: blur(6px);
+}

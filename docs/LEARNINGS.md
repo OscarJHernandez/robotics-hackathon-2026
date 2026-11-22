@@ -43,6 +43,19 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): Safari on iPhone will not play a `<video>` from a server that ignores `Range`, and
+  `app/server.py` used to send every file whole with 200. `static()` now answers single ranges with 206 (tests in
+  `tests/test_server_static.py`); check with `curl -H "Range: bytes=0-1"` (206, 2 bytes) before adding a video.
+- 2026-11-22 (Oscar's agent): The server caches everything but `index.html` for a year (`immutable`), so media must
+  be imported from TypeScript (Vite adds a content hash to the name), never put under a fixed name in `public/`.
+  A missing file with an extension now gets 404 instead of `index.html`, so an old hashed name fails loudly
+  instead of being cached as HTML.
+- 2026-11-22 (Oscar's agent): The "How it works" page's sources disagree in small ways: v29's screening result is
+  98.5% goals and 1.5% collisions (3 of 200) in `docs/dagger/promotion.md` but "98%, 2%" in STATUS.md and
+  navigation.md, and the "stop and turn" share is 6.6% in LEARNINGS but 6.5% in `dagger-report.md`. The page uses
+  the exact per-run table (`promotion.md`). Every number it shows is in `app/web/src/content/howItWorks.ts` with its
+  source.
+
 - 2026-11-22 (Oscar's agent): TabPFN ignored a strong journal when it only had the 13 raw journal-share columns
   (ten dining-area afternoons lowered "dining area"), although the examples hold the pattern. Adding the counting
   posterior as six features (`prior_*` in `homes/tabpfn_belief.py`) fixed it; `homes/test_tabpfn_belief.py` checks

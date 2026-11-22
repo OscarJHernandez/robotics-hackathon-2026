@@ -114,6 +114,28 @@ def sse(payload):
     return b"data: " + json.dumps(payload).encode() + b"\n\n"
 
 
+def byte_range(header, size):
+    """(start, end) of a single `Range: bytes=...` header for a file of `size` bytes, both inclusive; None for no
+    header, several ranges or a malformed one (then the whole file is sent); "unsatisfiable" when it starts past
+    the end (416)."""
+    if not header or not header.startswith("bytes=") or "," in header:
+        return None
+    first, sep, last = header[6:].strip().partition("-")
+    if not sep or not (first.isdigit() or last.isdigit()) or (first and not first.isdigit()) or (last and not last.isdigit()):
+        return None
+    if not first:  # suffix: the last n bytes
+        n = int(last)
+        if n == 0 or size == 0:
+            return "unsatisfiable"
+        return max(0, size - n), size - 1
+    start = int(first)
+    if last and int(last) < start:
+        return None
+    if start >= size:
+        return "unsatisfiable"
+    return start, min(int(last) if last else size - 1, size - 1)
+
+
 def allowed(kind, who):
     count, window = LIMITS[kind]
     now = time.monotonic()
@@ -470,20 +492,46 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def static(self, path):
+        """A file of the built front end. Single ranges (`Range: bytes=a-b`, `a-`, `-n`) get 206, which Safari
+        needs to play a video; a missing file with an extension (a video, script, picture) gets 404 instead of the
+        page, and only paths without one fall back to index.html (the single-page app)."""
         if not WEB.is_dir():
             self.send_json(404, {"error": "front end not built: run `just app-build`"})
             return
-        target = (WEB / path.lstrip("/")).resolve()
-        if WEB.resolve() not in target.parents or not target.is_file():
-            target = WEB / "index.html"  # single-page app: unknown paths get the page
-        body = target.read_bytes()
-        self.send_response(200)
+        root = WEB.resolve()
+        target = (root / path.lstrip("/")).resolve()
+        if root not in target.parents or not target.is_file():
+            if Path(path).suffix:
+                self.send_json(404, {"error": "not found"})
+                return
+            target = root / "index.html"  # single-page app: unknown paths get the page
+        size = target.stat().st_size
+        span = byte_range(self.headers.get("Range"), size)
+        if span == "unsatisfiable":
+            self.send_response(416)
+            self.send_header("Content-Range", "bytes */{}".format(size))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        start, end = span if span else (0, size - 1)
+        self.send_response(206 if span else 200)
         self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
         cache = "no-cache" if target.name == "index.html" else "public, max-age=31536000, immutable"
         self.send_header("Cache-Control", cache)
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Accept-Ranges", "bytes")
+        if span:
+            self.send_header("Content-Range", "bytes {}-{}/{}".format(start, end, size))
+        self.send_header("Content-Length", str(max(0, end - start + 1)))
         self.end_headers()
-        self.wfile.write(body)
+        with target.open("rb") as f:  # read only the bytes asked for
+            f.seek(start)
+            left = end - start + 1
+            while left > 0:
+                chunk = f.read(min(left, 256 * 1024))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                left -= len(chunk)
 
     def log_message(self, fmt, *args):
         if not any(quiet in self.path for quiet in ("/api/frame", "/api/state", "/api/health", "final=0")):

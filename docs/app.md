@@ -109,6 +109,52 @@ Find Margarete, the dice, and **Details**, which opens the whole panel (time, be
 full-screen sheet. It replaces the old Knock card while the server runs the apartment scene; the Knock check-in
 (`app/knock.py`, with its own zones and the call-out) is still what `--scene floor` shows.
 
+## The "How it works" page
+
+A long-form page that explains the flow of Find Margarete and the three TabPFN models (where is she, walking
+a→b, avoiding furniture, the last marked **In progress**). Open it with **How it works** in the header (desktop) or
+the **i** button in the phone's top bar; it is also a link: `/#how-it-works` (with `?phone=1` kept).
+
+- `App.tsx` owns the `#how-it-works` hash and renders the page **instead of** the stage, so the picture streams
+  unmount and their connections are free for the videos. The robot-state and apartment polling pause while it is
+  open; the call, Knock and `/api/live` hooks stay mounted. Close (Back button, Escape or the browser's Back) returns
+  to the robot; after a direct link, closing uses `history.replaceState`, so it never leaves the site. The section
+  nav scrolls with `scrollIntoView` and never changes the hash.
+- The page calls no API: it works with the simulator stopped.
+- Code: `app/web/src/components/jethexa/how/` (`HowItWorks.tsx`, `FlowDiagram.tsx`, `BarChart.tsx`, `Clip.tsx`,
+  `Section.tsx`, `StatusChip.tsx`). **Every number lives in `app/web/src/content/howItWorks.ts`**, each with a comment
+  naming its source; change numbers there only. The flow diagram's steps are data (`NODES`, `EDGES` in
+  `FlowDiagram.tsx`): a new step is one node and one edge.
+- Chart colours: one teal hue in two steps (`#23aa8a` for the bar the chart is about, `#366e6b` for the others),
+  checked with the dataviz skill's `validate_palette.js --ordinal --mode dark --surface "#111518"`.
+
+**Media** (`app/web/src/assets/how/`, imported from TypeScript so Vite gives them content-hashed names, which is
+what the server's one-year `immutable` cache needs). 1.7 MB in all; sources are in the main checkout's gitignored
+`data/`:
+
+| File | Size | Source | What it shows |
+|---|---|---|---|
+| `a2b.mp4` | 140 kB | `data/nav/runs/20261121-163413-demo/demo.gif` (controller `default`, (0, 0) to (1.6, 0.2)) | The a→b controller walking to the pillar |
+| `dagger-first.mp4` | 720 kB | `data/nav/dagger/dagger1/videos/round50-episode50000001.mp4` (dagger1 round 50, scene 100001, student alone) | The camera-only student walking past the target into a blue box beside it |
+| `dagger-student.mp4` | 576 kB | `data/nav/dagger/v2/videos/v29-student-final-episode102093.mp4` (v29, final test layout 102093, student alone) | The current student going round a long piece of furniture to the pillar |
+| `*-poster.jpg` | 9-35 kB | a frame of each clip | Shown before a clip plays |
+| `search-loop.jpg` | 147 kB | `homes/data/search_examples/loop_3.png` | A missed sighting, and the robot comes back |
+
+```bash
+F=/opt/homebrew/bin/ffmpeg   # 9.0.2
+$F -i data/nav/runs/20261121-163413-demo/demo.gif -an -c:v libx264 -pix_fmt yuv420p -crf 28 -preset slow -movflags +faststart -vf "scale=640:-2:flags=lanczos,fps=10" a2b.mp4
+$F -i data/nav/dagger/dagger1/videos/round50-episode50000001.mp4 -an -c:v libx264 -pix_fmt yuv420p -crf 28 -preset slow -movflags +faststart -vf "scale=960:-2:flags=lanczos" dagger-first.mp4
+$F -i data/nav/dagger/v2/videos/v29-student-final-episode102093.mp4 -an -c:v libx264 -pix_fmt yuv420p -crf 28 -preset slow -movflags +faststart -vf "scale=960:-2:flags=lanczos" dagger-student.mp4
+$F -i homes/data/search_examples/loop_3.png -vf "scale=1600:-2:flags=lanczos,format=yuvj444p" -q:v 4 search-loop.jpg
+$F -ss 6 -i a2b.mp4 -frames:v 1 -q:v 5 a2b-poster.jpg              # -ss 21 for dagger-first, -ss 12 for dagger-student
+```
+
+**Server:** `static()` in `app/server.py` answers single byte ranges (`Range: bytes=a-b`, `a-`, `-n`) with `206`,
+`Content-Range` and `Accept-Ranges: bytes`, reading only those bytes; a range past the end gets `416`; several
+ranges or a malformed header get the whole file (`200`). Safari on iPhone does not play a video without this. A
+missing file with an extension (an old hashed asset, a video) gets `404` instead of the page; paths without one
+still get `index.html`. Tests: `tests/test_server_static.py`.
+
 ## The terminal
 
 Typing happens in the terminal's own prompt line when it is open (the white chat bar shows only while it is

@@ -22,10 +22,11 @@ export function useHealth() {
   return { health, conn };
 }
 
-export function useRobotState(conn: Conn) {
+/** The robot's pose and mode, polled every 0.5 s while `enabled` (paused while the "How it works" page is open). */
+export function useRobotState(conn: Conn, enabled = true) {
   const [state, setState] = useState<RobotState | null>(null);
   useEffect(() => {
-    if (conn === "checking") return;
+    if (conn === "checking" || !enabled) return;
     let alive = true;
     const start = performance.now();
     const tick = async () => {
@@ -35,6 +36,6 @@ export function useRobotState(conn: Conn) {
     tick();
     const id = setInterval(tick, 500);
     return () => { alive = false; clearInterval(id); };
-  }, [conn]);
+  }, [conn, enabled]);
   return state;
 }

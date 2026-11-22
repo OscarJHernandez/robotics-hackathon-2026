@@ -3,7 +3,7 @@
 // like a walkie-talkie. While a check-in runs the card takes the middle; when the robot finds her, the robot eye
 // fills the top and the talk bar gives way to the alert. Same state and hooks as the desktop page (App.tsx).
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Keyboard, Mic, RotateCcw } from "lucide-react";
+import { ArrowUp, Info, Keyboard, Mic, RotateCcw } from "lucide-react";
 import type { Conn } from "@/hooks/useRobotState";
 import type { LiveCall } from "@/hooks/useLiveCall";
 import type { Knock } from "@/hooks/useKnock";
@@ -24,7 +24,7 @@ export interface VoiceProps {
   press: () => void; release: () => void; cancel: () => void;
 }
 
-export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend, onClear, apartment, onApartmentChanged, onError }: {
+export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend, onClear, apartment, onApartmentChanged, onError, onHowItWorks }: {
   conn: Conn; views: View[]; state: RobotState | null; lines: Line[]; busy: boolean; chatOff: boolean;
   voice: VoiceProps; other: LiveCall | null; knock: Knock; speakerOn: boolean; onToggleSpeaker: () => void;
   onSend: (text: string) => void;
@@ -32,6 +32,8 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
   onClear: () => void;
   /** The apartment (zones, belief, search), when the server runs that scene: its card replaces the Knock card. */
   apartment?: ApartmentState | null; onApartmentChanged?: () => void; onError?: (m: string) => void;
+  /** Opens the "How it works" page. */
+  onHowItWorks?: () => void;
 }) {
   const live = conn === "live";
   const [view, setView] = useState<View>("chase");
@@ -81,6 +83,10 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
           </span>
           {found ? <span className="text-shadow-soft pixel ml-auto text-[9px] tracking-[0.15em]">Robot eye</span>
             : <span className="text-shadow-soft ml-auto truncate font-mono text-[11px] text-video/85">{topRight}</span>}
+          {onHowItWorks && (
+            <button type="button" onClick={onHowItWorks} data-how-opener aria-label="How it works"
+              className="glass-btn -mr-1 h-8 w-8 shrink-0"><Info className="h-4 w-4" /></button>
+          )}
         </div>
         {!found && (
           <div className="absolute inset-x-0 bottom-0 flex gap-1.5 overflow-x-auto px-3 pb-3 [scrollbar-width:none]">

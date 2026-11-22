@@ -1,12 +1,14 @@
-import { Dices, Home, Map } from "lucide-react";
+import { BookOpen, Dices, Home, Map } from "lucide-react";
 import type { View } from "@/lib/api";
 import { VIEW_LABEL } from "./Stream";
 
-export function ViewList({ views, active, onPick, mapOpen, onToggleMap, onRandom, apartment, onToggleApartment, scene }: {
+export function ViewList({ views, active, onPick, mapOpen, onToggleMap, onRandom, apartment, onToggleApartment, scene, onHowItWorks }: {
   views: View[]; active: View; onPick: (v: View) => void; mapOpen: boolean; onToggleMap: () => void;
   onRandom: () => void;
   /** Whether the Apartment panel is open; undefined when there is no apartment (no button then). */
   apartment?: boolean | undefined; onToggleApartment?: (() => void) | undefined; scene?: string | undefined;
+  /** Opens the "How it works" page. */
+  onHowItWorks?: (() => void) | undefined;
 }) {
   return (
     <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -35,6 +37,12 @@ export function ViewList({ views, active, onPick, mapOpen, onToggleMap, onRandom
           <button onClick={onToggleApartment} aria-pressed={apartment} title="The apartment: zones, journal, search and log"
             className={`glass pixel flex h-9 items-center gap-2 rounded-full px-3.5 text-[10px] transition-colors duration-200 max-sm:hidden ${apartment ? "bg-video text-[var(--stage)]" : "hover:bg-video/10"}`}>
             <Home className="h-4 w-4" />Apartment
+          </button>
+        )}
+        {onHowItWorks && (
+          <button type="button" onClick={onHowItWorks} data-how-opener title="How the robot searches, walks and avoids furniture"
+            className="glass pixel flex h-9 items-center gap-2 rounded-full px-3.5 text-[10px] transition-colors duration-200 hover:bg-video/10">
+            <BookOpen className="h-4 w-4" />How it works
           </button>
         )}
       {scene !== "apartment" && (

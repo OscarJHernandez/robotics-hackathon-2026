@@ -15,6 +15,7 @@ import { TerminalPanel, useMetacon } from "@/components/jethexa/Terminal";
 import { Stream } from "@/components/jethexa/Stream";
 import { LiveCallCard } from "@/components/jethexa/LiveCallCard";
 import { PhoneApp } from "@/components/jethexa/PhoneApp";
+import { HowItWorks } from "@/components/jethexa/how/HowItWorks";
 import { SpeakerToggle, TalkButton } from "@/components/jethexa/TalkButton";
 import { useHealth, useRobotState } from "@/hooks/useRobotState";
 import { useIsPhone } from "@/hooks/useIsPhone";
@@ -24,9 +25,44 @@ import { useApartment } from "@/hooks/useApartment";
 import { phaseText, useVoiceCall } from "@/hooks/useVoiceCall";
 import { sendCommand, VIEWS, type View } from "@/lib/api";
 
+const HOW = "#how-it-works";
+
 export function App() {
+  // The "How it works" page: App owns the #how-it-works hash alone. It renders instead of the stage, so the
+  // picture streams unmount; polling that only feeds the screen pauses while it is open.
+  const [howOpen, setHowOpen] = useState(() => window.location.hash === HOW);
+  const howPushed = useRef(false); // opened here, so a history entry for the robot is right behind it
+  useEffect(() => {
+    const sync = () => {
+      const open = window.location.hash === HOW;
+      if (!open) howPushed.current = false;
+      setHowOpen(open);
+    };
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  const openHow = useCallback(() => {
+    if (window.location.hash === HOW) return;
+    howPushed.current = true;
+    window.location.hash = HOW; // a new history entry (Back returns to the robot); ?phone=1 stays
+  }, []);
+  const closeHow = useCallback(() => {
+    if (howPushed.current) {
+      window.history.back(); // the entry behind it is the robot; hashchange closes the page
+    } else { // opened by a direct link: never go back to another site
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+      setHowOpen(false);
+    }
+  }, []);
+  // Focus returns to the button that opens the page (desktop header or phone top bar) once the stage is back.
+  const wasOpen = useRef(howOpen);
+  useEffect(() => {
+    if (wasOpen.current && !howOpen) document.querySelector<HTMLElement>("[data-how-opener]")?.focus({ preventScroll: true });
+    wasOpen.current = howOpen;
+  }, [howOpen]);
+
   const { health, conn } = useHealth();
-  const state = useRobotState(conn);
+  const state = useRobotState(conn, !howOpen);
   const live = conn === "live";
   const views = health?.views?.length ? health.views : VIEWS;
   const [main, setMain] = useState<View>("chase");
@@ -40,7 +76,7 @@ export function App() {
   // On a phone it is a card under the camera, with the whole panel as a full-screen sheet.
   const hasApartment = live && !!health?.apartment;
   const [aptOpen, setAptOpen] = useState(true);
-  const { apartment, refresh: refreshApartment } = useApartment(hasApartment && (aptOpen || phone));
+  const { apartment, refresh: refreshApartment } = useApartment(hasApartment && (aptOpen || phone) && !howOpen);
   const apt = hasApartment && !phone && aptOpen && apartment ? apartment : null;
   useEffect(() => { if (health?.scene === "apartment") setMain("orbit"); }, [health?.scene]);
 
@@ -95,12 +131,22 @@ export function App() {
     else toast.error(r.error ?? "Command failed");
   };
 
+  if (howOpen) {
+    return (
+      <>
+        <HowItWorks onClose={closeHow} />
+        <Toaster position="top-center" />
+      </>
+    );
+  }
+
   if (phone) {
     return (
       <>
         <PhoneApp conn={conn} views={views} state={state} lines={term.lines} busy={term.busy} chatOff={term.chatOff} onClear={term.clear}
           apartment={hasApartment ? apartment : null} onApartmentChanged={refreshApartment} onError={(m) => toast.error(m)}
-          voice={voice} other={other} knock={knock} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)} />
+          voice={voice} other={other} knock={knock} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)}
+          onHowItWorks={openHow} />
         <Toaster position="top-center" />
       </>
     );
@@ -135,7 +181,7 @@ export function App() {
         <div className="flex flex-col items-end gap-3">
           <ViewList views={views} active={main} onPick={setMain} mapOpen={mapOpen} onToggleMap={() => setMapOpen((o) => !o)}
             onRandom={() => run("random")} apartment={hasApartment ? aptOpen : undefined} onToggleApartment={() => setAptOpen((o) => !o)}
-            scene={health?.scene} />
+            scene={health?.scene} onHowItWorks={openHow} />
           {mapOpen && !apt && <MiniMapCard s={state} onGoto={(x, y) => run(`goto ${x} ${y}`)} />}
         </div>
       </header>
