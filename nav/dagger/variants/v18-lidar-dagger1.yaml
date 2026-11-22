@@ -1,0 +1,9 @@
+id: v18-lidar-dagger1
+hypothesis: rows from states the lidar student drove into (DAgger round 1, expert-labelled) fix the remaining collisions
+parent: v12-lidar-perturb
+change: plus dagger_r1 rows; context 12k rows with every student-driven row kept (quotas mode_x_free)
+kill_criterion: goal rate and collisions on screen-100 not better than v12-lidar-perturb's (paired)
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0, perturb, dagger_r1], max_rows: 12000, quotas: mode_x_free, seed: 0}
+offline: [offline_expert, offline_perturb]

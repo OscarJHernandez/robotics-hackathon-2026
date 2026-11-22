@@ -199,8 +199,9 @@ def parse_time(text):
 
 class Apartment:
     def __init__(self, seed=0, name="Margarete", now=datetime.datetime.now, sleep=time.sleep, walk=WALK, look=LOOK,
-                 robot=None, model=None):
+                 robot=None, model=None, on_event=None):
         self._now, self._sleep, self._walk, self._look = now, sleep, walk, look
+        self._on_event = on_event  # called with (kind, facts) as the search goes (app/narrate.py); must not block
         self._robot = robot  # LiveRobot in the apartment scene, or None: a marker walks instead
         self._model = model  # tabpfn_belief.TabPFNBelief, or None: the counting belief
         self._predicted = (None, None)  # the last TabPFN belief and what it was for
@@ -223,6 +224,8 @@ class Apartment:
         with self._lock:
             self.seed = int(seed)
             self.flat = F.random_flat(np.random.default_rng([self.seed, 0]), self.seed)
+            self.home_flat = self.flat  # the flat as built; shuffle() moves its loose pieces and drops clutter
+            self.obstacles = "home"  # or the mess level of the last shuffle: clean, medium, messy
             self.persona = R.sample_persona(np.random.default_rng([self.seed, 1]), 0, self.flat)
             self.habits = R.stated_habits(self.persona)
             self._habits_version = getattr(self, "_habits_version", 0) + 1
@@ -243,6 +246,38 @@ class Apartment:
                 self._robot.person()
             self._paint()
             self._say("New flat {} for {}: {} days of journal".format(self.seed, self.name, JOURNAL_DAYS), "info")
+
+    def shuffle(self, level="medium", rng=None):
+        """The room at a mess level (homes/flats.py scatter): "clean" (nothing loose on the floor: the stool,
+        armchair, crate and plant taken out), "medium" (those four dropped at random spots on the open floor plus
+        4 clutter items) or "messy" (the four plus up to 12 clutter items), to watch the robot avoid things it was
+        not told about. A new arrangement every time, also at the same level. The zones, the journal and the
+        resident stay; the robot goes back to its dock. Refused while a search runs. Returns the level."""
+        level = "medium" if level in (None, "") else str(level)
+        if level not in F.LEVELS:
+            raise ValueError("level must be one of: " + ", ".join(F.LEVELS))
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                raise ValueError("wait for the search to end before moving the furniture")
+            self.flat = F.scatter(self.home_flat, rng or np.random.default_rng(), level)
+            self.obstacles = level
+            self.robot = dict(self.flat["dock"])
+            self.search = None
+            self.run = {"status": "idle", "goal": None, "truth": None, "miss_rate": S.MISS_RATE, "path": []}
+            if self._robot is not None:
+                self._robot.load(self.flat)
+                self._robot.person()
+            self._paint()
+            n = F.loose_count(self.flat)
+            title = {"clean": "Clean room", "medium": "Medium messy room", "messy": "Messy room"}[level]
+            wanted = F.LEVELS[level]["clutter"] + (len(F.LOOSE) if F.LEVELS[level]["pieces"] else 0)
+            if n == 0:
+                self._say("{}: nothing loose on the floor, only the fixed furniture".format(title), "info")
+            else:
+                self._say("{}: {} thing{} on the floor{}".format(
+                    title, n, "" if n == 1 else "s", " ({} of {} fitted)".format(n, wanted) if n < wanted else ""),
+                    "info")
+            return self.obstacles
 
     def _draw(self, weekday, rng):
         """Her zone in each part of a day of this weekday, from her routine."""
@@ -496,6 +531,7 @@ class Apartment:
                 self._robot.person(*person) if person else self._robot.person()
                 self.robot = self._pose()
             self.run = {"status": "starting", "goal": None, "truth": truth, "miss_rate": miss, "walked": 0.0,
+                        "fallbacks": 0, "contacts": 0,
                         "person": list(person[:2]) if person else None,
                         "path": [[self.robot["x"], self.robot["y"]]]}
             self._paint(start)
@@ -504,6 +540,7 @@ class Apartment:
             top = sorted(((p, z) for z, p in start.items()), reverse=True)[:3]
             self._say("Belief ({}): {}".format(self.model_info()["label"], ", ".join(
                 "{} {:.0f}%".format(NAMES[z], 100 * p) for p, z in top)), "belief")
+            self._emit("start", name=self.name, top=[[z, float(p)] for p, z in top])
             self._thread = threading.Thread(target=self._loop, args=(truth, miss), daemon=True)
             self._thread.start()
             return True
@@ -564,6 +601,7 @@ class Apartment:
                     self.run.update(status="walking", goal=goal["zone"])
                     self._say("Proposal {}: {} ({:.0f}%), the most likely zone".format(
                         len(search.steps) + 1, NAMES[goal["zone"]], 100 * goal["p"]), "proposal")
+                    self._emit("heading", zone=goal["zone"], p=float(goal["p"]), look=len(search.steps) + 1)
                     start = (self.robot["x"], self.robot["y"])
                 self._move(start, (goal["x"], goal["y"]), goal["heading_deg"])
                 with self._lock:
@@ -584,6 +622,10 @@ class Apartment:
                         self._say("Update: {} {:.0f}% -> {:.0f}%, {} {:.0f}% -> {:.0f}%".format(
                             NAMES[goal["zone"]], 100 * before[goal["zone"]], 100 * step["belief_after"][goal["zone"]],
                             NAMES[rise], 100 * before[rise], 100 * step["belief_after"][rise]), "update")
+                        upcoming = search.goal()  # the zone the next proposal picks (None when the search ends)
+                        self._emit("miss", zone=goal["zone"], belief={z: float(p) for z, p in step["belief_after"].items()},
+                                   next=upcoming["zone"] if upcoming else None,
+                                   next_p=float(upcoming["p"]) if upcoming else None)
             with self._lock:
                 self.run.update(status=search.status, goal=None)
                 looks = len(search.steps)
@@ -591,23 +633,29 @@ class Apartment:
                 if search.status == "found":
                     zone = search.steps[-1]["zone"]
                     self._say("Found {} in the {} {}".format(self.name, NAMES[zone].lower(), tail), "found")
+                    self._emit("found", name=self.name, zone=zone, looks=looks, metres=float(self.run["walked"]))
                     day, _, minute = self.when()
                     self._add(day, minute, zone, "search")
                     self._say("Journal: {} {} (seen by the robot)".format(hhmm(minute), NAMES[zone]), "journal")
                 elif search.status == "nobody_home":
                     self._say("Nobody home ({:.0f}% sure) {}".format(100 * search.belief.get("out", 0.0), tail), "out")
+                    self._emit("nobody_home", name=self.name, looks=looks, metres=float(self.run["walked"]),
+                               p_out=float(search.belief.get("out", 0.0)))
                 else:
                     self._say("Gave up {}".format(tail), "out")
+                    self._emit("gave_up", name=self.name, looks=looks, metres=float(self.run["walked"]))
         except _Stopped:
             if self._robot is not None:
                 self._command("stop")
             with self._lock:
                 self.run.update(status="stopped", goal=None)
                 self._say("Search stopped", "info")
+                self._emit("stopped", name=self.name)
         except _Failed as error:
             with self._lock:
                 self.run.update(status="failed", goal=None)
                 self._say("Search ended: {}".format(error), "out")
+                self._emit("failed", name=self.name, reason=str(error))
 
     def _move(self, start, end, heading_deg=None):
         """Get the robot to `end` and face `heading_deg`. With a LiveRobot it really walks there; without one a
@@ -638,6 +686,8 @@ class Apartment:
 
     def _drive(self, end, heading_deg):
         """The real walk: goto, wait until the robot stands near `end`, then turn to face the zone."""
+        state = self._robot.state()
+        self._seen = {"fallbacks": state.get("fallbacks", 0) or 0, "contacts": state.get("contacts", 0) or 0}
         self._command("goto {:.2f} {:.2f}".format(*end))
         self._settle(WALK_TIMEOUT * math.hypot(end[0] - self.robot["x"], end[1] - self.robot["y"]) + 60.0, near=end)
         if heading_deg is not None:
@@ -662,6 +712,7 @@ class Apartment:
                 tail = self.run["path"][-1]
                 if math.hypot(self.robot["x"] - tail[0], self.robot["y"] - tail[1]) > 0.15:
                     self.run["path"].append([self.robot["x"], self.robot["y"]])
+            self._watch(state)
             if state.get("mode") == "fallen":
                 raise _Failed("the robot fell over")
             # "idle" means done only once the robot was seen walking (the simulator may take a moment to pick the
@@ -676,6 +727,29 @@ class Apartment:
                 self._command("stop")
                 raise _Failed("the robot did not get there in time (something is in the way)")
 
+    def _watch(self, state):
+        """Log (and narrate) what the robot reports while it walks: the student handing a walk to A* + the
+        a-to-b driver (a normal part of walking, not a failure), and touches of walls and furniture."""
+        seen = getattr(self, "_seen", None)
+        if seen is None:
+            return
+        fallbacks, contacts = state.get("fallbacks", 0) or 0, state.get("contacts", 0) or 0
+        if fallbacks > seen["fallbacks"]:
+            seen["fallbacks"] = fallbacks
+            info = state.get("fallback") or {}
+            with self._lock:
+                self.run["fallbacks"] = self.run.get("fallbacks", 0) + 1
+                zone = self.run.get("goal")
+                self._say("Fallback: {}; the mapped route (A* + {}) walks the rest of the way".format(
+                    info.get("reason", "handed over"), info.get("driver", "a-to-b")), "fallback")
+            self._emit("fallback", zone=zone, reason=str(info.get("reason", "")))
+        if contacts > seen["contacts"]:
+            with self._lock:
+                self.run["contacts"] = self.run.get("contacts", 0) + contacts - seen["contacts"]
+                self._say("Contact: the robot touched a wall or a piece of furniture ({} this search)".format(
+                    self.run["contacts"]), "contact")
+            seen["contacts"] = contacts
+
     def _paint(self, belief=None):
         """Shade the zones on the simulator's floor by the belief."""
         if self._robot is not None:
@@ -688,6 +762,19 @@ class Apartment:
             self._sleep(seconds)
         if self._stop.is_set():
             raise _Stopped()
+
+    def _emit(self, kind, **facts):
+        """Tell on_event what just happened. Never lets it stop the search."""
+        if self._on_event is None:
+            return
+        try:
+            self._on_event(kind, facts)
+        except Exception as error:  # noqa: BLE001 - the narration must never break the search
+            print("[apartment] on_event failed: {}".format(error), flush=True)
+
+    def note(self, text, kind="metacon"):
+        """A line from outside the search loop in the log (metacon's narration)."""
+        self._say(text, kind)
 
     def _say(self, text, kind):
         with self._lock:
@@ -708,14 +795,22 @@ class Apartment:
                 belief = stages["last_heard"]
             last = self._last()
             flat = self.flat
+            robot_state = self._robot.state() if self._robot is not None else {}
             return {
                 "seed": self.seed, "name": self.name,
                 "flat": {"half": flat["width"] / 2, "door": flat["door"], "dock": flat["dock"],
                          "zones": [{k: z[k] for k in ("name", "label", "x", "y", "size_x", "size_y", "view_x", "view_y",
                                                     "person_x", "person_y")}
                                    for z in flat["zones"]],
-                         "obstacles": [{k: f[k] for k in ("name", "zone", "x", "y", "size_x", "size_y")}
-                                       for f in flat["furniture"]]},
+                         "obstacles": [dict({k: f[k] for k in ("name", "zone", "x", "y", "size_x", "size_y",
+                                                                      "yaw_deg")},
+                                            length=2 * F.shape(f["name"])["half"][0],
+                                            width=2 * F.shape(f["name"])["half"][1],
+                                            round=F.shape(f["name"])["shape"] == "circle",
+                                            moved=bool(f.get("moved")), clutter=bool(f.get("clutter")),
+                                            loose=f["name"] in F.LOOSE or bool(f.get("clutter")))
+                                       for f in F.on_floor(flat)]},
+                "obstacles": self.obstacles,
                 "habits": {"usual": self.habits["usual"], "outings": [list(o) for o in self.habits["outings"]]},
                 "now": {"weekday": weekday, "minute": minute, "time": hhmm(minute), "day": day.isoformat(),
                         "slot": R.slot_of(minute), "real": self.clock is None},
@@ -726,11 +821,17 @@ class Apartment:
                 "search": {"status": self.run["status"], "running": running, "goal": self.run["goal"],
                            "truth": self.run["truth"], "person": self.run.get("person"),
                            "miss_rate": self.run["miss_rate"], "path": self.run["path"],
-                           "metres": self.run.get("walked", 0.0),
+                           "metres": self.run.get("walked", 0.0), "fallbacks": self.run.get("fallbacks", 0),
+                           "contacts": self.run.get("contacts", 0),
                            "steps": [{"zone": s["zone"], "p": s["p_before"], "seen": s["seen"], "metres": s["metres"]}
                                      for s in (search.steps if search else [])]},
                 "robot": dict(self._pose() if self._robot is not None else self.robot),
-                "driver": (self._robot.state().get("driver") if self._robot is not None else "marker"),
+                "driver": robot_state.get("driver", "marker"),
+                "student": robot_state.get("student", {"status": "off"}),
+                "ab_driver": robot_state.get("ab_driver"),
+                "contact_points": robot_state.get("contact_points", []),
+                "route": robot_state.get("route", []) if robot_state.get("mode") == "goto" else [],
+                "route_followed": robot_state.get("route_followed", True),
                 "model": self.model_info(),
                 "log": list(self.log),
             }

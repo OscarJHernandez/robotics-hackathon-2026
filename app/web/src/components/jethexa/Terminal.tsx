@@ -6,7 +6,7 @@ import type { Conn } from "@/hooks/useRobotState";
 
 export type Line =
   | { id: number; kind: "user"; text: string; voice?: boolean }
-  | { id: number; kind: "ai"; text: string; pending?: boolean }
+  | { id: number; kind: "ai"; text: string; pending?: boolean; narr?: boolean }
   | { id: number; kind: "cmd"; text: string; ok: boolean; error?: string | null | undefined }
   | { id: number; kind: "event"; text: string; tone: "ok" | "warn" }
   | { id: number; kind: "info"; text: string };
@@ -31,6 +31,8 @@ export function useMetacon(conn: Conn, llm: boolean) {
   const clear = useCallback(() => { hist.current = []; setLines([]); }, []);
   /** A line from the robot itself (arrived, fell, ...). */
   const note = useCallback((text: string, tone: "ok" | "warn" = "ok") => push({ kind: "event", text, tone }), [push]);
+  /** metacon's own line about the search (app/narrate.py). Not part of the chat history sent back to metacon. */
+  const narrate = useCallback((text: string) => push({ kind: "ai", text, narr: true }), [push]);
 
   const history = (dir: -1 | 1): string | null => {
     const h = inputs.current; if (!h.length) return null;
@@ -84,7 +86,7 @@ export function useMetacon(conn: Conn, llm: boolean) {
     return stripMarkers(raw).trim();
   };
 
-  return { lines, busy, send, clear, history, chatOff, note };
+  return { lines, busy, send, clear, history, chatOff, note, narrate };
 }
 
 export function statusText(s: RobotState | null) {
@@ -124,7 +126,7 @@ export function TerminalPanel({ lines, busy, chatOff, live, state, onSend, onHis
       <div ref={scroll} className="flex-1 space-y-1.5 overflow-y-auto p-4 font-mono text-[13px] leading-relaxed">
         {lines.map((l) => {
           if (l.kind === "user") return <div key={l.id} className="whitespace-pre-wrap text-term-green"><span className="opacity-70">you@jethexa:~$ </span>{l.voice && <span title="spoken">🎙 </span>}{l.text}</div>;
-          if (l.kind === "ai") return <div key={l.id} className="whitespace-pre-wrap text-term-red"><span className="font-semibold">metacon&gt; </span>{l.text}{l.pending && <span className="cursor-blink">▍</span>}</div>;
+          if (l.kind === "ai") return <div key={l.id} className="whitespace-pre-wrap text-term-red"><span className="font-semibold">metacon&gt; </span>{l.narr && <span className="mr-1.5 rounded-sm bg-term-red/15 px-1 py-px text-[10.5px] uppercase tracking-wider text-term-red/85" title="metacon narrates the search">search</span>}{l.text}{l.pending && <span className="cursor-blink">▍</span>}</div>;
           if (l.kind === "cmd") return <div key={l.id} className="pl-4 text-term-dim">⚙ {l.text} {l.ok ? <span className="text-term-green">✓</span> : <><span className="text-term-red">✗</span> <span className="text-term-amber">{l.error}</span></>}</div>;
           if (l.kind === "event") return <div key={l.id} className={`pl-4 ${l.tone === "ok" ? "text-term-green/80" : "text-term-amber"}`}>{l.tone === "ok" ? "●" : "▲"} {l.text}</div>;
           return <div key={l.id} className="text-term-dim">{l.text}</div>;

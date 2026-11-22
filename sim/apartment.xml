@@ -1,7 +1,9 @@
-<!-- The JetHexa in the apartment: the arena (a closed 50 m² room with 8 pieces of furniture) plus the home look: zone
-     patches on the floor. Used by the web app. See arena_furniture.xml and apartment_decor.xml. -->
+<!-- The JetHexa in the apartment: the arena (a closed 50 m² room with 8 pieces of furniture), the 12 clutter bodies
+     (parked outside until the app's Medium or Messy room drops some on the floor) and the home look: zone patches on
+     the floor. Used by the web app. See arena_furniture.xml, clutter.xml and apartment_decor.xml. -->
 <mujoco model="jethexa_apartment">
   <include file="jethexa.xml"/>
   <include file="arena_furniture.xml"/>
+  <include file="clutter.xml"/>
   <include file="apartment_decor.xml"/>
 </mujoco>

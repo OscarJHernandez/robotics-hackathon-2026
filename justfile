@@ -82,6 +82,10 @@ dagger-worker *args:
 dagger-merge *args:
     uv run --group ml --group vision python -m nav.dagger.merge {{ args }}
 
+# Evaluation harness for DAgger (plans, summaries, comparisons, offline metrics): just dagger-eval plan --run try1 --set screen-50 --host vendetta
+dagger-eval *args:
+    uv run --group ml --group vision python -m nav.dagger.evaluate {{ args }}
+
 # Measure this machine's DAgger speed and project the round's duration: just dagger-bench --procs 1,4,8
 dagger-bench *args:
     uv run --group ml --group vision python -m nav.dagger.bench {{ args }}
@@ -117,6 +121,10 @@ search-demo *args:
 # One search in MuJoCo: the Bayesian search picks the zone, the simulated JetHexa walks there (nav/dagger expert)
 search-sim *args:
     cd homes && uv run --group ml python sim_bridge.py {{ args }}
+
+# The student in the flats, next to A* + a-to-b (TabPFN API: each call 10,000 credits): just student-bench --flats 40 --budget-calls 80
+student-bench *args:
+    uv run --group ml --group vision python -m nav.dagger.flatbench {{ args }}
 
 # Run the tests for homes/ (Knock data, arena flats, Bayesian search, does TabPFN's belief make sense)
 test-homes:

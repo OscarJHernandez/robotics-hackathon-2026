@@ -5,13 +5,19 @@ export type View = "chase" | "orbit" | "overhead" | "eye";
 export const VIEWS: View[] = ["chase", "orbit", "overhead", "eye"];
 export interface Health {
   ok: boolean; model: string; llm: boolean; commands: string; views?: View[]; voice?: boolean;
-  scene?: "apartment" | "floor"; apartment?: boolean;
+  scene?: "apartment" | "floor"; apartment?: boolean; narration?: boolean;
+  speed?: Speed; speed_actual?: number | null;
 }
 export interface RobotState {
   mode: Mode; x: number; y: number; height: number; yaw_deg: number;
   target_x: number; target_y: number; sim_time: number; turn_to_deg?: number;
   target_dist?: number; target_bearing_deg?: number;
+  /** How many times faster than real time the simulation is asked to run, and what it reaches (sim s per wall s). */
+  speed?: Speed; speed_actual?: number;
 }
+/** The speed-up of the one shared simulation (POST /api/speed). */
+export type Speed = 1 | 2 | 3 | 5;
+export const SPEEDS: Speed[] = [1, 2, 3, 5];
 export interface ChatMessage { role: "user" | "assistant"; content: string }
 export type ChatEvent =
   | { type: "token"; text: string }
@@ -19,6 +25,18 @@ export type ChatEvent =
   | { type: "error"; text: string }
   | { type: "done" };
 export interface CommandResult { ok: boolean; command?: string; error?: string }
+
+export async function setSpeed(speed: Speed): Promise<{ ok: boolean; speed?: Speed; error?: string }> {
+  try {
+    const r = await fetch(`${API}/api/speed`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ speed }),
+    });
+    const j = (await r.json().catch(() => ({}))) as { speed?: Speed; error?: string };
+    return r.ok ? { ok: true, ...j } : { ok: false, error: j.error ?? `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" };
+  }
+}
 
 export const streamUrl = (v: View) => `${API}/api/stream/${v}`;
 export const frameUrl = (v: View) => `${API}/api/frame/${v}.jpg`;
@@ -192,6 +210,12 @@ export const knockStop = () => knockPost("stop");
 export const knockChoice = (choice: KnockChoice) => knockPost("choice", { choice });
 export const knockAudioUrl = (path: string) => `${API}${path}`;
 
+/** metacon's line about the search (app/narrate.py), on /api/live: first the text, then the same id with `audio`. */
+export interface NarrationEvent {
+  type: "narration"; id: string; kind: string; text: string; source: "metacon" | "template"; audio?: string; seq: number;
+}
+export const narrationAudioUrl = (path: string) => `${API}${path}`;
+
 // ---- The apartment: zones, obstacles, journal, belief and the search loop (app/apartment.py) ----
 
 export type ZoneName = "bedroom" | "living_room" | "dining_area" | "kitchen" | "hallway";
@@ -210,7 +234,26 @@ export interface ApartmentZone {
   name: ZoneName; label: string; x: number; y: number; size_x: number; size_y: number;
   view_x: number; view_y: number; person_x: number; person_y: number;
 }
-export interface ApartmentObstacle { name: string; zone: ZoneName; x: number; y: number; size_x: number; size_y: number }
+export interface ApartmentObstacle {
+  name: string; zone: ZoneName; x: number; y: number; size_x: number; size_y: number;
+  /** Heading, and the piece's own length (along it) and width, in metres: for drawing a turned piece. */
+  yaw_deg?: number; length?: number; width?: number;
+  /** loose: a loose piece (stool, armchair, crate, plant) or clutter, which the mess levels drop at random; moved:
+   * it is not where the flat had it; clutter: one of the twelve small household things; round: drawn as a circle. */
+  loose?: boolean; moved?: boolean; clutter?: boolean; round?: boolean;
+}
+/** How cluttered the room is (POST /api/apartment/obstacles): nothing loose, 8 or up to 16 loose things. */
+export type MessLevel = "clean" | "medium" | "messy";
+export const MESS_LEVELS: { id: MessLevel; label: string; hint: string }[] = [
+  { id: "clean", label: "Clean", hint: "Clean room: only the bed, couch, cabinet and table" },
+  { id: "medium", label: "Medium", hint: "Medium messy: the stool, armchair, crate and plant plus 4 small things, at random spots" },
+  { id: "messy", label: "Messy", hint: "Messy room: the four loose pieces plus up to 12 small things, at random spots" },
+];
+/** The obstacle-avoiding student (app/student.py): loading, ready, failed or no_credits, with the reason. */
+export interface StudentInfo {
+  status: "off" | "loading" | "ready" | "failed" | "no_credits"; reason?: string; decisions?: number;
+  seconds_per_decision?: number; calls_left?: number;
+}
 export interface JournalEntry {
   id: number; day: string; weekday: number; minute: number; time: string; slot: number | null;
   zone: ZoneClass; source: "robot" | "entered" | "search" | "pasted";
@@ -234,9 +277,21 @@ export interface ApartmentState {
     /** Where she lies (x, y), when she is home. */
     person?: [number, number] | null;
     path: [number, number][]; metres: number; steps: SearchStep[];
+    /** Walks the student handed to A* + the a-to-b driver, and touches of walls or furniture, in this search. */
+    fallbacks?: number; contacts?: number;
   };
   robot: { x: number; y: number; yaw_deg?: number };
+  /** Who walks now: "student", "tabpfn" (a-to-b), "planner", "rule", or "marker" (no robot). */
   driver: string;
+  /** home: the furniture as the flat was built; otherwise the mess level of the last arrangement. */
+  obstacles?: "home" | MessLevel;
+  student?: StudentInfo;
+  /** The a-to-b driver under the student (it walks while the student loads and when it gets stuck). */
+  ab_driver?: string | null;
+  /** Where the robot touched a wall or furniture (x, y). */
+  contact_points?: [number, number][];
+  /** The A* route of the current walk; walked by the a-to-b driver (route_followed) or only shown for the student. */
+  route?: [number, number][]; route_followed?: boolean;
   /** Who gives the belief: TabPFN (fit() on synthetic check-ins) or the counting model. */
   model?: { name: "tabpfn" | "counting"; label: string; detail: string };
   log: LogLine[];
@@ -310,3 +365,5 @@ export const apartmentStop = () => apartmentPost("stop");
 /** Ready for another run: the last search is forgotten, Margarete leaves the room, the robot returns to its dock. */
 export const apartmentClear = () => apartmentPost("clear");
 export const apartmentReset = (seed: number) => apartmentPost("reset", { seed });
+/** The room at a mess level: a new random arrangement every time, also at the same level. Refused during a search. */
+export const apartmentShuffle = (level: MessLevel) => apartmentPost("obstacles", { level });

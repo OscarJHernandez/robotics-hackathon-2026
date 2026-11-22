@@ -27,11 +27,15 @@ CLEARANCE_HEIGHT = 0.25  # metres: shapes whose bottom is above this (the table 
 LAYOUT_ATTEMPTS = 20
 
 
-def scene_layout(arena, scene_id):
-    """Put the layout of `scene_id` into `arena` (same layout for the same id). Returns the layout."""
+def scene_layout(arena, scene_id, target_clearance=None, target_wall=None):
+    """Put the layout of `scene_id` into `arena` (same layout for the same id). Returns the layout.
+
+    `target_clearance` / `target_wall` (metres from obstacles / walls to the target) default to the scene's own.
+    """
+    extra = {k: v for k, v in (("target_clearance", target_clearance), ("target_wall", target_wall)) if v is not None}
     for attempt in range(LAYOUT_ATTEMPTS):
         try:
-            return arena.randomize(np.random.default_rng([int(scene_id), attempt]))
+            return arena.randomize(np.random.default_rng([int(scene_id), attempt]), **extra)
         except RuntimeError:  # furniture did not fit; try the next draw
             continue
     raise RuntimeError("no layout for scene {}".format(scene_id))
@@ -39,7 +43,8 @@ def scene_layout(arena, scene_id):
 
 class SimEnv:
     def __init__(self, scene_id=0, seed=0, arena=None, simple=None, goal_radius=0.25, max_steps=300,
-                 min_start_dist=1.0, segmentation=False, expert=None, timer=None):
+                 min_start_dist=1.0, segmentation=False, expert=None, timer=None, target_clearance=None,
+                 target_wall=None, lidar_rays=0, lidar_range=(0.15, 8.0), stuck_steps=None, stuck_gain=0.2):
         self.arena = arena or Arena(simple)
         self.sim = self.arena.sim
         model = self.sim.model
@@ -53,6 +58,10 @@ class SimEnv:
         self.expert = expert  # used by reset() to make sure the start can reach the goal
         self.timer = timer or Timer()
         self.scene_id, self.seed = scene_id, seed
+        self.target_clearance, self.target_wall = target_clearance, target_wall
+        self.lidar_rays, self.lidar_range = lidar_rays, tuple(lidar_range)
+        # "stuck": `stuck_steps` steps in a row without getting `stuck_gain` m closer to the goal than ever before
+        self.stuck_steps, self.stuck_gain = stuck_steps, stuck_gain
         self.layout = None
         self._footprints = None
 
@@ -64,7 +73,7 @@ class SimEnv:
         if seed is not None:
             self.seed = seed
         with self.timer("reset"):
-            self.layout = scene_layout(self.arena, self.scene_id)
+            self.layout = scene_layout(self.arena, self.scene_id, self.target_clearance, self.target_wall)
             self.goal = tuple(self.layout["target"])
             self._footprints = None
             rng = np.random.default_rng([int(self.scene_id), int(self.seed), 7])
@@ -86,6 +95,8 @@ class SimEnv:
             self.steps = 0
             self.path_length = 0.0
             self.done = False
+            self.start_dist = math.hypot(self.start[0] - self.goal[0], self.start[1] - self.goal[1])
+            self.best_dist, self.since_gain = self.start_dist, 0
         return self.observe()
 
     def step(self, cmd, on_control=None):
@@ -114,8 +125,14 @@ class SimEnv:
         now = self.pose()
         self.path_length += math.hypot(now[0] - last[0], now[1] - last[1])
         self.steps += 1
+        dist = math.hypot(now[0] - self.goal[0], now[1] - self.goal[1])
+        if dist < self.best_dist - self.stuck_gain:
+            self.best_dist, self.since_gain = dist, 0
+        else:
+            self.since_gain += 1
+        stuck = self.stuck_steps is not None and self.since_gain >= self.stuck_steps
         reason = ("collision" if collision else "fell" if fell else "goal" if reached
-                  else "timeout" if self.steps >= self.max_steps else "")
+                  else "stuck" if stuck else "timeout" if self.steps >= self.max_steps else "")
         self.done = bool(reason)
         info = {"collision": collision, "done": self.done, "done_reason": reason, "stride": stride, "turn": turn}
         return (None if self.done else self.observe()), info  # no pictures after the last step
@@ -135,7 +152,20 @@ class SimEnv:
         if self.segmentation:
             with self.timer("render_seg"):
                 seg = self.arena.class_map()
-        return {"rgb": rgb, "depth": depth, "seg": seg, "robot_pose": self.pose(), "goal_point": self.goal}
+        lidar = None
+        if self.lidar_rays:
+            with self.timer("lidar"):
+                lidar = self.sim.lidar(self.lidar_rays, *self.lidar_range)
+        return {"rgb": rgb, "depth": depth, "seg": seg, "robot_pose": self.pose(), "goal_point": self.goal,
+                "lidar": lidar}
+
+    def kick(self, dyaw):
+        """Turn the standing robot by `dyaw` radians where it is (heading perturbation). Returns the new observation."""
+        x, y, yaw = self.pose()
+        self.arena.place(x, y, math.atan2(math.sin(yaw + dyaw), math.cos(yaw + dyaw)))
+        self.sim.set_target(*self.goal)
+        self.gait = PHASE0
+        return self.observe()
 
     def _touching(self):
         data = self.sim.data

@@ -8,11 +8,13 @@ import argparse
 import json
 import re
 from collections import Counter, defaultdict
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from .config import run_dir, save_json
+from .transfer import sha256
 from .worker import round_number
 
 
@@ -63,6 +65,132 @@ def merge_round(run, round_, log=print):
         r, summary["episodes"], summary["planned"], summary["missing_count"], len(duplicate), summary["rows"],
         summary["rates"]))
     return summary
+
+
+class MergeError(RuntimeError):
+    pass
+
+
+SIDE_SUFFIX = ".hz.npy"
+CHUNK_ROWS = 2000
+
+
+def _side_path(part):
+    return part.with_name(part.stem + SIDE_SUFFIX)
+
+
+def _load_episodes(folder):
+    episodes, seen = [], Counter()
+    for path in sorted((folder / "episodes").glob("*.jsonl")):
+        for line in path.read_text().splitlines():
+            if line.strip():
+                episode = json.loads(line)
+                episodes.append(episode)
+                seen[episode["episode"]] += 1
+    return episodes, seen
+
+
+def missing_episodes(folder, plan):
+    """Plan entries that have no episode summary yet (to resume a half-finished collection)."""
+    _, seen = _load_episodes(Path(folder))
+    return [e for e in plan if e["episode"] not in seen]
+
+
+def merge_dir(folder, plan=None, log=print):
+    """Strictly merge folder/parts/*.parquet (+ optional <stem>.hz.npy side arrays) and folder/episodes/*.jsonl.
+
+    Writes rows.parquet, rows.hz.npy (when there are side files), episodes.json and merge.json; returns merge.json.
+    Raises MergeError on any inconsistency, before anything is written.
+    """
+    folder = Path(folder)
+    parts = sorted((folder / "parts").glob("*.parquet"))
+    if not parts:
+        raise MergeError("no parts in {}".format(folder / "parts"))
+    sides = [_side_path(p) for p in parts]
+    have = [s.exists() for s in sides]
+    if any(have) and not all(have):
+        raise MergeError("some parts have side files and some do not: without {}".format(
+            [p.name for p, h in zip(parts, have) if not h][:10]))
+    has_side = all(have)
+
+    tables, side_arrays = [], []
+    for i, part in enumerate(parts):
+        table = pd.read_parquet(part).copy()
+        if has_side:
+            side = np.load(sides[i], mmap_mode="r")
+            if side.shape[0] != len(table):
+                raise MergeError("{}: {} rows but side file {} has {}".format(
+                    part.name, len(table), sides[i].name, side.shape[0]))
+            if side.dtype != np.float16:
+                raise MergeError("{}: side file must be float16, got {}".format(sides[i].name, side.dtype))
+            if side_arrays and side.shape[1:] != side_arrays[0].shape[1:]:
+                raise MergeError("{}: side shape {} differs from {}".format(
+                    sides[i].name, side.shape[1:], side_arrays[0].shape[1:]))
+            side_arrays.append(side)
+        table["_part"] = i
+        table["_row"] = np.arange(len(table))
+        tables.append(table)
+    table = pd.concat(tables, ignore_index=True)
+
+    dup = table.duplicated(subset=["episode", "step"], keep=False)
+    if dup.any():
+        pairs = sorted({(int(e), int(s)) for e, s in table.loc[dup, ["episode", "step"]].itertuples(index=False)})
+        raise MergeError("{} duplicated (episode, step) pairs, first {}".format(len(pairs), pairs[:10]))
+    table = table.sort_values(["episode", "step"], kind="mergesort").reset_index(drop=True)
+
+    gaps = table.groupby("episode")["step"].apply(lambda s: bool((s.to_numpy() != np.arange(len(s))).any()))
+    bad = [int(e) for e in gaps[gaps].index]
+    if bad:
+        raise MergeError("{} episodes whose steps are not 0..k without gaps, first {}".format(len(bad), bad[:10]))
+
+    episodes, seen = _load_episodes(folder)
+    repeated = sorted(e for e, n in seen.items() if n > 1)
+    if repeated:
+        raise MergeError("duplicated episode summaries: {}".format(repeated[:10]))
+    row_ids = {int(e) for e in table["episode"].unique()}
+    summary_ids = set(seen)
+    if row_ids != summary_ids:
+        raise MergeError("episodes in rows but without summary: {}; with summary but no rows: {}".format(
+            sorted(row_ids - summary_ids)[:10], sorted(summary_ids - row_ids)[:10]))
+    if plan is not None:
+        planned = {e["episode"] for e in plan}
+        missing, unexpected = sorted(planned - summary_ids), sorted(summary_ids - planned)
+        if missing or unexpected:
+            raise MergeError("episodes differ from the plan: missing {} ({} in all), unexpected {} ({} in all)".format(
+                missing[:20], len(missing), unexpected[:20], len(unexpected)))
+
+    src_part, src_row = table.pop("_part").to_numpy(), table.pop("_row").to_numpy()
+    rows_path = folder / "rows.parquet"
+    table.to_parquet(rows_path, index=False)
+
+    side_shape = None
+    side_out = folder / "rows.hz.npy"
+    if has_side:
+        side_shape = [len(table), *side_arrays[0].shape[1:]]
+        out = np.lib.format.open_memmap(side_out, mode="w+", dtype=np.float16, shape=tuple(side_shape))
+        for start in range(0, len(table), CHUNK_ROWS):
+            stop = min(start + CHUNK_ROWS, len(table))
+            block = np.empty((stop - start, *side_shape[1:]), dtype=np.float16)
+            chunk_part, chunk_row = src_part[start:stop], src_row[start:stop]
+            for p in np.unique(chunk_part):
+                where = np.nonzero(chunk_part == p)[0]
+                rows = chunk_row[where]
+                order = np.argsort(rows)  # ascending reads from the memory-mapped part
+                block[where[order]] = side_arrays[int(p)][rows[order]]
+            out[start:stop] = block
+        out.flush()
+        del out
+    else:
+        side_out.unlink(missing_ok=True)
+
+    (folder / "episodes.json").write_text(json.dumps(sorted(episodes, key=lambda e: e["episode"])))
+    result = {"rows": len(table), "episodes": len(episodes), "parts": len(parts), "has_side": has_side,
+              "side_shape": side_shape, "outcomes": dict(Counter(e["done_reason"] for e in episodes)),
+              "rows_sha256": sha256(rows_path)}
+    (folder / "merge.json").write_text(json.dumps(result, indent=1))
+    log("merged {}: {} rows, {} episodes, {} parts, side {}".format(
+        folder, result["rows"], result["episodes"], result["parts"], side_shape))
+    return result
 
 
 def timings(run, log=print):

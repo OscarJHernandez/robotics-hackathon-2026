@@ -41,13 +41,18 @@ class FlatEnv(SimEnv):
     away when she is out; the goal the robot walks to is set separately with `set_goal`."""
 
     def __init__(self, flat, person=None, render=False, **kw):
+        if kw.get("arena") is None:  # the arena with the clutter bodies (parked outside), as the app's plain twin
+            from scene import Arena  # vision/scene.py (nav.dagger.env puts it on the path)
+            kw["arena"] = Arena(kw.get("simple"), clutter=True)
         super().__init__(**kw)
         self.render_pictures = render
         self.load(flat, person)
 
     def load(self, flat, person=None):
+        """The flat's furniture and clutter; every obstacle body it does not list is parked outside the room."""
         self.flat = flat
         self.layout = F.arena_layout(flat)
+        self.layout["obstacles"] += F.parked_layout(flat, [o["name"] for o in self.arena.obstacles])
         self.arena.apply(self.layout)
         self._footprints = None
         self.sim.set_target(*(person or AWAY))
@@ -57,12 +62,16 @@ class FlatEnv(SimEnv):
         self.sim.set_target(*(person or AWAY))  # place() resets the simulation, which moves the pillar back
         self.goal = (dock["x"], dock["y"])
         self.gait, self.steps, self.path_length, self.done = PHASE0, 0, 0.0, False
+        self.start_dist, self.best_dist, self.since_gain = 0.0, 0.0, 0  # SimEnv.step's stuck rule needs these
         self.scene_id = "flat-{}".format(flat["flat_id"])
 
     def set_goal(self, x, y):
         """A new place to walk to, from where the robot stands now."""
         self.goal = (float(x), float(y))
         self.steps, self.done = 0, False
+        px, py, _ = self.pose()
+        self.start_dist = self.best_dist = math.hypot(px - self.goal[0], py - self.goal[1])
+        self.since_gain = 0
 
     def observe(self):
         if self.render_pictures:

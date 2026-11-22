@@ -43,6 +43,79 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): New obstacle bodies must never go into `sim/arena_furniture.xml` (or `arena.xml`,
+  `arena_simple.xml`): `vision/scene.py` `Arena.randomize` places every `obs_` body, so one more body changes every
+  recorded DAgger layout. The app's clutter lives in `sim/clutter.xml`, included only by the apartment files and the
+  twin `sim/arena_clutter*.xml`; `tests/test_student_twin.py` pins a `randomize` layout to catch a change.
+- 2026-11-22 (Oscar's agent): A `mujoco.Renderer` must be closed on the thread that made it. If a `LiveRobot` sim
+  thread ends and the renderer is garbage-collected on the main thread, macOS hangs in CGL `make_current` (no error,
+  0% CPU). `LiveRobot(max_steps=...)` closes both renderers before the thread ends.
+- 2026-11-22 (Oscar's agent): The app's speed-up (x2, x3, x5) only paces the loop; each TabPFN decision still
+  blocks it, so the reached rate is lower than asked when TabPFN is slow. Read `speed_actual`, not `speed`, when
+  timing anything at a higher speed. Measured on this Mac with the local a-to-b controller walking: x1 0.84, x2 1.4,
+  x5 2.4; idle x5 reaches 5.0.
+- 2026-11-22 (Oscar's agent): Since the mess levels, `flats.scatter(flat, rng)` defaults to "medium" (the four loose
+  pieces plus 4 clutter items) and checks reachability at the app's ROUTE_MARGIN (0.42 m), so flatbench's
+  "scattered" legs now include clutter: numbers recorded before 2026-11-22 for "scattered" had the four pieces only.
+
+- 2026-11-22 (Oscar's agent): TabPFN API (tabpfn-client 0.10.1) costs, measured with the v29 export (31,586 rows
+  stacked to 63,172 x 117): `fit()` is free; with `fit_mode="fit_with_cache"` a `predict()` costs 10,000 credits and
+  takes 0.6 to 3.5 s; with the server default ("fit_preprocessors") every `predict()` re-runs the whole context:
+  13.4 s and about 11,400 credits. Use the cache (`ClientTabPFNPolicy` does) and put many robots in one call.
+- 2026-11-22 (Oscar's agent): A policy fitted in the plain arena should not look at the app's dressed scene (wood
+  floor, low walls, zones, decor, the person): `app/student.py` renders its camera in a second, plain MuJoCo model
+  of the same layout and pose (the "plain twin"), and casts the lidar in the real scene, which ignores geoms without
+  collisions. `tests/test_student_twin.py` proves the inputs equal `FlatEnv`'s; reuse the idea for any dressed view.
+- 2026-11-22 (Oscar's agent): After the DAgger v2 merge, `SimEnv.step` reads `best_dist`/`since_gain` that only
+  `SimEnv.reset` sets, so `homes/sim_bridge.FlatEnv` (which never calls reset) crashed in `just test-homes`;
+  `FlatEnv.load`/`set_goal` now set them. A subclass that skips `reset()` must set every field `step()` reads.
+- 2026-11-22 (Oscar's agent): Contact checks every 20 ms count a foot tapping the same wall many times per second;
+  `ContactCounter` counts a new touch only after 1 s without contact.
+
+- 2026-11-22 (Oscar's agent): Asked to "say the same thing" in one sentence, qwen3:8b on metacon returns the draft
+  word for word; told "do not copy the draft" it rewords, but once said "I'm not in the bedroom" (the robot, not
+  Margarete) and once turned "found her" into "didn't find her". So `app/narrate.py` keeps a template and checks every
+  reply (same zones, no new numbers, same outcome, no "I'm not in"); test prompt changes against those cases.
+- 2026-11-22 (Oscar's agent): The search can look in the same zone twice (the look misses her 20% of the time), so a
+  line like "Not in the bedroom, the bedroom is now most likely" happens; `narrate.template` says "I'll look again".
+- 2026-11-22 (Oscar's agent): Safari on iPhone will not play a `<video>` from a server that ignores `Range`, and
+  `app/server.py` used to send every file whole with 200. `static()` now answers single ranges with 206 (tests in
+  `tests/test_server_static.py`); check with `curl -H "Range: bytes=0-1"` (206, 2 bytes) before adding a video.
+- 2026-11-22 (Oscar's agent): The server caches everything but `index.html` for a year (`immutable`), so media must
+  be imported from TypeScript (Vite adds a content hash to the name), never put under a fixed name in `public/`.
+  A missing file with an extension now gets 404 instead of `index.html`, so an old hashed name fails loudly
+  instead of being cached as HTML.
+- 2026-11-22 (Oscar's agent): The "How it works" page's sources disagree in small ways: v29's screening result is
+  98.5% goals and 1.5% collisions (3 of 200) in `docs/dagger/promotion.md` but "98%, 2%" in STATUS.md and
+  navigation.md, and the "stop and turn" share is 6.6% in LEARNINGS but 6.5% in `dagger-report.md`. The page uses
+  the exact per-run table (`promotion.md`). Every number it shows is in `app/web/src/content/howItWorks.ts` with its
+  source.
+- 2026-11-22 (Oscar's agent): 8 of v29's 9 final-test collisions are into the table's legs (cylinders 5 cm across):
+  the simulated lidar's 36 rays are 10 degrees apart, 17 cm at 1 m, so a leg falls between rays until it is close and is
+  missing from the robot's lidar map. Thin obstacles need a denser lidar; see [dagger-report.md](dagger-report.md).
+- 2026-11-22 (Oscar's agent): Adding every row to v29's context (81k, mostly student-driven DAgger rows) made it
+  worse (97% -> 92% on screening). A large mix of student-driven rows dilutes the clean expert context.
+- 2026-11-22 (Oscar's agent): DAgger v2 in the arena: the best student (98% goals, 2% collisions on 200 fresh layouts,
+  two start seeds) is TabPFN 3.5 on all round 0 rows with a 360 degree lidar and the robot's own plan on its lidar map
+  (`nav/dagger/lidarmap.py`). The camera-only students plateaued at 58-70%; see docs/navigation.md "DAgger v2".
+- 2026-11-22 (Oscar's agent): A privileged ceiling experiment (the expert's look-ahead bearing as input) found the
+  real gap in one run: 100% vs a 95% plateau, so the student lacked path information, not obstacle sensing or model
+  capacity. Run a ceiling before tuning features or outputs.
+- 2026-11-22 (Oscar's agent): For TabPFN students more real rows helped (8k -> 31k: 89% -> 95%), while re-weighting
+  the same rows (balanced or lidar-distance quotas), gating, history and 8 estimators did not; beyond 31k rows (52k,
+  61k, incl. DAgger rounds) nothing more. Compact inputs (114 columns) make 31k-row fits take about 4 min on an M4 Pro.
+- 2026-11-22 (Oscar's agent): Hand-written lidar safety stops made it worse (stuck, spinning): the JetHexa touches
+  furniture while turning on the spot, so a reflex at contact distance is too late.
+- 2026-11-22 (Oscar's agent): In zsh `$h:Projects` applies the `:P` modifier, so `scp file $h:Projects/...` wrote to a
+  local folder `vendettarojects/` with exit code 0. Quote as `"${h}:..."`; `nav/dagger/transfer.py` uses argument lists.
+- 2026-11-22 (Oscar's agent): Split DAgger work by machine: a 31k-row TabPFN fit takes about 4 min on vendetta (M4 Pro,
+  MPS) and 20 min on metacon (CPU), so fits and variant tests go to vendetta and simulation-heavy jobs (data, DAgger
+  rounds) to metacon with 8 processes. The v2 search used 8.2 machine-hours in 5 h; see docs/dagger/compute.md.
+- 2026-11-22 (Oscar's agent): TabPFN 3.5 on metacon's CPU is fine for compact inputs: 8k x 114 fit in 142 s, predict
+  for 32 rows 0.2 s (faster than MPS for small batches). DINOv2 on CPU (about 115 ms per picture) is then the bottleneck.
+- 2026-11-22 (Oscar's agent): The offline "stop recall at stride < 0.02" metric is unstable for plain regressors (two
+  identical students: 0% vs 55%); judge with closed-loop runs, paired on the same layouts.
+
 - 2026-11-22 (Oscar's agent): TabPFN ignored a strong journal when it only had the 13 raw journal-share columns
   (ten dining-area afternoons lowered "dining area"), although the examples hold the pattern. Adding the counting
   posterior as six features (`prior_*` in `homes/tabpfn_belief.py`) fixed it; `homes/test_tabpfn_belief.py` checks
@@ -248,6 +321,23 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-22 (Oscar's agent): Measure the student itself in the Medium and Messy rooms (`just student-bench --levels
+  medium,messy`, real student) once the TabPFN API's daily limit allows; so far only A* + a-to-b was run there.
+- 2026-11-22 (Oscar's agent): The clutter has fixed household colours, while the student was trained on random
+  furniture colours; if it misses clutter in the camera, give the clutter random colours in the twin as in training.
+
+- 2026-11-22 (Oscar's agent): The live student costs 10,000 TabPFN API credits per gait cycle (about a million per
+  search). If it is to run often, fit it locally on a machine that can (about 9 GB, 4 min on vendetta) and serve
+  predictions from there, or decide fewer times (every second cycle) and measure what that costs in goal rate.
+- 2026-11-22 (Oscar's agent): Run `just student-bench` (40 flats x home/scattered) on vendetta with the real student
+  before claiming numbers for the app; the flats are tighter than the training layouts (0.10 m furniture gaps).
+
+- 2026-11-22 (Oscar's agent): Try a denser simulated lidar (for example 360 rays at 1 degree) aimed at the table-leg
+  crashes: a new round 0 (about 15 min) and one refit of v29.
+- 2026-11-22 (Oscar's agent): Check the simulated lidar against the real JetHexa lidar (rays, range, noise) and
+  test `lidarmap.py` with real odometry drift before trusting the 98% on the robot.
+- 2026-11-22 (Oscar's agent): The `stage analyse` printout says "expert on screen" also for the confirmation and final
+  sets; rename it to the set's name.
 - 2026-11-22 (Oscar's agent): Knock: switch `app/knock.py` and the phone UI to the five arena zones and use
   `homes/search.Search` for `probs` and the next zone. In `homes/sim_bridge.py`, turn the robot to `heading_deg` at the
   goal and replace the mock look with the vision probe's "target" class (the pillar already stands where she is). Add a bathroom to the arena (a piece or a

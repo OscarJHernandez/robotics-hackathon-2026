@@ -84,17 +84,85 @@ drawn from her routine, or both, to see how the belief and the search change. Th
 **Reset** (in the status strip after a search) forgets the search, takes Margarete out of the room and puts the
 robot back on its dock; the flat and the journal stay. "New flat" starts over with another layout and resident.
 
-**Who walks.** A goto in the apartment is a route of straight legs around the furniture (`plan_route` in
-`app/robot.py`, the grid and A* of `nav/dagger/expert.py`); a driver walks each leg:
+**Clean · Medium · Messy** (in the floor plan's header, and on the phone card) sets how cluttered the room is
+(`scatter(flat, rng, level)` in `homes/flats.py`):
+
+| Level | On the floor |
+|---|---|
+| Clean | Only the fixed furniture (bed, couch, cabinet, table); the stool, armchair, crate and plant are taken out |
+| Medium | The four loose pieces at random spots, plus 4 of the 12 clutter items (8 loose things) |
+| Messy | The four loose pieces plus as many of the 12 clutter items as fit, at least 10 (up to 16 loose things) |
+
+The clutter is twelve small household things (laundry basket, bin, boxes, books, pouf, suitcase, bag, vacuum,
+bucket, toy crate and chest; `sim/clutter.xml`, `CLUTTER` in `homes/flats.py`), solid, 0.2 to 0.45 m across and at
+least 0.3 m tall so the lidar and the A* map both see them, parked outside the room until a level drops them.
+Every dropped thing lands at a random spot, any heading: the pieces keep 0.5 m from every other piece and wall
+(the training rule), the clutter 0.5 m in Medium and 0.4 m in Messy; everything keeps 0.5 m from every viewing
+spot, the dock and the doorway, and every viewing spot stays reachable from the dock on the app's A* map
+(`ROUTE_MARGIN`, 0.42 m). The current level is highlighted; pressing it again draws a new arrangement. The zones, the
+resident and the journal stay; the robot goes back to its dock and the log says how many things are on the floor.
+Refused while a search runs; "New flat" puts everything back as built (`obstacles: "home"`). The floor plan draws
+the loose pieces and the clutter in a second (amber) tone. `POST /api/apartment/obstacles {"level": "messy"}` (no
+level: medium); `GET /api/apartment` says the level in `obstacles`.
+
+**Speed: x1 · x2 · x3 · x5** (under the camera list on a computer, at the end of the view row on a phone) runs the
+simulation that many times faster than real time: the loop waits CONTROL_DT / speed of wall time per 20 ms physics
+step, and renders each view every VIEWS[view] x speed steps, so the streams keep their picture rate. One robot, so
+the speed is shared by every viewer and kept until someone changes it ("Reset" and "New flat" keep it). Every
+steering decision makes the loop wait (the a-to-b controller's local `predict()`, the student's API call of about
+0.7 s per simulated second), so the asked speed is not always reached: the robot's state carries `speed` and
+`speed_actual` (simulated seconds per wall second over the last 3 s), and the control shows "x5 (running x3.4)"
+when they differ by more than 10%. The search's walk and turn timeouts are wall-clock and only get easier.
+`POST /api/speed {"speed": 2}` (rate-limited); `/api/state` and `/api/health` report it.
+
+**Who walks.** First choice is the **TabPFN student** (`--driver student`, the default): the obstacle-avoiding
+student of `nav/dagger` (v29, "lidar-map plan"; see [navigation.md](navigation.md)), through the hosted TabPFN API.
+It walks straight to the end point with its own sensors: a 360 degree lidar (36 rays), the camera's horizon band
+(DINOv2 + the patch probe) and its own map of lidar hits with a planned bearing (`LidarPlanner`). It is not told
+where the furniture is. The A* route over the known furniture is still computed and drawn as a dashed line on the
+floor plan: what a map-knowing planner would do.
 
 | `--driver` | What it is |
 |---|---|
-| `tabpfn` (default) | The a-to-b controller built with `just controller` (`--controller default`): TabPFN picks stride and turn every gait cycle. It does not see obstacles; the route keeps it clear of them. Needs the `ml` packages and `data/nav/controllers/` |
+| `student` (default) | The v29 student (`app/student.py`), TabPFN 3.5 through the TabPFN API: `fit()` once on the exported 31,586 examples, one `predict()` per gait cycle. Needs `TABPFN_TOKEN` (environment or the gitignored `.env`) and the export in `data/nav/dagger/v2/student/v29/` |
+| `tabpfn` | The a-to-b controller built with `just controller` (`--controller default`): TabPFN picks stride and turn every gait cycle along a route of straight legs around the furniture (`plan_route`, the grid and A* of `nav/dagger/expert.py`). It does not see obstacles; the route keeps it clear of them. Needs the `ml` packages and `data/nav/controllers/` |
 | `planner` | The `nav/dagger` expert (path planner + pure pursuit) |
 | `rule` | The old steer-to-bearing rule |
 
-A driver that cannot be loaded falls back to the next one; the panel says which one walks. With TabPFN the physics
-waits about 0.25 s every gait cycle while it predicts, so a walk takes about a quarter longer than real time.
+A driver that cannot be loaded falls back to the next one; the panel says which one walks. With the a-to-b
+TabPFN controller the physics waits about 0.25 s every gait cycle while it predicts.
+
+Under the student, the first a-to-b driver that loads (tabpfn, planner, rule) walks **while the student loads**
+(about 20 s at server start: the export, the API `fit()`, DINOv2) and **takes over a walk** when the student gets
+stuck (the trainer's rule: not 0.2 m closer to the end point in 40 gait cycles) or the API fails: that leg is
+handed to A* + a-to-b, the log says "Fallback: ..." and metacon says it once. The search treats this as normal
+walking. The roles card shows "student loading…", a fallback, or why the student is off (`student` in
+`/api/apartment` and `/api/health`: `loading | ready | failed | no_credits`, with the reason).
+
+**Contacts.** Every control step checks the trainer's collision rule (any robot geom touching a `wall_` or `obs_`
+geom). The app does not end the walk on a touch; it counts it (`contacts` in the robot state, a red cross on the
+floor plan, a "Contact" log line). A foot tapping the same wall step after step counts once (1 s of no contact
+starts a new touch).
+
+**The plain twin: why the home look does not confuse the student.** The student was fitted in the plain training
+arena (grey checker floor, 4.5 m walls, the red pillar at the goal); the apartment has a wood floor, 0.7 m walls,
+zone patches, rugs, cushions, a door and Margarete, and the camera feeds 75 of the student's 116 inputs. So the
+student never looks at the apartment: `app/student.py` keeps a second MuJoCo model of the plain arena, and before
+each decision copies the robot's joint state and the poses of every obstacle body (the eight pieces of furniture
+and the twelve clutter items: the twin is `sim/arena_clutter.xml`, the plain arena plus `sim/clutter.xml`) into it,
+puts the red pillar at the goal, and renders the camera picture and depth there. The lidar is cast in the real scene (rays skip geoms without
+collisions, so zones, decor and Margarete are invisible to it). `tests/test_student_twin.py` checks, for 20 flats
+and poses (as built and at each mess level, with clutter), that the twin mirrors every obstacle body, that these inputs equal those of the plain `FlatEnv` (`homes/sim_bridge.py`) at
+the same layout and pose, that the lidar in the dressed scene equals the twin's, and that painting the zones,
+moving Margarete and moving the decor change none of them (while they do change the app's own camera picture).
+
+**TabPFN API credits.** Every `predict()` costs 10,000 credits (measured 2026-11-22; `fit()` is free) and the
+student makes one per gait cycle, so a 5 m walk is about 40 calls = 400,000 credits, and a whole search can use
+over a million. With `fit_mode="fit_with_cache"` (the default) a call takes 0.6 to 3.5 s; without the cache it
+re-runs the whole 63,000-row context every call (13 s, 11,400 credits). At start the app checks the account: under
+150,000 credits left the student is not started (`no_credits`), and its budget stops it before the account drops
+below that; `--student-calls N` caps the calls further. The a-to-b drivers run locally and cost nothing. The
+physics waits while the student decides (about 1 to 4 s per gait cycle), so a walk is slower than real time.
 
 `--scene floor` gives the old empty floor (the panel then moves a marker on the plan only). `--flat N` picks the
 layout and resident. The home look and Margarete are in `sim/apartment_decor.xml`, which only `sim/apartment.xml`
@@ -108,6 +176,76 @@ it; the dice button on the phone).
 Find Margarete, the dice, and **Details**, which opens the whole panel (time, belief steps, journal, log) as a
 full-screen sheet. It replaces the old Knock card while the server runs the apartment scene; the Knock check-in
 (`app/knock.py`, with its own zones and the call-out) is still what `--scene floor` shows.
+
+### metacon narrates the search
+
+While the search runs, metacon says what is happening in one short line at each step (`app/narrate.py`): the three
+most likely zones at the start, where it goes first, "Not in the kitchen. The bedroom is now most likely at 35%, so
+I'm heading there.", and the end (found, nobody home, gave up, stopped, interrupted). The search only hands over the
+facts (`Apartment(on_event=...)`); one worker thread writes the lines, so the search never waits for metacon or the
+voice.
+
+- **The words.** Each line starts as a template built from the search's own numbers. metacon (`llm.complete`, the
+  same gateway and model as the chat, 6 s at most) rewords it; the reply is used only if it is at most 30 words,
+  names exactly the same zones, has no number the template lacks and keeps the outcome (found or not). Otherwise,
+  on any error, or when the 2 chat slots are taken (it does not wait), the template is used. `source` in the event
+  says which (`"metacon"` only when the wording really changed).
+- **Where it shows.** Every page gets the line on `/api/live` (`{"type": "narration", "id", "kind", "text",
+  "source"}`): in the terminal and the phone chat as a metacon line tagged "search", in the Apartment log tagged
+  metacon, and for 9 s in the header (above the chat bar while the Apartment panel is open; on the phone's
+  apartment card). A page that opens within 2 minutes gets the latest line first.
+- **The voice.** On a second thread, if the voice service is up and nobody is on a voice call, the line is spoken
+  (3 s wait for the service at most) and published again with `"audio": "/api/narration/audio/<id>.mp3"` (the
+  last 6 are kept). Phones with the speaker on play it once, one line after another, never over a call's reply;
+  the Find and dice buttons unlock sound on the tap (iPhone needs that). If speech falls behind, the oldest waiting
+  line that is not an ending is skipped; text is never held back by speech.
+- **Off:** `--no-narration`. Without a metacon key the lines are the templates; without the voice service, text only.
+
+## The "How it works" page
+
+A long-form page that explains the flow of Find Margarete and the three TabPFN models (where is she, walking
+a→b, avoiding furniture, the last marked **In progress**). Open it with **How it works** in the header (desktop) or
+the **i** button in the phone's top bar; it is also a link: `/#how-it-works` (with `?phone=1` kept).
+
+- `App.tsx` owns the `#how-it-works` hash and renders the page **instead of** the stage, so the picture streams
+  unmount and their connections are free for the videos. The robot-state and apartment polling pause while it is
+  open; the call, Knock and `/api/live` hooks stay mounted. Close (Back button, Escape or the browser's Back) returns
+  to the robot; after a direct link, closing uses `history.replaceState`, so it never leaves the site. The section
+  nav scrolls with `scrollIntoView` and never changes the hash.
+- The page calls no API: it works with the simulator stopped.
+- Code: `app/web/src/components/jethexa/how/` (`HowItWorks.tsx`, `FlowDiagram.tsx`, `BarChart.tsx`, `Clip.tsx`,
+  `Section.tsx`, `StatusChip.tsx`). **Every number lives in `app/web/src/content/howItWorks.ts`**, each with a comment
+  naming its source; change numbers there only. The flow diagram's steps are data (`NODES`, `EDGES` in
+  `FlowDiagram.tsx`): a new step is one node and one edge.
+- Chart colours: one teal hue in two steps (`#23aa8a` for the bar the chart is about, `#366e6b` for the others),
+  checked with the dataviz skill's `validate_palette.js --ordinal --mode dark --surface "#111518"`.
+
+**Media** (`app/web/src/assets/how/`, imported from TypeScript so Vite gives them content-hashed names, which is
+what the server's one-year `immutable` cache needs). 1.7 MB in all; sources are in the main checkout's gitignored
+`data/`:
+
+| File | Size | Source | What it shows |
+|---|---|---|---|
+| `a2b.mp4` | 140 kB | `data/nav/runs/20261121-163413-demo/demo.gif` (controller `default`, (0, 0) to (1.6, 0.2)) | The a→b controller walking to the pillar |
+| `dagger-first.mp4` | 720 kB | `data/nav/dagger/dagger1/videos/round50-episode50000001.mp4` (dagger1 round 50, scene 100001, student alone) | The camera-only student walking past the target into a blue box beside it |
+| `dagger-student.mp4` | 576 kB | `data/nav/dagger/v2/videos/v29-student-final-episode102093.mp4` (v29, final test layout 102093, student alone) | The current student going round a long piece of furniture to the pillar |
+| `*-poster.jpg` | 9-35 kB | a frame of each clip | Shown before a clip plays |
+| `search-loop.jpg` | 147 kB | `homes/data/search_examples/loop_3.png` | A missed sighting, and the robot comes back |
+
+```bash
+F=/opt/homebrew/bin/ffmpeg   # 9.0.2
+$F -i data/nav/runs/20261121-163413-demo/demo.gif -an -c:v libx264 -pix_fmt yuv420p -crf 28 -preset slow -movflags +faststart -vf "scale=640:-2:flags=lanczos,fps=10" a2b.mp4
+$F -i data/nav/dagger/dagger1/videos/round50-episode50000001.mp4 -an -c:v libx264 -pix_fmt yuv420p -crf 28 -preset slow -movflags +faststart -vf "scale=960:-2:flags=lanczos" dagger-first.mp4
+$F -i data/nav/dagger/v2/videos/v29-student-final-episode102093.mp4 -an -c:v libx264 -pix_fmt yuv420p -crf 28 -preset slow -movflags +faststart -vf "scale=960:-2:flags=lanczos" dagger-student.mp4
+$F -i homes/data/search_examples/loop_3.png -vf "scale=1600:-2:flags=lanczos,format=yuvj444p" -q:v 4 search-loop.jpg
+$F -ss 6 -i a2b.mp4 -frames:v 1 -q:v 5 a2b-poster.jpg              # -ss 21 for dagger-first, -ss 12 for dagger-student
+```
+
+**Server:** `static()` in `app/server.py` answers single byte ranges (`Range: bytes=a-b`, `a-`, `-n`) with `206`,
+`Content-Range` and `Accept-Ranges: bytes`, reading only those bytes; a range past the end gets `416`; several
+ranges or a malformed header get the whole file (`200`). Safari on iPhone does not play a video without this. A
+missing file with an extension (an old hashed asset, a video) gets `404` instead of the page; paths without one
+still get `index.html`. Tests: `tests/test_server_static.py`.
 
 ## The terminal
 
@@ -190,6 +328,7 @@ minute, and runs at most 2 chats at once. The server must have the voice setting
 ## Settings
 
 `METACON_URL` (default `http://metacon:4000/v1`), `METACON_MODEL` (default `qwen3:8b`), `METACON_LLM_KEY`.
+Server flags: `--no-narration` turns off metacon's lines about the search (see "metacon narrates the search").
 
 ## Front-end development
 

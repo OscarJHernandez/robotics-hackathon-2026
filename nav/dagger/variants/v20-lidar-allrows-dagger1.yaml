@@ -1,0 +1,9 @@
+id: v20-lidar-allrows-dagger1
+hypothesis: more rows help (v15 95%); every row of round 0 + perturbations + DAgger round 1 (about 52k) does better still
+parent: v15-lidar-allrows
+change: context = all rows of round0, perturb and dagger_r1 (no cap)
+kill_criterion: goal rate and collisions on screen-100 not better than v15-lidar-allrows's (paired)
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0, perturb, dagger_r1], max_rows: null, quotas: uniform, seed: 0}
+offline: [offline_expert, offline_perturb]

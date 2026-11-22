@@ -1,0 +1,9 @@
+id: v19-lidar-dagger1-near
+hypothesis: keeping every row with an obstacle within 0.27 m (where every crash happens; 18 of 41k expert rows) in the context, plus all student rows, fixes the side clipping
+parent: v18-lidar-dagger1
+change: context quotas by nearest lidar range (mode_x_lidar) instead of camera free-ahead
+kill_criterion: collisions on screen-100 not below v18-lidar-dagger1 (paired)
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0, perturb, dagger_r1], max_rows: 12000, quotas: mode_x_lidar, seed: 0}
+offline: [offline_expert, offline_perturb]

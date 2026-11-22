@@ -5,13 +5,16 @@
 One simulated robot is shared by everyone who opens the page. The front end (app/web, built into
 app/web/dist with `just app-build`) is served from /, the API from /api:
 
-    GET  /api/health                 {"ok": true, "model": ..., "llm": true/false}
+    GET  /api/health                 {"ok": true, "model": ..., "llm": true/false, "speed": 1, "speed_actual": 1.0, ...}
     GET  /api/state                  robot position, heading, mode and target
     GET  /api/views                  {"views": ["chase", "orbit", "overhead", "eye"]}
     GET  /api/stream/<view>          MJPEG stream (use as <img src>): chase (behind the robot), orbit
                                      (three-quarter view), overhead (whole floor), eye (robot camera)
     GET  /api/frame/<view>.jpg       one JPEG
     POST /api/command  {"text": "goto 1 0.5"}            -> {"ok": true, "command": "goto 1.00 0.50"}
+    POST /api/speed    {"speed": 2}  run the simulation x1, x2, x3 or x5 faster than real time (one robot, so the
+                       speed is shared by every viewer) -> {"ok": true, "speed": 2}; /api/state and /api/health carry
+                       "speed" and "speed_actual" (what the loop reaches: each TabPFN decision makes it wait)
     POST /api/chat     {"messages": [{"role", "content"}], "call": id?} -> text/event-stream, events:
          {"type": "token", "text": "..."}  piece of the answer
          {"type": "command", "text": "goto 1 0.5", "ok": true, "error": null}  a command the model ran
@@ -52,11 +55,23 @@ The apartment (app/apartment.py): the flat's zones and obstacles, the journal, t
     POST /api/apartment/stop            {}
     POST /api/apartment/clear           {}  ready for another run: no search, Margarete out, the robot on its dock
     POST /api/apartment/reset           {"seed": 3?}  a new random flat and resident
+    POST /api/apartment/obstacles       {"level": "clean" | "medium" | "messy"}  the mess level (no level: medium):
+                                        clean takes the loose pieces out, medium drops the 4 loose pieces and 4
+                                        clutter items at random, messy the 4 plus up to 12 clutter items
+                                        (homes/flats.py scatter); a new arrangement each time; 400 while a search runs
+
+metacon narrates the search (app/narrate.py): each step is one short line on /api/live,
+    {"type": "narration", "id", "kind", "text", "source": "metacon" | "template"}, then the same id again with
+    "audio" once it is spoken; a page that opens shortly after a line gets it first (text only).
+    GET  /api/narration/audio/<id>.mp3  that line in the robot's voice
 
     --scene apartment (default): the robot lives in the furnished flat and the search walks it from zone to zone.
     --scene floor: the robot alone on its floor, as before; the search then moves a marker on the plan only.
-    --driver tabpfn (default) | planner | rule: who walks each leg in the apartment (app/robot.py).
+    --driver student (default) | tabpfn | planner | rule: who walks in the apartment (app/robot.py). The student
+      (app/student.py, the obstacle-avoiding TabPFN student through the TabPFN API) loads in the background; the
+      a-to-b driver (tabpfn, else planner, else rule) walks until then and takes over when it gets stuck.
     --belief tabpfn (default) | counting: who says where she probably is (homes/tabpfn_belief.py, homes/search.py).
+    --no-narration: no narration lines (the search runs the same, the log keeps its own lines).
 """
 
 import argparse
@@ -77,12 +92,13 @@ import voice  # noqa: E402
 from call import Hub, Line  # noqa: E402
 from apartment import Apartment  # noqa: E402
 from knock import Knock  # noqa: E402
+from narrate import Narrator  # noqa: E402
 from robot import HELP, VIEWS, LiveRobot  # noqa: E402
 
 WEB = Path(__file__).resolve().parent / "web" / "dist"
 # Requests per window (seconds), per visitor. Transcriptions are also capped per call (call.MAX_INTERIM).
 LIMITS = {"chat": (20, 600), "command": (60, 60), "call": (20, 600), "transcribe": (300, 600), "speak": (30, 600),
-          "knock": (60, 600), "apartment": (240, 60)}
+          "knock": (60, 600), "apartment": (240, 60), "obstacles": (20, 600), "speed": (30, 60)}
 MAX_STREAMS = 40  # open picture streams across all visitors
 MAX_LISTENERS = 200  # open /api/live streams across all visitors
 MAX_BODY = 64 * 1024
@@ -95,23 +111,47 @@ HUB = Hub()
 LINE = Line(HUB)
 KNOCK = None  # Knock, made in main() once the robot runs
 APARTMENT = None  # Apartment, made in main()
+NARRATOR = None  # Narrator, made in main() unless --no-narration
 SCENE = "floor"
 HITS = defaultdict(deque)
 HITS_LOCK = threading.Lock()
 STREAMS = threading.BoundedSemaphore(MAX_STREAMS)
 LISTENERS = threading.BoundedSemaphore(MAX_LISTENERS)
 CHATS = threading.BoundedSemaphore(2)  # metacon runs one model; do not queue up many answers
-POST_ROUTES = {"/api/command": "command", "/api/chat": "chat", "/api/call/start": "call", "/api/call/end": None,
+POST_ROUTES = {"/api/command": "command", "/api/speed": "speed", "/api/chat": "chat", "/api/call/start": "call", "/api/call/end": None,
                "/api/transcribe": "transcribe", "/api/speak": "speak", "/api/knock/call": "knock",
                "/api/knock/find": "knock", "/api/knock/stop": None, "/api/knock/choice": "knock",
                "/api/apartment/journal": "apartment", "/api/apartment/journal/remove": "apartment",
                "/api/apartment/journal/import": "apartment", "/api/apartment/inputs": "apartment", "/api/apartment/random": "apartment",
                "/api/apartment/clock": "apartment", "/api/apartment/search": "apartment",
-               "/api/apartment/stop": None, "/api/apartment/reset": "apartment", "/api/apartment/clear": "apartment"}
+               "/api/apartment/stop": None, "/api/apartment/reset": "apartment", "/api/apartment/clear": "apartment",
+               "/api/apartment/obstacles": "obstacles"}
 
 
 def sse(payload):
     return b"data: " + json.dumps(payload).encode() + b"\n\n"
+
+
+def byte_range(header, size):
+    """(start, end) of a single `Range: bytes=...` header for a file of `size` bytes, both inclusive; None for no
+    header, several ranges or a malformed one (then the whole file is sent); "unsatisfiable" when it starts past
+    the end (416)."""
+    if not header or not header.startswith("bytes=") or "," in header:
+        return None
+    first, sep, last = header[6:].strip().partition("-")
+    if not sep or not (first.isdigit() or last.isdigit()) or (first and not first.isdigit()) or (last and not last.isdigit()):
+        return None
+    if not first:  # suffix: the last n bytes
+        n = int(last)
+        if n == 0 or size == 0:
+            return "unsatisfiable"
+        return max(0, size - n), size - 1
+    start = int(first)
+    if last and int(last) < start:
+        return None
+    if start >= size:
+        return "unsatisfiable"
+    return start, min(int(last) if last else size - 1, size - 1)
 
 
 def allowed(kind, who):
@@ -181,7 +221,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self.send_json(200, {"ok": True, "model": llm.MODEL, "llm": bool(KEY), "commands": HELP,
                                  "views": list(VIEWS), "voice": voice.available(), "scene": SCENE,
-                                 "apartment": APARTMENT is not None})
+                                 "apartment": APARTMENT is not None, "narration": NARRATOR is not None,
+                                 "driver": ROBOT.state().get("driver") if ROBOT is not None else None,
+                                 "student": (ROBOT.state().get("student", {"status": "off"}) if ROBOT is not None
+                                             else {"status": "off"}),
+                                 "speed": ROBOT.speed if ROBOT is not None else 1,
+                                 "speed_actual": ROBOT.state().get("speed_actual") if ROBOT is not None else None})
         elif path == "/api/apartment/inputs.json" and APARTMENT is not None:
             self.send_json(200, APARTMENT.inputs())
         elif path == "/api/apartment/journal.txt" and APARTMENT is not None:
@@ -213,8 +258,11 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path.startswith("/api/stream/") and path[12:] in VIEWS:
             self.stream(path[12:])
-        elif path.startswith("/api/knock/audio/") and path.endswith(".mp3"):
-            audio = KNOCK.audio(path[17:-4]) if KNOCK else None
+        elif path.startswith(("/api/knock/audio/", "/api/narration/audio/")) and path.endswith(".mp3"):
+            if path.startswith("/api/knock/"):
+                audio = KNOCK.audio(path[17:-4]) if KNOCK else None
+            else:
+                audio = NARRATOR.audio(path[21:-4]) if NARRATOR else None
             if audio is None:
                 self.send_json(404, {"error": "no such sound"})
                 return
@@ -265,6 +313,11 @@ class Handler(BaseHTTPRequestHandler):
             self.knock(path[11:], body)
         elif path.startswith("/api/apartment/"):
             self.apartment(path[15:], body)
+        elif kind == "speed":
+            try:
+                self.send_json(200, {"ok": True, "speed": ROBOT.set_speed(body.get("speed"))})
+            except ValueError as error:
+                self.send_json(400, {"ok": False, "error": str(error)})
         elif kind == "command":
             try:
                 self.send_json(200, {"ok": True, "command": ROBOT.command(str(body.get("text", "")))})
@@ -372,6 +425,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(409, {"error": "a search is already running"})
             elif action == "stop":
                 self.send_json(200, {"ok": APARTMENT.stop()})
+            elif action == "obstacles":
+                self.send_json(200, {"ok": True, "obstacles": APARTMENT.shuffle(body.get("level"))})
             elif action == "clear":
                 APARTMENT.clear()
                 self.send_json(200, {"ok": True})
@@ -388,8 +443,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.send_events_head()
             card = KNOCK.latest() if KNOCK else None  # the Knock card as it is now (before the replay's seq)
+            line = NARRATOR.latest() if NARRATOR else None  # metacon's latest line, if it is recent (text only)
             events, seq = HUB.current()  # a page that opens mid-call sees the call so far
-            events = [e for e in events if e["type"] != "knock"] + ([card] if card else [])
+            events = [e for e in events if e["type"] not in ("knock", "narration")] + ([card] if card else []) \
+                + ([line] if line else [])
             self.wfile.write(b"retry: 3000\n\n" + b"".join(sse(e) for e in events))
             self.wfile.flush()
             while True:
@@ -470,20 +527,46 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def static(self, path):
+        """A file of the built front end. Single ranges (`Range: bytes=a-b`, `a-`, `-n`) get 206, which Safari
+        needs to play a video; a missing file with an extension (a video, script, picture) gets 404 instead of the
+        page, and only paths without one fall back to index.html (the single-page app)."""
         if not WEB.is_dir():
             self.send_json(404, {"error": "front end not built: run `just app-build`"})
             return
-        target = (WEB / path.lstrip("/")).resolve()
-        if WEB.resolve() not in target.parents or not target.is_file():
-            target = WEB / "index.html"  # single-page app: unknown paths get the page
-        body = target.read_bytes()
-        self.send_response(200)
+        root = WEB.resolve()
+        target = (root / path.lstrip("/")).resolve()
+        if root not in target.parents or not target.is_file():
+            if Path(path).suffix:
+                self.send_json(404, {"error": "not found"})
+                return
+            target = root / "index.html"  # single-page app: unknown paths get the page
+        size = target.stat().st_size
+        span = byte_range(self.headers.get("Range"), size)
+        if span == "unsatisfiable":
+            self.send_response(416)
+            self.send_header("Content-Range", "bytes */{}".format(size))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        start, end = span if span else (0, size - 1)
+        self.send_response(206 if span else 200)
         self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
         cache = "no-cache" if target.name == "index.html" else "public, max-age=31536000, immutable"
         self.send_header("Cache-Control", cache)
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Accept-Ranges", "bytes")
+        if span:
+            self.send_header("Content-Range", "bytes {}-{}/{}".format(start, end, size))
+        self.send_header("Content-Length", str(max(0, end - start + 1)))
         self.end_headers()
-        self.wfile.write(body)
+        with target.open("rb") as f:  # read only the bytes asked for
+            f.seek(start)
+            left = end - start + 1
+            while left > 0:
+                chunk = f.read(min(left, 256 * 1024))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                left -= len(chunk)
 
     def log_message(self, fmt, *args):
         if not any(quiet in self.path for quiet in ("/api/frame", "/api/state", "/api/health", "final=0")):
@@ -491,21 +574,27 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global ROBOT, KEY, KNOCK, APARTMENT, SCENE
+    global ROBOT, KEY, KNOCK, APARTMENT, SCENE, NARRATOR
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--scene", default="apartment", choices=("apartment", "floor"),
                         help="apartment: the furnished flat with zones (default); floor: the robot alone")
-    parser.add_argument("--driver", default="tabpfn", choices=("tabpfn", "planner", "rule"),
-                        help="who walks each leg in the apartment: the TabPFN a-to-b controller (needs the ml "
-                             "packages and a controller built with `just controller`), the nav/dagger planner, "
-                             "or the steer-to-bearing rule")
+    parser.add_argument("--driver", default="student", choices=("student", "tabpfn", "planner", "rule"),
+                        help="who walks in the apartment: the obstacle-avoiding TabPFN student (TabPFN API, needs "
+                             "TABPFN_TOKEN and the v29 export, see docs/app.md), the TabPFN a-to-b controller "
+                             "(needs the ml packages and a controller built with `just controller`), the "
+                             "nav/dagger planner, or the steer-to-bearing rule")
+    parser.add_argument("--student-calls", type=int, default=None,
+                        help="at most this many TabPFN API calls for the student (one per gait cycle, 10,000 credits "
+                             "each); default: as many as leave 150,000 credits on the account")
     parser.add_argument("--controller", default="default", help="name of the TabPFN controller (data/nav/controllers)")
     parser.add_argument("--flat", type=int, default=0, help="seed of the apartment's layout and resident")
     parser.add_argument("--belief", default="tabpfn", choices=("tabpfn", "counting"),
                         help="who gives the belief the search starts from: TabPFN (fit() on synthetic check-ins; "
                              "3.5 with TABPFN_TOKEN or the repo's .env, else v2) or the counting Bayes model")
+    parser.add_argument("--no-narration", action="store_true",
+                        help="no metacon narration of the search (text and voice lines on every page)")
     args = parser.parse_args()
 
     KEY = llm.api_key()
@@ -517,7 +606,7 @@ def main():
     voice.watch()
     LINE.sweep()
     SCENE = args.scene
-    ROBOT = LiveRobot(args.scene, args.driver, args.controller)
+    ROBOT = LiveRobot(args.scene, args.driver, args.controller, student_calls=args.student_calls)
     ROBOT.wait_ready(240)  # the TabPFN controller's fit() takes a few seconds
     KNOCK = Knock(HUB, ROBOT, lambda text: voice.speak(text) if voice.available() else None)
     model = None
@@ -530,7 +619,13 @@ def main():
                   flush=True)
         except Exception as error:
             print("[app] no TabPFN belief ({}), using the counting belief".format(error), flush=True)
-    APARTMENT = Apartment(seed=args.flat, robot=ROBOT if args.scene == "apartment" else None, model=model)
+    if not args.no_narration:
+        NARRATOR = Narrator(
+            HUB, complete=(lambda system, user: llm.complete(system, user, KEY, timeout=6.0)) if KEY else None,
+            speak=lambda text: voice.speak(text, wait=3.0), voice_up=voice.available, call_busy=LINE.busy, chats=CHATS,
+            on_line=lambda text, source: APARTMENT and APARTMENT.note(text, "metacon"))
+    APARTMENT = Apartment(seed=args.flat, robot=ROBOT if args.scene == "apartment" else None, model=model,
+                          on_event=NARRATOR.event if NARRATOR else None)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
     print("JetHexa app on http://{}:{} (model {}, front end {})".format(

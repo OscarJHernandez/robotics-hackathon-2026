@@ -1,0 +1,9 @@
+id: v29-lidarplan
+hypothesis: the plateau is path planning (the look-ahead ceiling reached 100%); the robot's own plan on its lidar map (look-ahead bearing) gives most of that without privileged information
+parent: v15-lidar-allrows
+change: plus lp_sin, lp_cos (planned bearing on the map of lidar hits seen so far, odometry pose, goal)
+kill_criterion: goal rate and collisions on screen-100 not better than v15's (paired)
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true, lidar_plan: true}
+context: {sources: [round0], max_rows: null, quotas: uniform, seed: 0}
+offline: [offline_expert]

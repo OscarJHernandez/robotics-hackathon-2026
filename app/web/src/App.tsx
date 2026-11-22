@@ -15,18 +15,55 @@ import { TerminalPanel, useMetacon } from "@/components/jethexa/Terminal";
 import { Stream } from "@/components/jethexa/Stream";
 import { LiveCallCard } from "@/components/jethexa/LiveCallCard";
 import { PhoneApp } from "@/components/jethexa/PhoneApp";
+import { HowItWorks } from "@/components/jethexa/how/HowItWorks";
 import { SpeakerToggle, TalkButton } from "@/components/jethexa/TalkButton";
 import { useHealth, useRobotState } from "@/hooks/useRobotState";
 import { useIsPhone } from "@/hooks/useIsPhone";
 import { useLiveCall } from "@/hooks/useLiveCall";
 import { useKnock } from "@/hooks/useKnock";
 import { useApartment } from "@/hooks/useApartment";
+import { useNarration } from "@/hooks/useNarration";
 import { phaseText, useVoiceCall } from "@/hooks/useVoiceCall";
 import { sendCommand, VIEWS, type View } from "@/lib/api";
 
+const HOW = "#how-it-works";
+
 export function App() {
+  // The "How it works" page: App owns the #how-it-works hash alone. It renders instead of the stage, so the
+  // picture streams unmount; polling that only feeds the screen pauses while it is open.
+  const [howOpen, setHowOpen] = useState(() => window.location.hash === HOW);
+  const howPushed = useRef(false); // opened here, so a history entry for the robot is right behind it
+  useEffect(() => {
+    const sync = () => {
+      const open = window.location.hash === HOW;
+      if (!open) howPushed.current = false;
+      setHowOpen(open);
+    };
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  const openHow = useCallback(() => {
+    if (window.location.hash === HOW) return;
+    howPushed.current = true;
+    window.location.hash = HOW; // a new history entry (Back returns to the robot); ?phone=1 stays
+  }, []);
+  const closeHow = useCallback(() => {
+    if (howPushed.current) {
+      window.history.back(); // the entry behind it is the robot; hashchange closes the page
+    } else { // opened by a direct link: never go back to another site
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+      setHowOpen(false);
+    }
+  }, []);
+  // Focus returns to the button that opens the page (desktop header or phone top bar) once the stage is back.
+  const wasOpen = useRef(howOpen);
+  useEffect(() => {
+    if (wasOpen.current && !howOpen) document.querySelector<HTMLElement>("[data-how-opener]")?.focus({ preventScroll: true });
+    wasOpen.current = howOpen;
+  }, [howOpen]);
+
   const { health, conn } = useHealth();
-  const state = useRobotState(conn);
+  const state = useRobotState(conn, !howOpen);
   const live = conn === "live";
   const views = health?.views?.length ? health.views : VIEWS;
   const [main, setMain] = useState<View>("chase");
@@ -40,7 +77,7 @@ export function App() {
   // On a phone it is a card under the camera, with the whole panel as a full-screen sheet.
   const hasApartment = live && !!health?.apartment;
   const [aptOpen, setAptOpen] = useState(true);
-  const { apartment, refresh: refreshApartment } = useApartment(hasApartment && (aptOpen || phone));
+  const { apartment, refresh: refreshApartment } = useApartment(hasApartment && (aptOpen || phone) && !howOpen);
   const apt = hasApartment && !phone && aptOpen && apartment ? apartment : null;
   useEffect(() => { if (health?.scene === "apartment") setMain("orbit"); }, [health?.scene]);
 
@@ -61,6 +98,14 @@ export function App() {
   const other = liveCall && !voice.isMine(liveCall.id) ? liveCall : null;
   const knockError = useCallback((m: string) => toast(m), []);
   const knock = useKnock(live, speakerOn, knockError); // Find and Call Margarete; the phone layout shows it for now
+
+  // metacon narrates the search: a metacon line in the conversation (terminal or phone chat), the header caption for
+  // a few seconds, and on the phone its voice, when the speaker is on and nobody is on a call.
+  const { narrate } = term;
+  const narration = useNarration(live && !!health?.narration, {
+    speak: () => phone && speakerOn && voice.phase === "idle" && !(liveCall && !liveCall.ended),
+    onLine: (n) => narrate(n.text),
+  });
 
   // The robot reports in the terminal when a walk or turn ends, or when it falls.
   const lastMode = useRef<string | null>(null);
@@ -95,12 +140,22 @@ export function App() {
     else toast.error(r.error ?? "Command failed");
   };
 
+  if (howOpen) {
+    return (
+      <>
+        <HowItWorks onClose={closeHow} />
+        <Toaster position="top-center" />
+      </>
+    );
+  }
+
   if (phone) {
     return (
       <>
         <PhoneApp conn={conn} views={views} state={state} lines={term.lines} busy={term.busy} chatOff={term.chatOff} onClear={term.clear}
           apartment={hasApartment ? apartment : null} onApartmentChanged={refreshApartment} onError={(m) => toast.error(m)}
-          voice={voice} other={other} knock={knock} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)} />
+          voice={voice} other={other} knock={knock} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)}
+          onHowItWorks={openHow} narration={narration.recent} />
         <Toaster position="top-center" />
       </>
     );
@@ -129,13 +184,13 @@ export function App() {
         <Brand conn={conn} />
         {(!apt || other) && (
           <div className="max-sm:hidden sm:absolute sm:left-1/2 sm:top-6 sm:w-[min(560px,calc(100vw-760px))] sm:min-w-[340px] sm:-translate-x-1/2 sm:text-center">
-            {other ? <LiveCallCard call={other} /> : <Caption onPick={say} />}
+            {other ? <LiveCallCard call={other} /> : <Caption onPick={say} narration={narration.recent} />}
           </div>
         )}
         <div className="flex flex-col items-end gap-3">
           <ViewList views={views} active={main} onPick={setMain} mapOpen={mapOpen} onToggleMap={() => setMapOpen((o) => !o)}
             onRandom={() => run("random")} apartment={hasApartment ? aptOpen : undefined} onToggleApartment={() => setAptOpen((o) => !o)}
-            scene={health?.scene} />
+            scene={health?.scene} onHowItWorks={openHow} state={state} live={live} onError={(m) => toast.error(m)} />
           {mapOpen && !apt && <MiniMapCard s={state} onGoto={(x, y) => run(`goto ${x} ${y}`)} />}
         </div>
       </header>
@@ -166,6 +221,14 @@ export function App() {
       <div className={apt
         ? "absolute bottom-6 left-[340px] right-[484px] flex min-w-[300px] flex-col gap-3"
         : "absolute inset-x-3 bottom-3 mx-auto flex max-w-[900px] flex-col gap-3 sm:bottom-6 md:max-w-[min(900px,calc(100vw-720px))] md:min-w-[520px]"}>
+        {apt && narration.recent && !listening && (
+          /* With the apartment panel open the header has no room: metacon's line sits above the chat instead. */
+          <div key={narration.recent.id} role="status" aria-live="polite"
+            className="glass rise-in max-w-[640px] self-center rounded-2xl px-4 py-2.5 text-center">
+            <div className="pixel text-[9px] tracking-[0.25em] text-term-red">metacon · searching</div>
+            <div className="mt-0.5 text-[15px] leading-snug">{narration.recent.text}</div>
+          </div>
+        )}
         {listening && (
           <div className="glass rise-in self-center rounded-full px-4 py-2 text-sm">
             <span className="call-dot mr-2 inline-block align-middle" />

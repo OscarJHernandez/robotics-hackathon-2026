@@ -3,13 +3,15 @@
 // (useApartment), so every viewer sees the same thing. The 3D view behind shows the same flat in MuJoCo.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BrainCircuit, Check, ChevronRight, ClipboardPaste, Clock, Copy, RotateCcw, Dices, Eye, EyeOff, Footprints, Plus, ScanEye, Search, Square, Trash2, X } from "lucide-react";
+import { BrainCircuit, Check, ChevronRight, ClipboardPaste, Clock, Copy, RotateCcw, Dices, Eye, EyeOff, Footprints, Plus, ScanEye, Search, Shuffle, Square, Trash2, X } from "lucide-react";
 import {
   apartmentAddEntry, apartmentClear, apartmentClock, apartmentRandom, apartmentImportJournal, apartmentInputsJson, apartmentSetInputs, apartmentRemoveEntry, apartmentReset,
-  apartmentSearch, apartmentStop,
-  ZONE_CLASSES, ZONE_COLOR, ZONE_LABEL,
+  apartmentSearch, apartmentShuffle, apartmentStop,
+  MESS_LEVELS, ZONE_CLASSES, ZONE_COLOR, ZONE_LABEL,
   type ApartmentState, type Belief, type Stage, type ZoneClass, type ZoneName,
 } from "@/lib/api";
+import { unlockAudio } from "@/lib/audio";
+import type { Narration } from "@/hooks/useNarration";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const PARTS = ["morning", "afternoon", "evening"];
@@ -21,6 +23,27 @@ const STAGES: { id: Stage | "live"; label: string; hint: string }[] = [
 ];
 const pct = (p: number) => `${Math.round(100 * p)}%`;
 const ago = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, "0")} min` : `${Math.round(m)} min`);
+
+const AB_LABEL: Record<string, string> = { tabpfn: "TabPFN a→b", planner: "Planner", rule: "Steer rule", marker: "Marker" };
+
+/** Who walks, for the roles card and the pipeline: the student, or the a-to-b driver and why. */
+export function driverText(a: ApartmentState): { short: string; value: string; detail: string; on: boolean } {
+  const st = a.student?.status ?? "off";
+  const ab = AB_LABEL[a.ab_driver ?? ""] ?? AB_LABEL[a.driver] ?? a.driver;
+  if (a.driver === "marker") return { short: "Marker", value: "Marker", detail: "no robot in this scene", on: false };
+  if (a.driver === "student") {
+    return { short: "TabPFN student", value: "TabPFN student (lidar + camera)", on: true,
+      detail: "avoids obstacles it has not been told about; the dashed line is what a map-knowing planner would do" };
+  }
+  const route = "along a route around the known furniture";
+  if (st === "loading") return { short: ab, value: `${ab} · student loading…`, detail: `the student takes over when it is ready; until then ${route}`, on: false };
+  if (st === "no_credits") return { short: ab, value: ab, detail: `student off: ${a.student?.reason ?? "no TabPFN API credits left"}; ${route}`, on: false };
+  if (st === "failed") return { short: ab, value: ab, detail: `student not available (${a.student?.reason ?? "failed to load"}); ${route}`, on: false };
+  if (st === "ready" && a.route_followed && (a.search.fallbacks ?? 0) > 0) {
+    return { short: `${ab} (fallback)`, value: `${ab} · fallback`, detail: "the student got stuck: A* + a→b walks the rest of this leg", on: false };
+  }
+  return { short: ab, value: ab, detail: a.driver === "tabpfn" ? `stride and turn every step, ${route}` : `walks each leg of the route`, on: a.driver === "tabpfn" };
+}
 
 export function statusText(a: ApartmentState): { text: string; tone: "idle" | "busy" | "good" | "warn" } {
   const s = a.search;
@@ -103,7 +126,7 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
                 <Square className="h-4 w-4" />Stop the search
               </button>
             ) : (
-              <button onClick={() => void run(apartmentSearch(where))} className="knock-btn knock-primary h-11 min-w-[170px] flex-1 gap-2 whitespace-nowrap">
+              <button onClick={() => { unlockAudio(); void run(apartmentSearch(where)); }} className="knock-btn knock-primary h-11 min-w-[170px] flex-1 gap-2 whitespace-nowrap">
                 <Search className="h-4 w-4" />Find {a.name}
               </button>
             )}
@@ -134,6 +157,10 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
               </button>
             </div>
           </div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-[11.5px] text-video/60">{messText(a)}</span>
+            <MessControl a={a} run={run} />
+          </div>
           <Plan a={a} belief={belief} showHer={showHer || found} />
           <Legend />
           <Looks a={a} />
@@ -143,12 +170,16 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
               <span className="apt-role-v">{a.model?.name === "tabpfn" ? a.model.label : "Counting model"}</span>
               <span className="apt-role-d">{a.model?.name === "tabpfn" ? "picks the order of the zones: most likely first" : "orders the zones, most likely first"}</span>
             </div>
-            <div className={`apt-role ${a.driver === "tabpfn" ? "apt-role-on" : ""}`}>
-              <span className="apt-role-k">Robot control</span>
-              <span className="apt-role-v">{a.driver === "tabpfn" ? "TabPFN a→b" : a.driver === "marker" ? "Marker" : a.driver}</span>
-              <span className="apt-role-d">{a.driver === "tabpfn" ? "stride and turn every step, along a route around the furniture"
-                : a.driver === "marker" ? "no robot in this scene" : "walks each leg of the route"}</span>
-            </div>
+            {(() => {
+              const d = driverText(a);
+              return (
+                <div className={`apt-role ${d.on ? "apt-role-on" : ""}`}>
+                  <span className="apt-role-k">Robot control</span>
+                  <span className="apt-role-v">{d.value}</span>
+                  <span className="apt-role-d">{d.detail}</span>
+                </div>
+              );
+            })()}
           </div>
         </section>
 
@@ -204,7 +235,7 @@ function Pipeline({ a }: { a: ApartmentState }) {
   const active = s === "starting" ? 0 : s === "walking" ? 1 : s === "looking" ? 2 : -1;
   const steps = [
     { label: "Belief", by: tabpfn ? a.model!.label : "Counting", hint: `Where she probably is, from her routines and journal${tabpfn ? `: ${a.model!.label}, ${a.model!.detail}` : ""}` },
-    { label: "Walk", by: a.driver === "tabpfn" ? "TabPFN a→b" : a.driver, hint: "The robot walks to the most likely zone" },
+    { label: "Walk", by: driverText(a).short, hint: `The robot walks to the most likely zone: ${driverText(a).detail}` },
     { label: "Look", by: "mock", hint: "A look at the zone; it misses her 20% of the time" },
     { label: "Update", by: "Bayes", hint: "Nobody seen: that zone gets less likely, the others more; then the next most likely zone" },
   ];
@@ -230,6 +261,38 @@ function Pipeline({ a }: { a: ApartmentState }) {
 }
 
 /** After a search: forget it, take Margarete out of the room and put the robot back on its dock. */
+const PRETTY = (name: string) => name.replace(/_/g, " ");
+
+/** How many loose things are on the floor, in words. */
+function messText(a: ApartmentState): string {
+  const n = a.flat.obstacles.filter((o) => o.loose).length;
+  if (n === 0) return "Nothing loose on the floor";
+  return `${n} loose thing${n === 1 ? "" : "s"} on the floor`;
+}
+
+/**
+ * Clean · Medium · Messy: how cluttered the room is. The current level is highlighted; pressing it again draws a
+ * new arrangement. The robot is not told where anything is. Refused (disabled) while a search runs.
+ */
+export function MessControl({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void> }) {
+  const current = a.obstacles && a.obstacles !== "home" ? a.obstacles : null;
+  return (
+    <div role="group" aria-label="How messy the room is" className="apt-tabs shrink-0">
+      {MESS_LEVELS.map((l) => {
+        const on = current === l.id;
+        return (
+          <button key={l.id} type="button" aria-pressed={on} disabled={a.search.running}
+            onClick={() => void run(apartmentShuffle(l.id))}
+            title={a.search.running ? "Wait for the search to end" : on ? `${l.hint}. Press again for a new arrangement` : l.hint}
+            className={`apt-tab flex items-center gap-1 ${on ? "apt-tab-on" : ""}`}>
+            {on && <Shuffle aria-hidden className="h-3 w-3 opacity-70" />}{l.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ResetButton({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void> }) {
   if (a.search.status === "idle" || a.search.running) return null;
   return (
@@ -299,11 +362,28 @@ export function Plan({ a, belief, showHer }: { a: ApartmentState; belief: Belief
       })}
       {obstacles.map((o) => (
         <g key={o.name}>
-          <rect x={o.x - o.size_x / 2} y={-o.y - o.size_y / 2} width={o.size_x} height={o.size_y} rx={0.06}
-            fill="oklch(0.17 0.012 255)" fillOpacity={0.55} stroke="white" strokeOpacity={0.5} strokeWidth={0.025}>
-            <title>{`Obstacle: ${o.name}`}</title>
-          </rect>
-          {Math.min(o.size_x, o.size_y) > 0.55 && (
+          {o.loose && o.round && o.length ? (
+            // A round clutter item (basket, bin, pouf, vacuum, bucket) in the loose tone.
+            <circle cx={o.x} cy={-o.y} r={o.length / 2}
+              fill="oklch(0.45 0.09 75)" fillOpacity={0.55} stroke="oklch(0.85 0.12 80)" strokeOpacity={0.85} strokeWidth={0.025}
+              strokeDasharray="0.06 0.04">
+              <title>{`Clutter: ${PRETTY(o.name)}`}</title>
+            </circle>
+          ) : o.loose && o.length && o.width ? (
+            // A loose piece (stool, armchair, crate, plant) or a clutter item in a second tone, turned by its heading.
+            <rect x={o.x - o.length / 2} y={-o.y - o.width / 2} width={o.length} height={o.width} rx={o.clutter ? 0.03 : 0.05}
+              transform={`rotate(${-(o.yaw_deg ?? 0)} ${o.x} ${-o.y})`}
+              fill="oklch(0.45 0.09 75)" fillOpacity={0.55} stroke="oklch(0.85 0.12 80)" strokeOpacity={0.85} strokeWidth={0.025}
+              strokeDasharray={o.moved ? "0.06 0.04" : undefined}>
+              <title>{o.clutter ? `Clutter: ${PRETTY(o.name)}` : `Loose piece: ${o.name}${o.moved ? " (moved at random)" : ""}`}</title>
+            </rect>
+          ) : (
+            <rect x={o.x - o.size_x / 2} y={-o.y - o.size_y / 2} width={o.size_x} height={o.size_y} rx={0.06}
+              fill="oklch(0.17 0.012 255)" fillOpacity={0.55} stroke="white" strokeOpacity={0.5} strokeWidth={0.025}>
+              <title>{`Obstacle: ${o.name}`}</title>
+            </rect>
+          )}
+          {!o.loose && Math.min(o.size_x, o.size_y) > 0.55 && (
             <text x={o.x} y={-o.y + 0.05} textAnchor="middle" fontSize={0.15} fill="white" fillOpacity={0.6}
               transform={o.size_y > o.size_x * 1.3 ? `rotate(-90 ${o.x} ${-o.y})` : undefined}>{o.name}</text>
           )}
@@ -314,6 +394,21 @@ export function Plan({ a, belief, showHer }: { a: ApartmentState; belief: Belief
       <line x1={doorFlat ? door.x - door.width / 2 : door.x} y1={doorFlat ? -door.y : -door.y - door.width / 2}
         x2={doorFlat ? door.x + door.width / 2 : door.x} y2={doorFlat ? -door.y : -door.y + door.width / 2}
         stroke="oklch(0.82 0.15 80)" strokeWidth={0.09} strokeLinecap="round"><title>Door</title></line>
+      {/* the A* route of this walk: walked by the a-to-b driver, or only shown while the student walks */}
+      {a.route && a.route.length > 0 && (
+        <polyline points={[[a.robot.x, a.robot.y] as [number, number], ...a.route].map(([x, y]) => `${x},${-y}`).join(" ")} fill="none"
+          stroke="oklch(0.78 0.13 172)" strokeOpacity={a.route_followed ? 0.7 : 0.35} strokeWidth={0.03}
+          strokeDasharray={a.route_followed ? undefined : "0.09 0.07"} strokeLinejoin="round">
+          <title>{a.route_followed ? "The route the robot walks" : "What a map-knowing planner would do (the student walks on its own)"}</title>
+        </polyline>
+      )}
+      {/* touches of walls or furniture */}
+      {(a.contact_points ?? []).map(([x, y], i) => (
+        <g key={`touch-${i}`} transform={`translate(${x} ${-y})`} stroke="oklch(0.66 0.21 25)" strokeWidth={0.05} strokeLinecap="round">
+          <line x1={-0.09} y1={-0.09} x2={0.09} y2={0.09} /><line x1={-0.09} y1={0.09} x2={0.09} y2={-0.09} />
+          <title>The robot touched a wall or furniture here</title>
+        </g>
+      ))}
       {/* the walk so far */}
       {path.length > 1 && (
         <polyline points={path.map(([x, y]) => `${x},${-y}`).join(" ")} fill="none" stroke="white" strokeOpacity={0.75}
@@ -363,6 +458,8 @@ function Legend() {
       <span className={item}><svg viewBox="-1 -1 2 2" className="h-3 w-3"><path d="M0.8 0 L-0.5 0.55 L-0.2 0 L-0.5 -0.55 Z" fill="oklch(0.78 0.13 172)" /></svg>robot</span>
       <span className={item}><span className="h-2.5 w-2.5 rounded-[3px] border border-video/80 bg-[oklch(0.17_0.012_255)]" />dock</span>
       <span className={item}><span className="h-2.5 w-3.5 rounded-[3px] border border-video/50 bg-[oklch(0.17_0.012_255)]/60" />obstacle</span>
+      <span className={item}><span className="h-2.5 w-3.5 rounded-[3px] border border-[oklch(0.85_0.12_80)] bg-[oklch(0.45_0.09_75)]/60" />loose piece or clutter</span>
+      <span className={item}><span className="text-[11px] font-bold leading-none text-[oklch(0.66_0.21_25)]">×</span>touch</span>
       <span className={item}><span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-video text-[8px] font-bold">1</span>look</span>
       <span className={item}><span className="h-[3px] w-3.5 rounded-full bg-term-amber" />door</span>
       <span className="ml-auto">darker zone = more likely</span>
@@ -561,7 +658,8 @@ function Journal({ a, run, onError, onChanged }: {
 const LOG_TONE: Record<string, string> = {
   start: "text-video", proposal: "text-video", belief: "text-video/60", update: "text-video/60", miss: "text-term-amber",
   seen: "text-term-green", found: "text-term-green font-semibold", out: "text-term-amber font-semibold",
-  journal: "text-video/55", info: "text-video/45",
+  journal: "text-video/55", info: "text-video/45", metacon: "text-video/85",
+  fallback: "text-term-amber", contact: "text-term-red",
 };
 
 function Log({ a }: { a: ApartmentState }) {
@@ -580,7 +678,9 @@ function Log({ a }: { a: ApartmentState }) {
         {a.log.map((l) => (
           <div key={l.id} className="flex gap-2">
             <span className="shrink-0 tabular-nums text-video/35">{l.time}</span>
-            <span className={LOG_TONE[l.kind] ?? "text-video/70"}>{l.text}</span>
+            <span className={LOG_TONE[l.kind] ?? "text-video/70"}>
+              {l.kind === "metacon" && <span className="apt-tag-metacon">metacon</span>}{l.text}
+            </span>
           </div>
         ))}
       </div>
@@ -592,8 +692,10 @@ function Log({ a }: { a: ApartmentState }) {
  * The apartment on a phone: who and where, the status, the floor plan with the belief, the looks so far, and
  * Find Margarete. "Details" opens the whole panel (time, belief steps, journal, log) as a full-screen sheet.
  */
-export function ApartmentPhoneCard({ apartment: a, onError, onChanged }: {
+export function ApartmentPhoneCard({ apartment: a, onError, onChanged, narration }: {
   apartment: ApartmentState; onError: (m: string) => void; onChanged: () => void;
+  /** metacon's latest line about the search, while it is recent. */
+  narration?: Narration | null;
 }) {
   const [sheet, setSheet] = useState(false);
   const status = statusText(a);
@@ -625,8 +727,18 @@ export function ApartmentPhoneCard({ apartment: a, onError, onChanged }: {
         )}
         <ResetButton a={a} run={run} />
       </div>
+      {narration && (
+        <div key={narration.id} role="status" aria-live="polite" className="apt-narration rise-in">
+          <span className="pixel text-[9px] tracking-[0.2em] text-term-red">metacon</span>
+          <span className="text-[14.5px] leading-snug">{narration.text}</span>
+        </div>
+      )}
       <Pipeline a={a} />
       <Plan a={a} belief={a.belief} showHer={found} />
+      <div className="flex flex-wrap items-center gap-2">
+        <MessControl a={a} run={run} />
+        <span className="min-w-0 flex-1 truncate text-right text-[11.5px] text-video/60">{driverText(a).value}</span>
+      </div>
       <Looks a={a} />
       <div className={`grid gap-2 ${a.search.running ? "grid-cols-[1fr_auto]" : "grid-cols-[1fr_auto_auto]"}`}>
         {a.search.running ? (
@@ -635,10 +747,10 @@ export function ApartmentPhoneCard({ apartment: a, onError, onChanged }: {
           </button>
         ) : (
           <>
-            <button type="button" onClick={() => void run(apartmentSearch("routine"))} className="knock-btn knock-primary h-12 gap-2">
+            <button type="button" onClick={() => { unlockAudio(); void run(apartmentSearch("routine")); }} className="knock-btn knock-primary h-12 gap-2">
               <Search className="h-[18px] w-[18px]" />Find {a.name}
             </button>
-            <button type="button" onClick={() => void run(apartmentSearch("random"))} className="knock-btn knock-secondary h-12 w-12"
+            <button type="button" onClick={() => { unlockAudio(); void run(apartmentSearch("random")); }} className="knock-btn knock-secondary h-12 w-12"
               aria-label={`Put ${a.name} somewhere random and find her`} title="Put her somewhere random, then search">
               <Dices className="h-5 w-5" />
             </button>

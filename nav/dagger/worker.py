@@ -62,6 +62,7 @@ def run_shard(job):
     with timer("setup_envs"):
         envs = [SimEnv(simple=env_cfg["simple"], goal_radius=env_cfg["goal_radius"], max_steps=env_cfg["max_steps"],
                        min_start_dist=env_cfg["min_start_dist"],
+                       target_clearance=env_cfg.get("target_clearance"), target_wall=env_cfg.get("target_wall"),
                        segmentation=config["features"]["perception"] == "truth", expert=expert, timer=timer)
                 for _ in range(min(job["n_envs"], max(1, len(job["plan"]))))]
     from fetch_meshes import meshes_available
@@ -176,9 +177,6 @@ def run_jobs(fn, jobs, log=print, reserve=None, every=5.0):
 
 
 def main():
-    from .config import load_config, run_dir
-    from .timing import RunLog, host_name, machine_info
-
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--run", required=True)
     parser.add_argument("--round", required=True, help="round number, or 'heldout'")
@@ -192,7 +190,26 @@ def main():
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--dino-device", default=None, help="cpu, mps or cuda (default: best available)")
     parser.add_argument("--heartbeat", type=float, default=30.0, help="seconds between progress lines")
+    parser.add_argument("--no-lock", action="store_true", help="do not take this machine's job lock")
     args = parser.parse_args()
+    if args.no_lock:
+        return run_main(args)
+    from .joblock import Busy, JobLock
+    job_lock = JobLock()
+    try:
+        job_lock.acquire(args.run)
+    except Busy as error:
+        raise SystemExit(str(error))
+    try:
+        return run_main(args)
+    finally:
+        job_lock.release()
+
+
+def run_main(args):
+    from .config import load_config, run_dir
+    from .timing import RunLog, host_name, machine_info
+
     config = load_config(args.config, args.smoke)
     plan = json.loads(Path(args.plan).read_text())
     round_ = args.round

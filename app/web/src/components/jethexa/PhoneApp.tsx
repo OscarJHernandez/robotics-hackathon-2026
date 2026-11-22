@@ -3,16 +3,18 @@
 // like a walkie-talkie. While a check-in runs the card takes the middle; when the robot finds her, the robot eye
 // fills the top and the talk bar gives way to the alert. Same state and hooks as the desktop page (App.tsx).
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Keyboard, Mic, RotateCcw } from "lucide-react";
+import { ArrowUp, Info, Keyboard, Mic, RotateCcw } from "lucide-react";
 import type { Conn } from "@/hooks/useRobotState";
 import type { LiveCall } from "@/hooks/useLiveCall";
 import type { Knock } from "@/hooks/useKnock";
+import type { Narration } from "@/hooks/useNarration";
 import { phaseText, type Phase } from "@/hooks/useVoiceCall";
 import type { ApartmentState, RobotState, View } from "@/lib/api";
 import { ApartmentPhoneCard } from "./ApartmentPanel";
 import { HexMark } from "./Brand";
 import { KnockCard, KnockSteps, knockActive } from "./KnockCard";
 import { LiveCallCard } from "./LiveCallCard";
+import { SpeedControl } from "./SpeedControl";
 import { Stream, VIEW_LABEL } from "./Stream";
 import { SpeakerToggle, TalkButton } from "./TalkButton";
 import { statusText, type Line } from "./Terminal";
@@ -24,7 +26,7 @@ export interface VoiceProps {
   press: () => void; release: () => void; cancel: () => void;
 }
 
-export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend, onClear, apartment, onApartmentChanged, onError }: {
+export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend, onClear, apartment, onApartmentChanged, onError, onHowItWorks, narration }: {
   conn: Conn; views: View[]; state: RobotState | null; lines: Line[]; busy: boolean; chatOff: boolean;
   voice: VoiceProps; other: LiveCall | null; knock: Knock; speakerOn: boolean; onToggleSpeaker: () => void;
   onSend: (text: string) => void;
@@ -32,6 +34,10 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
   onClear: () => void;
   /** The apartment (zones, belief, search), when the server runs that scene: its card replaces the Knock card. */
   apartment?: ApartmentState | null; onApartmentChanged?: () => void; onError?: (m: string) => void;
+  /** Opens the "How it works" page. */
+  onHowItWorks?: () => void;
+  /** metacon's latest line about the search, while it is recent (shown on the apartment card). */
+  narration?: Narration | null;
 }) {
   const live = conn === "live";
   const [view, setView] = useState<View>("chase");
@@ -81,14 +87,22 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
           </span>
           {found ? <span className="text-shadow-soft pixel ml-auto text-[9px] tracking-[0.15em]">Robot eye</span>
             : <span className="text-shadow-soft ml-auto truncate font-mono text-[11px] text-video/85">{topRight}</span>}
+          {onHowItWorks && (
+            <button type="button" onClick={onHowItWorks} data-how-opener aria-label="How it works"
+              className="glass-btn -mr-1 h-8 w-8 shrink-0"><Info className="h-4 w-4" /></button>
+          )}
         </div>
         {!found && (
-          <div className="absolute inset-x-0 bottom-0 flex gap-1.5 overflow-x-auto px-3 pb-3 [scrollbar-width:none]">
+          <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 overflow-x-auto px-3 pb-3 [scrollbar-width:none]">
             {views.map((v) => (
               <button key={v} onClick={() => setView(v)}
                 className={`glass-btn h-8 shrink-0 px-3 text-xs font-medium ${v === view ? "glass-btn-on" : ""}`}>{VIEW_LABEL[v]}</button>
             ))}
           </div>
+        )}
+        {!found && (
+          <SpeedControl state={state} live={live} onError={onError}
+            className="absolute right-3 top-[calc(max(12px,env(safe-area-inset-top))+42px)]" />
         )}
       </div>
 
@@ -104,7 +118,7 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
       <div ref={scroll} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
         {other && !other.ended && <LiveCallCard call={other} className="sticky top-0 z-10" />}
         <div className="pb-1.5">
-          {apartment ? <ApartmentPhoneCard apartment={apartment} onError={onError ?? (() => {})} onChanged={onApartmentChanged ?? (() => {})} />
+          {apartment ? <ApartmentPhoneCard apartment={apartment} onError={onError ?? (() => {})} onChanged={onApartmentChanged ?? (() => {})} narration={narration} />
             : <KnockCard k={knock} />}
         </div>
         {lines.length > 0 && (
@@ -188,7 +202,7 @@ function Bubble({ line: l }: { line: Line }) {
     return (
       <div className="flex justify-start">
         <div className="glass max-w-[85%] rounded-2xl rounded-bl-md px-3.5 py-2 text-[15px] leading-snug">
-          <div className="pixel mb-0.5 text-[9px] tracking-[0.2em] text-term-red">metacon</div>
+          <div className="pixel mb-0.5 text-[9px] tracking-[0.2em] text-term-red">metacon{l.narr && <span className="text-video/45"> · search</span>}</div>
           {l.text}{l.pending && <span className="cursor-blink">▍</span>}
         </div>
       </div>

@@ -177,6 +177,86 @@ executed commands, labels, pose, done reason), `round_<N>.json` (outcome rates),
 a heartbeat every 30 s (episodes done, steps per second, elapsed, ETA, finish time, outcomes, time per
 phase) and one line per episode. Linux needs headless OpenGL: `MUJOCO_GL=egl` is set automatically.
 
+## DAgger v2 in the arena: the best model (2026-11-22)
+
+The full record (every variant, what worked and why, why the search stopped, GIFs of the student driving alone) is
+[dagger-report.md](dagger-report.md).
+
+A research loop (vendetta and metacon, coordinated by Claude) tested 26 student variants after dagger1, each driving alone
+(beta 0) on held-out arena layouts, compared in pairs on the same layouts. Result:
+
+**Best model, `v29-lidarplan`**: TabPFN 3.5 (`fit()`/`predict()` only, 4 estimators) on all 31,586 round 0 expert rows,
+116 input columns:
+
+- goal distance and bearing (3);
+- the **simulated 360 degree lidar**: 36 rays, 10 degree steps (`JetHexaSim.lidar`; figures are assumptions);
+- the camera's horizon band: nearest depth and 4 DINOv2 PCA components in each of 15 sectors;
+- **the robot's own plan**: lidar hits accumulated over the episode become an occupancy map, a shortest path to the
+  goal is planned on it (the expert's planner, on what the lidar has seen), and the bearing of the point 0.4 m along
+  that path is the feature (`nav/dagger/lidarmap.py`). Only the lidar, the odometry pose and the goal are used.
+
+| robust check (student alone, 300 steps) | goal (95% CI) | collisions |
+|---|---|---|
+| 200 fresh layouts, start seed 99 | 98.0% (95.0-99.2) | 2.0% |
+| same layouts, start seed 98 | 97.5% (94.3-98.9) | 2.5% |
+| the expert (anchor) | 99.5% / 100% | 0.5% / 0% |
+
+How the directions compared (200 screening layouts unless noted):
+
+| step | goal | collisions | what it showed |
+|---|---|---|---|
+| camera patch grid (606 columns, the dagger1 setup) | 64% | 36% | the dagger1 failure: walks on where the expert stops and turns |
+| compact camera inputs (summary, horizon scan, horizon DINO PCA) | 63-70% (100) | 30-36% | fewer columns beat the grid, but the camera cannot see beside the robot |
+| **+ 360 degree lidar** | 90% | 9% | the big step: most crashes were into furniture beside the robot |
+| + all 31k rows instead of 8k | 94% | 6% | more real rows help; reshuffling, balancing, memory, gating, 8 estimators did not |
+| DAgger rounds 1-4, heading perturbations | 89-96% (100) | 4-10% | no gain on top of all rows |
+| PRIVILEGED ceiling: the expert's look-ahead bearing | 100% (100) | 0% | the missing piece is where the path goes, not sensing |
+| **+ the robot's own plan on its lidar map** | **98%** | **2%** | most of the ceiling, without privileged information |
+| v31: v29 with every row collected (81k, incl. DAgger rounds) | 92% (100) | 7% | more mixed data made it worse |
+
+Commands (all on branch `feat/dagger-v2-fixpass`): `python -m nav.dagger.experiment collect|dagger|run`,
+`python -m nav.dagger.stage run|analyse`, `python -m nav.dagger.lidarmap add --name <set>`, variants in
+`nav/dagger/variants/*.yaml`, data and results in `data/nav/dagger/v2/` (STATUS.md, incidents.md, experiments/).
+
+## The student in the app (v29 through the TabPFN API)
+
+The web app's apartment search walks with the v29 student (`--driver student`, the default; [app.md](app.md)
+"Who walks"). How it gets there without the raw data and without a local 9 GB fit:
+
+1. **Export, once, where the rows are** (vendetta): `python -m nav.dagger.export --variant
+   nav/dagger/variants/v29-lidarplan.yaml --out <folder>` reads the context exactly as `experiment.build_student`
+   does (`load_rows`, `choose_context`, `Features.fit_transform`), fits nothing, and writes `features.parquet` (the
+   116 columns in fit order + `y_stride`, `y_turn`, float32, 22 MB for 31,586 rows), `pca.npz` (the band PCA:
+   mean, scale, comps, var_ratios), `columns.json`, `meta.json` (rows, variant, git sha) and 12 sample base rows
+   with their band arrays. Copy the folder to `data/nav/dagger/v2/student/v29/` (gitignored).
+   `export.load_export(folder)` gives back a `Features` with the saved columns and PCA, ready for `Features.live`;
+   `tests/test_student_driver.py` checks that the drive-time path gives the exported rows back.
+2. **The student through the client**: `make_student({..., "backend": "client"})` builds `ClientTabPFNPolicy`
+   (`nav/dagger/policy.py`): ONE `tabpfn_client.TabPFNRegressor` (v3.5, 4 estimators) fitted on the rows stacked
+   twice with an `output` column (0 = stride, 1 = turn), so each decision is one `predict()` of 2 rows per robot,
+   clipped to the command ranges. Still `fit()`/`predict()` only. `backend: local` (the default) is unchanged.
+   `fit_mode="fit_with_cache"` keeps the context on the server; without it every `predict()` re-runs all 63,172
+   stacked rows (13 s, 11,400 credits instead of 0.6 to 3.5 s and 10,000).
+3. **Credits**: every `predict()` costs 10,000 credits, `fit()` is free. `credits_left()` reads the account
+   (`get_api_usage`, unlimited = None); `CreditBudget(max_calls)` raises `OutOfCredits` before the call that would
+   pass it. Many robots in lock-step share one call, which is how the benchmark stays cheap.
+4. **The plain twin** (`app/student.py`): the student sees the plain training arena, kept in step with the app
+   (robot joints, furniture poses, red pillar at the goal), never the dressed apartment; the lidar is cast in the
+   app's scene. Tests: `tests/test_student_twin.py`.
+
+**Benchmark in the flats** (`just student-bench`, `nav/dagger/flatbench.py`): legs as the search walks them (dock,
+then the zones' viewing spots in a random order) in N random flats, each "home" and "scattered"
+(`flats.scatter`), in a plain `FlatEnv`. All legs step in lock-step with one API call per step (at most 80 steps,
+the trainer's stuck and collision rules), so the real run costs at most 80 calls (800,000 credits) whatever the
+number of legs; `--budget-calls` is required and the credits left are checked first. The baseline on the same legs
+is the app's A* route walked by the TabPFN a-to-b controller (local, no credits). Writes `bench.json` and `bench.md`
+(goal without contact, collisions, stuck, with 95% Wilson intervals). Dry run without TabPFN:
+`just student-bench --flats 1 --max-legs 2 --policy fake --no-baseline`. Not run with the real student yet.
+`--levels clean,medium,messy` walks the app's mess levels instead of home/scattered (`flats.scatter(flat, rng,
+level)`, with clutter; the `FlatEnv` loads `sim/arena_clutter.xml`), and `--driver baseline-only` runs only A* +
+a-to-b (no export, no DINOv2, no API): `just student-bench --flats 10 --levels clean,medium,messy --driver
+baseline-only`.
+
 ## Where the data is
 
 Everything is in **`data/nav/` in the main checkout** (gitignored, never committed). Set `NAV_DATA_DIR`
@@ -230,3 +310,24 @@ waits up to 60 s for it, so do not keep a SQL tool connected to it while a run i
   several cycles, so "previous command" almost gives the answer. Its default inputs are the goal only.
 - **Fine-tuning was tried and dropped.** Four fine-tuning rounds gave one small gain and none after, and
   the planner without any training beat them.
+
+### The student in the app's flats (2026-11-22)
+
+`just student-bench` walks the legs of a search (dock → viewing spot → next viewing spot) in 10 random flats,
+with the furniture at home and with the four loose pieces shuffled (`homes/flats.py` `scatter`). The student
+(v29, through the TabPFN API, 54 calls) against A* + a→b, which is given the furniture's positions:
+
+| Driver | Furniture | Legs | Reached, no contact | 95% interval | Collisions |
+|---|---|---:|---:|---|---:|
+| Student | home | 50 | 98.0% | 89.5–99.6% | 2.0% |
+| Student | shuffled | 50 | 100.0% | 92.9–100% | 0.0% |
+| A* + a→b | home + shuffled | 100 | 100.0% | 96.3–100% | 0.0% |
+
+Up to 60 steps per leg, stuck rule 40 steps; no leg got stuck or timed out. Both take about 32 cycles per leg.
+
+### Mess levels (2026-11-22)
+
+`just student-bench --levels clean,medium,messy --driver baseline-only`: A* + a→b on the legs of a search in
+10 random flats per level (no API credits). Clean: 50/50 legs reached (100%); medium (8 loose things): 50/50
+(100%); messy (16 loose things): 47/50 (94%, 95% interval 83.8–97.9%), 3 legs stuck, no contacts in any level.
+Cycles per leg grow with the clutter: 32.5, 37.1, 38.7.

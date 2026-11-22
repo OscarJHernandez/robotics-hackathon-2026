@@ -156,6 +156,13 @@ armchair, crate and plant pot. The room is in [sim/arena_furniture.xml](../sim/a
 with MJCF `<include>`, so the robot files stay untouched. The walls are 4.5 m high so they fill the camera's
 picture from anywhere in the room: no sky. Every obstacle is a mocap body, so code moves it like the target.
 
+The web app's room adds twelve small clutter bodies (`obs_c0` to `obs_c11`, [sim/clutter.xml](../sim/clutter.xml):
+basket, bin, boxes, books and the like, parked outside the room until the app's Medium or Messy level drops them).
+They are included by `apartment.xml` and `apartment_simple.xml` and by the student's plain twin
+`arena_clutter.xml` / `arena_clutter_simple.xml` (`Arena(clutter=True)`), but **not** by `arena.xml`,
+`arena_simple.xml` or `arena_furniture.xml`: `Arena.randomize` places every `obs_` body, so adding bodies there
+would change every recorded training layout (`tests/test_student_twin.py` checks it does not).
+
 Use it through `vision/scene.py`, which also makes the floor big enough and matte and sets the lights:
 
 ```python
@@ -186,6 +193,7 @@ A layout is stored in the model's `stand` keyframe too, so `arena.sim.reset()` k
 | Base | Free: the robot can walk and fall over |
 | Camera | `eye` on the body, looking forward, 640 x 360 |
 | IMU | Sensors `imu_gyro`, `imu_accel`, `imu_quat` at the body centre (`body_site`) |
+| Lidar | `JetHexaSim.lidar(rays=36, min_range=0.15, max_range=8.0)`: ranges in metres, float32 `(rays,)`, measured from `lidar_geom` in the body's horizontal plane. Ray 0 points ahead (+x), ray i is turned i * 360/rays degrees to the left. No hit gives `max_range`, closer hits give `min_range`. The robot's own legs and non-colliding geoms (the target pillar) are not seen. The 10 degree steps and the 0.15 to 8 m range are assumptions, not from a datasheet |
 | Target marker | Body `target`: a red pillar, 0.3 m tall, that the camera sees. No mass, no collisions; the robot walks through it. Starts at x=1 m |
 | Timestep | 2 ms (500 Hz); the demo sends new targets every 20 ms (50 Hz) |
 | Start pose | Keyframe `stand` |
@@ -200,7 +208,7 @@ A layout is stored in the model's `stand` keyframe too, so `arena.sim.reset()` k
   slightly through something that only its mesh touches. To see the collision shapes in the viewer, turn on
   geom group 3 under "Group enable".
 - **The walking gait in `jethexa_sim.py` is a simple demo gait**, not the real robot's.
-- **Not simulated yet:** lidar scan (the lidar on top is only a shape), microphones, servo temperature
+- **Not simulated yet:** microphones, servo temperature
   and voltage. The IMU has no noise or drift. The camera's 62° horizontal field of view is an assumption.
 - **Both model files are generated** by the model generator in Oscar's private `sophy_jethexa` repo. Small edits
   here are fine (make them in both files), but a change to the robot's geometry should be made there and

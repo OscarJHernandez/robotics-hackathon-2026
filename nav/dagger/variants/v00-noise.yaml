@@ -1,0 +1,9 @@
+id: v00-noise
+hypothesis: two identical setups differ only by the context sample; this spread is the noise floor
+parent: v03-reference
+change: context seed 1 instead of 0
+kill_criterion: none (noise floor)
+student: {kind: tabpfn}
+features: {patches: true, pool: 2, pool_rule: majority, summary: "3"}
+context: {sources: [round0], max_rows: 8000, quotas: uniform, seed: 1}
+offline: [offline_expert]

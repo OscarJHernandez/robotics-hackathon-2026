@@ -106,3 +106,56 @@ def save_json(path, value):
 
 def repo():
     return REPO
+
+
+# ---- v2: data sets by role (disjoint scene ids), and where things live ---------------------------------------------
+
+SETS = {  # name: (first scene id, layouts, start seed, first episode id)
+    "round0": (0, 1000, 0, 0),                      # training: expert, one episode per layout
+    "perturb": (2000, 300, 0, 2_000_000),            # training: expert with heading perturbations, new layouts
+    "offline_expert": (100_000, 200, 99, 100_000),   # held out, offline metrics only
+    "offline_perturb": (100_000, 100, 98, 110_000),  # held out, perturbed expert, offline metrics only
+    "screen": (101_000, 200, 99, 101_000),           # held out, closed loop, student alone
+    "confirm": (103_000, 200, 99, 103_000),          # held out, once per promotion
+    "final": (102_000, 200, 99, 102_000),            # held out, robust check (fresh block per check: 104000, ...)
+    "final_b": (102_000, 200, 98, 105_000),          # the same final layouts with a second start seed
+}
+
+
+def set_spec(name):
+    """(first scene id, layouts, seed, first episode id) of a fixed set, or of a DAgger round "dagger_r<k>"
+    (k = 1..60: student-driven rounds on their own training layouts 10000 + 1000 k, never the held-out ones)."""
+    if name in SETS:
+        return SETS[name]
+    if name.startswith("dagger_r") and name[8:].isdigit() and 1 <= int(name[8:]) <= 60:
+        k = int(name[8:])
+        return (10_000 + 1000 * k, 1000, 10 + k, 20_000_000 + 100_000 * k)
+    raise KeyError("unknown data set {!r}".format(name))
+
+
+def set_plan(name, first=0, count=None):
+    """Episodes of a set: [{"episode", "scene_id", "seed"}], optionally only `count` of them from index `first`."""
+    scene0, layouts, seed, episode0 = set_spec(name)
+    count = layouts - first if count is None else count
+    return [{"episode": episode0 + i, "scene_id": scene0 + i, "seed": seed} for i in range(first, first + count)]
+
+
+def v2_dir():
+    path = runs_dir() / "v2"
+    for sub in ("data", "experiments"):
+        (path / sub).mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def dataset_dir(name):
+    path = v2_dir() / "data" / name
+    for sub in ("parts", "episodes", "logs"):
+        (path / sub).mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def experiment_dir(exp_id):
+    path = v2_dir() / "experiments" / exp_id
+    for sub in ("parts", "episodes", "logs"):
+        (path / sub).mkdir(parents=True, exist_ok=True)
+    return path

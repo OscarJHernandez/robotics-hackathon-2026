@@ -1,0 +1,9 @@
+id: v08-lookahead
+hypothesis: CEILING (privileged, never a candidate) - with the expert's look-ahead direction as input, how far does the lead input set get?
+parent: v11-lidar
+change: plus the expert's look-ahead bearing (sin, cos)
+kill_criterion: none (ceiling)
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true, lookahead: true}
+context: {sources: [round0], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert]

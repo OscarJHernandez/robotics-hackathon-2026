@@ -1,0 +1,9 @@
+id: v05-gated
+hypothesis: one regressor blends walk and stop-and-turn into weak turns; a walk / stop-left / stop-right classifier fixes it
+parent: v04-perturb
+change: gated output (TabPFN classifier for the mode, regressors for walking)
+kill_criterion: stop recall offline and goal rate on screen-100 not above v04-perturb's
+student: {kind: gated}
+features: {patches: true, pool: 2, pool_rule: majority, summary: "3"}
+context: {sources: [round0, perturb], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert, offline_perturb]

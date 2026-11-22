@@ -1,0 +1,6 @@
+<!-- The same as arena_clutter.xml around the simple-shape robot (used when the meshes are missing). -->
+<mujoco model="jethexa_arena_clutter_simple">
+  <include file="jethexa_simple.xml"/>
+  <include file="arena_furniture.xml"/>
+  <include file="clutter.xml"/>
+</mujoco>

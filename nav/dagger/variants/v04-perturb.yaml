@@ -1,0 +1,9 @@
+id: v04-perturb
+hypothesis: the student lacks examples of recovering heading; adding the expert's recoveries from perturbed episodes helps
+parent: v03-reference
+change: context drawn from round0 + perturb (heading kicks and random commands, expert labels)
+kill_criterion: goal rate on screen-100 not above v03-reference's (paired)
+student: {kind: tabpfn}
+features: {patches: true, pool: 2, pool_rule: majority, summary: "3"}
+context: {sources: [round0, perturb], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert, offline_perturb]
