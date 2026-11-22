@@ -1,4 +1,6 @@
-"""Small statistics for comparing variants: Wilson interval, exact sign test, paired outcomes. No scipy."""
+"""Small statistics for comparing variants: Wilson interval, exact sign test, paired outcomes.
+
+wilcoxon_p and spearman use scipy (imported lazily); the rest is plain Python."""
 
 import math
 
@@ -41,3 +43,25 @@ def paired(a, b):
         else:
             ties += 1
     return {"wins": wins, "losses": losses, "ties": ties, "p": sign_test(wins, losses)}
+
+
+def wilcoxon_p(differences):
+    """Two-sided Wilcoxon signed-rank p-value for paired differences. Zero and NaN differences are dropped; 1.0
+    when none are left (all-zero differences)."""
+    diffs = [float(d) for d in differences if d == d and d != 0]
+    if not diffs:
+        return 1.0
+    from scipy.stats import wilcoxon
+    return float(wilcoxon(diffs).pvalue)
+
+
+def spearman(a, b):
+    """Spearman rank correlation of two equal-length sequences; None when undefined (fewer than 2 points or
+    a constant input)."""
+    a, b = list(a), list(b)
+    if len(a) != len(b):
+        raise ValueError("a and b differ in length")
+    if len(a) < 2 or len(set(a)) < 2 or len(set(b)) < 2:
+        return None
+    from scipy.stats import spearmanr
+    return float(spearmanr(a, b).statistic)

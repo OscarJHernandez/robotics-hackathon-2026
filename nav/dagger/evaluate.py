@@ -12,9 +12,10 @@ dagger.yaml. Use --seed 98 for the confirmation run (episode ids never collide w
 
 import argparse
 import json
+import math
 import statistics
 
-from .stats import paired, wilson
+from .stats import paired, sign_test, spearman, wilcoxon_p, wilson
 
 SETS = {"screen-50": 50, "final-200": 200}
 OUTCOMES = ["goal", "collision", "timeout", "fell"]
@@ -100,6 +101,214 @@ def offline_metrics(df):
         "recall": round(hit / int(expert_stop.sum()), 4) if expert_stop.any() else None,
         "precision": round(hit / int(pred_stop.sum()), 4) if pred_stop.any() else None}
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Diagnostics: one row per episode, failure types, paired comparison, offline report, rank agreement.
+# Pure functions over pandas objects; no simulator needed.
+
+WALL = 3.5355  # inner wall of the square room: |x|, |y| = this
+STOP = 0.02  # stride below this is "stop and turn on the spot" (expert labels and student commands alike)
+NEAR_WALL = 0.6
+HARD_TURN = 0.2
+LIDAR_RAYS = 36
+START_SIDES = ["ahead", "side", "behind"]
+DIST_BINS = ["<2", "2-3", "3-4", ">4"]
+
+
+def _start_side(deg):
+    return "ahead" if deg < 45 else ("side" if deg <= 120 else "behind")
+
+
+def _dist_bin(d):
+    return "<2" if d < 2 else ("2-3" if d < 3 else ("3-4" if d <= 4 else ">4"))
+
+
+def _nan(x):
+    return x is None or (isinstance(x, float) and math.isnan(x))
+
+
+def _episode_records(episodes):
+    if hasattr(episodes, "drop_duplicates"):
+        return episodes.drop_duplicates("episode").to_dict("records")
+    return list(episodes)
+
+
+def episode_table(rows, episodes, expert_episodes=None):
+    """One row per episode: outcome, progress, path ratio against the expert, start geometry, student-vs-expert
+    divergence counts, last-step lidar, and a `failure` label (rules applied in this order: goal, collision,
+    never_turned, walked_past, spinning, else done_reason)."""
+    import numpy as np
+    import pandas as pd
+
+    expert_path = {}
+    for e in _episode_records(expert_episodes) if expert_episodes is not None else []:
+        if e["done_reason"] == "goal" and e["path_length"] > 0:
+            expert_path[(e["scene_id"], e["seed"])] = float(e["path_length"])
+    lidar_cols = ["lr_{}".format(i) for i in range(LIDAR_RAYS)]
+    has_lidar = all(c in rows.columns for c in lidar_cols)
+    has_student = "student_stride" in rows.columns
+    groups = {k: g.sort_values("step") for k, g in rows.groupby("episode")}
+    out = []
+    for e in _episode_records(episodes):
+        g = groups.get(e["episode"])
+        if g is None or len(g) == 0:
+            continue
+        last = g.iloc[-1]
+        start_dist = e.get("start_dist")
+        if _nan(start_dist):
+            start_dist = math.hypot(e["goal_x"] - e["start_x"], e["goal_y"] - e["start_y"])
+        start_dist, final_dist = float(start_dist), float(e["final_dist"])
+        path = float(e["path_length"])
+        outcome = e["done_reason"]
+        bearings = np.degrees(np.abs(np.arctan2(g["goal_sin"].to_numpy(float), g["goal_cos"].to_numpy(float))))
+        start_bearing = float(bearings[0])
+        min_goal = float(g["goal_dist"].min())
+        first_div, stop_ignored, wrong_stop = float("nan"), 0, 0
+        if has_student:
+            has = g["student_stride"].notna().to_numpy()
+            s_stop = g["student_stride"].to_numpy(float) < STOP
+            x_stop = g["expert_stride"].to_numpy(float) < STOP
+            differ = has & (s_stop != x_stop)
+            if differ.any():
+                first_div = float(g["step"].to_numpy()[int(np.argmax(differ))])
+            stop_ignored = int((has & x_stop & ~s_stop).sum())
+            wrong_stop = int((has & s_stop & ~x_stop).sum())
+        lidar_min = lidar_bearing = float("nan")
+        if has_lidar:
+            r = last[lidar_cols].to_numpy(float)
+            if not np.isnan(r).all():
+                i = int(np.nanargmin(r))
+                lidar_min = float(r[i])
+                lidar_bearing = float(i * 10 if i * 10 <= 180 else i * 10 - 360)
+        near_wall = False
+        if outcome == "collision":
+            near_wall = bool(WALL - max(abs(float(last["x"])), abs(float(last["y"]))) <= NEAR_WALL)
+        goal = outcome == "goal"
+        if goal:
+            failure = "goal"
+        elif outcome == "collision":
+            if _nan(lidar_bearing):
+                failure = "collision"
+            else:
+                failure = "collision_front" if abs(lidar_bearing) <= 60 else "collision_side"
+        elif float(bearings.min()) >= 45:
+            failure = "never_turned"
+        elif min_goal < 0.6 and final_dist > min_goal + 0.5:
+            failure = "walked_past"
+        elif path < 1.0 and len(g) >= 40:
+            failure = "spinning"
+        else:
+            failure = outcome
+        ref = expert_path.get((e["scene_id"], e["seed"]))
+        out.append({
+            "episode": e["episode"], "scene_id": e["scene_id"], "seed": e["seed"], "outcome": outcome,
+            "goal": goal, "steps": int(e.get("steps", len(g))), "start_dist": start_dist, "final_dist": final_dist,
+            "progress": (start_dist - final_dist) / start_dist if start_dist > 0 else float("nan"),
+            "path_length": path, "path_ratio": path / ref if ref else float("nan"),
+            "start_bearing_deg": start_bearing, "start_side": _start_side(start_bearing),
+            "dist_bin": _dist_bin(start_dist), "first_divergence": first_div, "stop_ignored": stop_ignored,
+            "wrong_stop": wrong_stop, "min_goal_dist": min_goal, "last_lidar_min": lidar_min,
+            "last_lidar_bearing_deg": lidar_bearing,
+            "last_free_ahead": float(last["free_ahead"]) if "free_ahead" in g.columns else float("nan"),
+            "failure": failure, "near_wall": near_wall})
+    return pd.DataFrame(out)
+
+
+def _rate(k, n):
+    low, high = wilson(k, n)
+    return {"count": int(k), "rate": round(k / n, 4) if n else None, "ci_low": round(low, 4),
+            "ci_high": round(high, 4)}
+
+
+def summarize(table):
+    """Rates with Wilson 95% intervals, progress, failure counts, goal rate by start side and distance bin,
+    stop_ignored / wrong_stop totals, and the share of collisions that are collision_side."""
+    n = len(table)
+    out = {"n": n}
+    for name in ["goal", "collision", "timeout", "stuck", "fell"]:
+        out[name] = _rate(int((table["outcome"] == name).sum()), n)
+    out["mean_progress"] = round(float(table["progress"].mean()), 4) if n else None
+    out["median_progress"] = round(float(table["progress"].median()), 4) if n else None
+    goal_steps = table.loc[table["goal"], "steps"]
+    out["mean_steps_goal"] = round(float(goal_steps.mean()), 2) if len(goal_steps) else None
+    out["failures"] = {str(k): int(v) for k, v in table["failure"].value_counts().items()}
+    for key, col, order in [("by_start_side", "start_side", START_SIDES), ("by_dist_bin", "dist_bin", DIST_BINS)]:
+        out[key] = {}
+        for label in order:
+            sub = table[table[col] == label]
+            out[key][label] = {"n": int(len(sub)),
+                               "goal_rate": round(float(sub["goal"].mean()), 4) if len(sub) else None}
+    out["stop_ignored"] = int(table["stop_ignored"].sum())
+    out["wrong_stop"] = int(table["wrong_stop"].sum())
+    coll = table[table["outcome"] == "collision"]
+    out["collision_side_share"] = (round(float((coll["failure"] == "collision_side").mean()), 4)
+                                   if len(coll) else None)
+    return out
+
+
+def compare(table_a, table_b):
+    """Paired comparison on the (scene_id, seed) pairs present in both tables."""
+    import numpy as np
+    a = table_a.drop_duplicates(["scene_id", "seed"]).set_index(["scene_id", "seed"])
+    b = table_b.drop_duplicates(["scene_id", "seed"]).set_index(["scene_id", "seed"])
+    keys = a.index.intersection(b.index)
+    a, b = a.loc[keys], b.loc[keys]
+    wins = int((a["goal"] & ~b["goal"]).sum())
+    losses = int((~a["goal"] & b["goal"]).sum())
+    diff = (a["progress"] - b["progress"]).to_numpy(float)
+    diff = diff[~np.isnan(diff)]
+    return {"pairs": int(len(keys)), "wins": wins, "losses": losses, "ties": int(len(keys)) - wins - losses,
+            "sign_p": sign_test(wins, losses),
+            "mean_progress_diff": float(diff.mean()) if len(diff) else None,
+            "wilcoxon_p": wilcoxon_p(diff),
+            "collisions_a": int((a["outcome"] == "collision").sum()),
+            "collisions_b": int((b["outcome"] == "collision").sum())}
+
+
+def _mae_pair(df, pred_stride, pred_turn):
+    if len(df) == 0:
+        return {"n": 0, "mae_stride": None, "mae_turn": None}
+    return {"n": int(len(df)), "mae_stride": float((df[pred_stride] - df["y_stride"]).abs().mean()),
+            "mae_turn": float((df[pred_turn] - df["y_turn"]).abs().mean())}
+
+
+def offline_report(df, pred_stride="pred_stride", pred_turn="pred_turn"):
+    """Offline errors against the expert's labels: MAE overall, by free_ahead bin and expert mode; stop recall and
+    precision (predicted stop = stride < 0.02); and the hard turns (abs expert turn >= 0.2): predicted vs expert
+    turn size and sign agreement. Plain floats and ints."""
+    out = {"n": int(len(df)), "all": _mae_pair(df, pred_stride, pred_turn), "by_free_ahead": {}, "by_mode": {}}
+    for label, low, high in FREE_BINS:
+        out["by_free_ahead"][label] = _mae_pair(df[_bin_mask(df, low, high)], pred_stride, pred_turn)
+    expert_stop = df["y_stride"] < STOP
+    out["by_mode"]["walk"] = _mae_pair(df[~expert_stop], pred_stride, pred_turn)
+    out["by_mode"]["stop"] = _mae_pair(df[expert_stop], pred_stride, pred_turn)
+    pred_stop = df[pred_stride] < STOP
+    hit = int((expert_stop & pred_stop).sum())
+    n_exp, n_pred = int(expert_stop.sum()), int(pred_stop.sum())
+    out["stop"] = {"expert_stops": n_exp, "predicted_stops": n_pred, "hits": hit,
+                   "recall": hit / n_exp if n_exp else None, "precision": hit / n_pred if n_pred else None}
+    hard = df[df["y_turn"].abs() >= HARD_TURN]
+    if len(hard):
+        pred_abs, exp_abs = float(hard[pred_turn].abs().mean()), float(hard["y_turn"].abs().mean())
+        same = float(((hard[pred_turn] > 0) == (hard["y_turn"] > 0)).mean())
+        out["hard_turns"] = {"n": int(len(hard)), "mean_abs_pred_turn": pred_abs, "mean_abs_expert_turn": exp_abs,
+                             "ratio": pred_abs / exp_abs, "same_sign_share": same}
+    else:
+        out["hard_turns"] = {"n": 0, "mean_abs_pred_turn": None, "mean_abs_expert_turn": None, "ratio": None,
+                             "same_sign_share": None}
+    return out
+
+
+def rank_agreement(offline_scores, closed_scores):
+    """Spearman rho between offline and closed-loop scores of the same variants (higher = better in both; negate
+    an error before passing it), over the shared keys, and each score's two top-ranked keys."""
+    keys = sorted(offline_scores.keys() & closed_scores.keys())
+    rho = spearman([offline_scores[k] for k in keys], [closed_scores[k] for k in keys])
+
+    def top(scores):
+        return sorted(keys, key=lambda k: -scores[k])[:2]
+    return {"n": len(keys), "spearman": rho, "top2_offline": top(offline_scores), "top2_closed": top(closed_scores)}
 
 
 def outcomes_by_key(episodes):
