@@ -1,0 +1,9 @@
+id: v10-band
+hypothesis: what the horizon looks like (DINOv2 PCA per sector) plus its depth beats depth alone
+parent: v09-scan
+change: band depth (class-free) and 4 DINOv2 PCA components per sector, instead of the class-based scan
+kill_criterion: not better than v09-scan on goal rate on screen-100
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15}
+context: {sources: [round0], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert]

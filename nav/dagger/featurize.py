@@ -107,6 +107,20 @@ def obstacle_summary(classes, depths, cap=10.0):
 
 # ---- derived feature variants: computed from the stored BASE rows, at fit time and at drive time ----------------
 
+BAND_ROWS = (11, 15)  # patch rows of the horizon band (the camera looks level from 15 cm above the floor)
+META_BASE = ["x", "y", "yaw", "episode", "step"]  # base columns that are bookkeeping, never features
+
+
+def lidar_columns(rays=36):
+    return ["lr_{}".format(i) for i in range(rays)]
+
+
+def stored_columns(rays=36):
+    """Feature-bearing columns stored with every v2 row: full-resolution grids, goal, summary-3, lidar."""
+    pc, pd_ = base_columns()
+    return pc + pd_ + GOAL + SUMMARY + lidar_columns(rays)
+
+
 DEFAULT_VARIANT = {"pool": 1, "pool_rule": "majority", "summary": "3", "history": 0, "patches": True,
                    "categorical": True, "cap": 10.0}
 SECTORS = 7
@@ -332,6 +346,7 @@ class Featurizer:
         self.columns, self.categorical = columns(patch_pool, use_prev_command)
         self.timer = timer or Timer()
         self.probe = self.dino = None
+        self.last_band = None  # set by patch_classes() with probe perception
         if perception == "probe":
             from probe import load_probe  # vision/probe.py
             self.probe = load_probe(probe_path)
@@ -369,6 +384,8 @@ class Featurizer:
         from probe import predict_probs
         with self.timer("perception"):
             feats = extract(self.dino, np.stack([o["rgb"] for o in observations]))
+            # Horizon band: mean over patch rows BAND_ROWS for each of the 46 patch columns, (n, 46, 384) float16
+            self.last_band = feats[:, BAND_ROWS[0]:BAND_ROWS[1]].mean(axis=1).astype(np.float16)
             return predict_probs(self.probe, feats).argmax(-1).astype(np.int8)
 
     def build_batch(self, observations, prev_states):
@@ -411,10 +428,169 @@ class Featurizer:
                 step = 0 if prev_states[k] is None else int(prev_states[k]["step"].iloc[-1]) + 1
                 extra.append({"goal_dist": dist, "goal_sin": math.sin(bearing), "goal_cos": math.cos(bearing),
                               "x": x, "y": y, "yaw": yaw, "episode": k, "step": step})
-            return pd.concat([frame, pd.DataFrame(extra)], axis=1)
+            summ = _summary3(classes, depths, self.cap)
+            parts = [frame, pd.DataFrame(extra), pd.DataFrame({k: np.asarray(v, np.float32) for k, v in summ.items()})]
+            if observations and observations[0].get("lidar") is not None:
+                lidar = np.stack([o["lidar"] for o in observations]).astype(np.float32)
+                parts.append(pd.DataFrame(lidar, columns=lidar_columns(lidar.shape[1])))
+            return pd.concat(parts, axis=1)
 
 
 def build_features(obs, prev_state, perception):
     """The spec's single-observation interface: (feature dict, new prev state)."""
     matrix, states = perception.build_batch([obs], [prev_state])
     return dict(zip(perception.columns, matrix[0].tolist())), states[0]
+
+
+# ---- v2 feature pipeline: one object turns stored base rows into a student's inputs, at fit and at drive time ----
+
+DEFAULT_FEATURES = {
+    "patches": True, "pool": 1, "pool_rule": "majority", "summary": "3", "history": 0, "categorical": True,
+    "cap": 10.0, "drop_constant": None,
+    "scan": 0,            # k > 0: nearest wall/obstacle depth (probe classes) in k sectors of the horizon band
+    "band_depth": 0,      # k > 0: nearest depth of anything in k sectors of the horizon band (no classes)
+    "band_pca": 0,        # k > 0: first k PCA components of the DINOv2 features of every band sector
+    "band_sectors": 15,   # sectors for band_pca
+    "lidar": False,       # the 360 degree lidar ranges lr_*
+    "lookahead": False,   # PRIVILEGED: the expert's look-ahead bearing (sin, cos); ceiling experiments only
+}
+
+
+def _sector_min(values, sectors):
+    """(n, rows, cols) -> (n, sectors): minimum over rows and over the columns of each sector."""
+    edges = sector_edges(values.shape[2], sectors)
+    col_min = values.min(axis=1)
+    return np.stack([col_min[:, edges[s]:edges[s + 1]].min(axis=1) for s in range(sectors)], axis=1)
+
+
+def band_sector_means(band, sectors):
+    """(n, 46, d) horizon-band features -> (n, sectors, d) means per sector."""
+    edges = sector_edges(band.shape[1], sectors)
+    return np.stack([band[:, edges[s]:edges[s + 1]].astype(np.float32).mean(axis=1) for s in range(sectors)], axis=1)
+
+
+class Features:
+    """Stored base rows (+ the band side array) -> the student's input matrix.
+
+    `fit_transform` (context rows only) fixes everything that is learnt from data: the PCA of the band features and
+    the constant-column mask. `transform` (tables of many episodes) and `live` (one row per robot while driving)
+    then apply exactly that, so the columns at fit time and at drive time are the same by construction; `check`
+    raises if they are not. No TabPFN weights are involved: these are transforms of the inputs.
+    """
+
+    def __init__(self, cfg=None):
+        unknown = set(cfg or {}) - set(DEFAULT_FEATURES)
+        if unknown:
+            raise ValueError("unknown feature keys: {}".format(sorted(unknown)))
+        self.cfg = dict(DEFAULT_FEATURES)
+        self.cfg.update(cfg or {})
+        if str(self.cfg["summary"]) not in ("3", "7", "none"):
+            raise ValueError("summary must be '3', '7' or 'none'")
+        self.columns = self.categorical = None
+        self.keep = None  # column mask from drop_constant
+        self.pca = None  # (mean, scale, components) of the band features
+        self.needs_band = bool(self.cfg["band_pca"])
+
+    # -- pieces --
+    def _variant(self):
+        c = self.cfg
+        return {"pool": c["pool"], "pool_rule": c["pool_rule"], "summary": "3" if str(c["summary"]) == "none" else c["summary"],
+                "history": c["history"], "patches": c["patches"], "categorical": c["categorical"], "cap": c["cap"]}
+
+    def _extras(self, base, band):
+        """Blocks that depend only on the current row: (matrix, names)."""
+        c, n = self.cfg, len(base)
+        names, parts = [], []
+        if c["scan"] or c["band_depth"]:
+            pc_names, pd_names = base_columns()
+            classes = base[pc_names].to_numpy().reshape(n, ROWS, COLS)[:, BAND_ROWS[0]:BAND_ROWS[1]]
+            depths = np.minimum(base[pd_names].to_numpy(np.float32).reshape(n, ROWS, COLS)[:, BAND_ROWS[0]:BAND_ROWS[1]],
+                                c["cap"])
+            if c["scan"]:
+                parts.append(_sector_min(_solid_depth(classes, depths, c["cap"]), int(c["scan"])))
+                names += ["scan_{}".format(i) for i in range(int(c["scan"]))]
+            if c["band_depth"]:
+                parts.append(_sector_min(depths, int(c["band_depth"])))
+                names += ["bd_{}".format(i) for i in range(int(c["band_depth"]))]
+        if c["lidar"]:
+            cols = [k for k in base.columns if k.startswith("lr_")]
+            if not cols:
+                raise ValueError("lidar features asked for, but the rows have no lr_ columns")
+            parts.append(np.minimum(base[cols].to_numpy(np.float32), c["cap"]))
+            names += cols
+        if c["band_pca"]:
+            if band is None:
+                raise ValueError("band_pca features need the horizon-band side array")
+            k, sectors = int(c["band_pca"]), int(c["band_sectors"])
+            means = band_sector_means(np.asarray(band), sectors)  # (n, S, d)
+            flat = means.reshape(-1, means.shape[-1])
+            if self.pca is None:
+                mean = flat.mean(axis=0)
+                scale = flat.std(axis=0)
+                scale = np.where(scale > 1e-6, scale, 1.0)
+                z = (flat - mean) / scale
+                # principal directions from the covariance (d x d): cheap and exact for d = 384
+                cov = (z.T @ z) / max(len(z) - 1, 1)
+                values, vectors = np.linalg.eigh(cov.astype(np.float64))
+                order = np.argsort(values)[::-1][:k]
+                self.pca = (mean.astype(np.float32), scale.astype(np.float32), vectors[:, order].astype(np.float32),
+                            (values[order] / values.sum()).tolist())
+            mean, scale, comps = self.pca[:3]
+            parts.append((((flat - mean) / scale) @ comps).reshape(n, sectors * k))
+            names += ["bp_{}_{}".format(s, j) for s in range(sectors) for j in range(k)]
+        if c["lookahead"]:
+            look = base["look_bearing"].to_numpy(np.float32)
+            parts.append(np.stack([np.sin(look), np.cos(look)], axis=1))
+            names += ["look_sin", "look_cos"]
+        if not parts:
+            return np.zeros((n, 0), np.float32), []
+        return np.concatenate(parts, axis=1).astype(np.float32), names
+
+    def _assemble(self, derived, names, categorical, extras, extra_names, fit):
+        if str(self.cfg["summary"]) == "none":
+            drop = set(SUMMARY) | {"near_dist", "near_bearing"}
+            keep = [i for i, name in enumerate(names) if name not in drop]
+            derived, names = derived[:, keep], [names[i] for i in keep]
+        matrix = np.concatenate([derived, extras], axis=1).astype(np.float32)
+        names = list(names) + list(extra_names)
+        if fit:
+            threshold = self.cfg["drop_constant"]
+            self.keep = (drop_constant(matrix, names, threshold) if threshold else np.ones(len(names), bool))
+            for i, name in enumerate(names):  # the goal columns are never dropped
+                if name in GOAL:
+                    self.keep[i] = True
+            self.columns = [name for name, k in zip(names, self.keep) if k]
+            self.categorical = [name for name in categorical if name in set(self.columns)]
+            self._all = names
+        elif names != self._all:
+            raise ValueError("feature columns differ from fit time: {} vs {}".format(len(names), len(self._all)))
+        return matrix[:, self.keep]
+
+    # -- public --
+    def fit_transform(self, base, band=None):
+        derived, names, categorical = derive(base, self._variant())
+        self.pca = None
+        extras, extra_names = self._extras(base, band)
+        return self._assemble(derived, names, categorical, extras, extra_names, fit=True)
+
+    def transform(self, base, band=None):
+        self.check_fitted()
+        derived, names, categorical = derive(base, self._variant())
+        extras, extra_names = self._extras(base, band)
+        return self._assemble(derived, names, categorical, extras, extra_names, fit=False)
+
+    def live(self, base, band, prev_states):
+        """Drive time: `base` from Featurizer.base_rows (one row per robot). Returns (matrix, new prev states)."""
+        self.check_fitted()
+        derived, names, categorical, new_prev = derive_live(base, prev_states, self._variant())
+        extras, extra_names = self._extras(base, band)
+        return self._assemble(derived, names, categorical, extras, extra_names, fit=False), new_prev
+
+    def check_fitted(self):
+        if self.columns is None:
+            raise RuntimeError("Features.fit_transform has not been called")
+
+    def describe(self):
+        return {"columns": len(self.columns or []), "categorical": len(self.categorical or []),
+                "dropped": int((~self.keep).sum()) if self.keep is not None else 0,
+                "pca_variance": [round(v, 4) for v in self.pca[3]] if self.pca else None, "config": self.cfg}

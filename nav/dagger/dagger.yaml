@@ -25,6 +25,11 @@ env:
   target_wall: 0.45       # metres between the target pillar and any wall
   simple: null         # null: mesh model when sim/meshes exists, else simple shapes
 
+lidar:                 # simulated 360 degree lidar (JetHexaSim.lidar); figures are assumptions, not a datasheet
+  rays: 36             # 10 degree steps, ray 0 straight ahead, counting to the left
+  min_range: 0.15
+  max_range: 8.0
+
 expert:
   cell: 0.05           # metres per planning grid cell
   inflate: 0.32        # metres kept between the robot's centre and any wall or obstacle

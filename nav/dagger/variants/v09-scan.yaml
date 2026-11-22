@@ -1,0 +1,9 @@
+id: v09-scan
+hypothesis: a lidar-like scan of the camera's horizon (15 sectors) is enough input and generalizes better than the grid
+parent: v02-summary
+change: 15-sector horizon scan instead of the 5 summary columns
+kill_criterion: not better than v02-summary on collisions and goal rate on screen-100
+student: {kind: tabpfn}
+features: {patches: false, summary: none, scan: 15}
+context: {sources: [round0], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert]

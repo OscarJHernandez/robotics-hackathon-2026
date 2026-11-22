@@ -222,11 +222,13 @@ def choose_context(table, max_rows=None, seed=0, bins=6, quotas="turn_stride"):
     "mode_x_free": rows the student drove (used_expert False) are always kept; the rest get an equal quota per
     non-empty group of mode (walk / stop-left / stop-right) x free-ahead bin (<0.5, 0.5-1, >1 m); the remainder
     is filled at random."""
-    if quotas not in ("turn_stride", "mode_x_free"):
+    if quotas not in ("turn_stride", "mode_x_free", "uniform"):
         raise ValueError(f"unknown quotas {quotas!r}")
     if not max_rows or len(table) <= max_rows:
         return table
     rng = np.random.default_rng(seed)
+    if quotas == "uniform":  # a plain random sample
+        return table.iloc[np.sort(rng.choice(len(table), max_rows, replace=False))]
     if quotas == "mode_x_free":
         if "used_expert" in table.columns:
             student = (~table["used_expert"].astype(bool)).to_numpy()
@@ -287,9 +289,41 @@ class KNNPolicy:
         return np.stack([np.clip(pred[:, 0], *STRIDE_RANGE), np.clip(pred[:, 1], *TURN_RANGE)], axis=1)
 
 
+class RulePolicy:
+    """No model: stop and turn on the spot when the goal is more than `threshold` rad off, else walk toward it
+    (the hand-written controller the expert uses, aimed at the goal itself). Shows how far heading alone goes."""
+    name = "rule"
+
+    def __init__(self, columns, threshold=0.8, gain=0.6):
+        self.columns = list(columns)
+        self.threshold, self.gain = threshold, gain
+        self._idx = [self.columns.index(c) for c in ("goal_dist", "goal_sin", "goal_cos")]
+        self.fit_seconds = 0.0
+        self.context_rows = 0
+
+    def fit(self, context):
+        self.context_rows = len(context)
+        return 0.0
+
+    def act_batch(self, rows):
+        X = _matrix(rows, self.columns)
+        dist, bearing = X[:, self._idx[0]], np.arctan2(X[:, self._idx[1]], X[:, self._idx[2]])
+        turn = np.clip(self.gain * bearing, *TURN_RANGE)
+        stride = STRIDE_RANGE[1] * np.maximum(0.0, np.cos(bearing)) ** 2 * np.clip(dist / 0.5, 0.4, 1.0)
+        stop = np.abs(bearing) > self.threshold
+        stride = np.where(stop, 0.0, stride)
+        turn = np.where(stop, np.sign(bearing) * TURN_MAGNITUDE, turn)
+        return np.stack([np.clip(stride, *STRIDE_RANGE), turn], axis=1)
+
+
+STUDENT_KINDS = ("tabpfn", "gated", "knn", "rule")
+
+
 def make_student(student_cfg, columns, categorical, seed=0):
-    """Build the student from config: kind tabpfn | gated | knn, optional shield {free_ahead_min}."""
+    """Build the student from config: kind tabpfn | gated | knn | rule, optional shield {free_ahead_min}."""
     kind = student_cfg.get("kind", "tabpfn")
+    if kind == "rule":
+        return RulePolicy(columns, student_cfg.get("threshold", 0.8), student_cfg.get("gain", 0.6))
     if kind == "tabpfn":
         policy = TabPFNPolicy.from_config(student_cfg, columns, categorical, seed)
     elif kind == "gated":
