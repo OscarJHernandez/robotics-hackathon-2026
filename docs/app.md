@@ -109,6 +109,30 @@ Find Margarete, the dice, and **Details**, which opens the whole panel (time, be
 full-screen sheet. It replaces the old Knock card while the server runs the apartment scene; the Knock check-in
 (`app/knock.py`, with its own zones and the call-out) is still what `--scene floor` shows.
 
+### metacon narrates the search
+
+While the search runs, metacon says what is happening in one short line at each step (`app/narrate.py`): the three
+most likely zones at the start, where it goes first, "Not in the kitchen. The bedroom is now most likely at 35%, so
+I'm heading there.", and the end (found, nobody home, gave up, stopped, interrupted). The search only hands over the
+facts (`Apartment(on_event=...)`); one worker thread writes the lines, so the search never waits for metacon or the
+voice.
+
+- **The words.** Each line starts as a template built from the search's own numbers. metacon (`llm.complete`, the
+  same gateway and model as the chat, 6 s at most) rewords it; the reply is used only if it is at most 30 words,
+  names exactly the same zones, has no number the template lacks and keeps the outcome (found or not). Otherwise,
+  on any error, or when the 2 chat slots are taken (it does not wait), the template is used. `source` in the event
+  says which (`"metacon"` only when the wording really changed).
+- **Where it shows.** Every page gets the line on `/api/live` (`{"type": "narration", "id", "kind", "text",
+  "source"}`): in the terminal and the phone chat as a metacon line tagged "search", in the Apartment log tagged
+  metacon, and for 9 s in the header (above the chat bar while the Apartment panel is open; on the phone's
+  apartment card). A page that opens within 2 minutes gets the latest line first.
+- **The voice.** On a second thread, if the voice service is up and nobody is on a voice call, the line is spoken
+  (3 s wait for the service at most) and published again with `"audio": "/api/narration/audio/<id>.mp3"` (the
+  last 6 are kept). Phones with the speaker on play it once, one line after another, never over a call's reply;
+  the Find and dice buttons unlock sound on the tap (iPhone needs that). If speech falls behind, the oldest waiting
+  line that is not an ending is skipped; text is never held back by speech.
+- **Off:** `--no-narration`. Without a metacon key the lines are the templates; without the voice service, text only.
+
 ## The "How it works" page
 
 A long-form page that explains the flow of Find Margarete and the three TabPFN models (where is she, walking
@@ -236,6 +260,7 @@ minute, and runs at most 2 chats at once. The server must have the voice setting
 ## Settings
 
 `METACON_URL` (default `http://metacon:4000/v1`), `METACON_MODEL` (default `qwen3:8b`), `METACON_LLM_KEY`.
+Server flags: `--no-narration` turns off metacon's lines about the search (see "metacon narrates the search").
 
 ## Front-end development
 

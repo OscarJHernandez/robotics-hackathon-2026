@@ -53,10 +53,16 @@ The apartment (app/apartment.py): the flat's zones and obstacles, the journal, t
     POST /api/apartment/clear           {}  ready for another run: no search, Margarete out, the robot on its dock
     POST /api/apartment/reset           {"seed": 3?}  a new random flat and resident
 
+metacon narrates the search (app/narrate.py): each step is one short line on /api/live,
+    {"type": "narration", "id", "kind", "text", "source": "metacon" | "template"}, then the same id again with
+    "audio" once it is spoken; a page that opens shortly after a line gets it first (text only).
+    GET  /api/narration/audio/<id>.mp3  that line in the robot's voice
+
     --scene apartment (default): the robot lives in the furnished flat and the search walks it from zone to zone.
     --scene floor: the robot alone on its floor, as before; the search then moves a marker on the plan only.
     --driver tabpfn (default) | planner | rule: who walks each leg in the apartment (app/robot.py).
     --belief tabpfn (default) | counting: who says where she probably is (homes/tabpfn_belief.py, homes/search.py).
+    --no-narration: no narration lines (the search runs the same, the log keeps its own lines).
 """
 
 import argparse
@@ -77,6 +83,7 @@ import voice  # noqa: E402
 from call import Hub, Line  # noqa: E402
 from apartment import Apartment  # noqa: E402
 from knock import Knock  # noqa: E402
+from narrate import Narrator  # noqa: E402
 from robot import HELP, VIEWS, LiveRobot  # noqa: E402
 
 WEB = Path(__file__).resolve().parent / "web" / "dist"
@@ -95,6 +102,7 @@ HUB = Hub()
 LINE = Line(HUB)
 KNOCK = None  # Knock, made in main() once the robot runs
 APARTMENT = None  # Apartment, made in main()
+NARRATOR = None  # Narrator, made in main() unless --no-narration
 SCENE = "floor"
 HITS = defaultdict(deque)
 HITS_LOCK = threading.Lock()
@@ -203,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self.send_json(200, {"ok": True, "model": llm.MODEL, "llm": bool(KEY), "commands": HELP,
                                  "views": list(VIEWS), "voice": voice.available(), "scene": SCENE,
-                                 "apartment": APARTMENT is not None})
+                                 "apartment": APARTMENT is not None, "narration": NARRATOR is not None})
         elif path == "/api/apartment/inputs.json" and APARTMENT is not None:
             self.send_json(200, APARTMENT.inputs())
         elif path == "/api/apartment/journal.txt" and APARTMENT is not None:
@@ -235,8 +243,11 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path.startswith("/api/stream/") and path[12:] in VIEWS:
             self.stream(path[12:])
-        elif path.startswith("/api/knock/audio/") and path.endswith(".mp3"):
-            audio = KNOCK.audio(path[17:-4]) if KNOCK else None
+        elif path.startswith(("/api/knock/audio/", "/api/narration/audio/")) and path.endswith(".mp3"):
+            if path.startswith("/api/knock/"):
+                audio = KNOCK.audio(path[17:-4]) if KNOCK else None
+            else:
+                audio = NARRATOR.audio(path[21:-4]) if NARRATOR else None
             if audio is None:
                 self.send_json(404, {"error": "no such sound"})
                 return
@@ -410,8 +421,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.send_events_head()
             card = KNOCK.latest() if KNOCK else None  # the Knock card as it is now (before the replay's seq)
+            line = NARRATOR.latest() if NARRATOR else None  # metacon's latest line, if it is recent (text only)
             events, seq = HUB.current()  # a page that opens mid-call sees the call so far
-            events = [e for e in events if e["type"] != "knock"] + ([card] if card else [])
+            events = [e for e in events if e["type"] not in ("knock", "narration")] + ([card] if card else []) \
+                + ([line] if line else [])
             self.wfile.write(b"retry: 3000\n\n" + b"".join(sse(e) for e in events))
             self.wfile.flush()
             while True:
@@ -539,7 +552,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global ROBOT, KEY, KNOCK, APARTMENT, SCENE
+    global ROBOT, KEY, KNOCK, APARTMENT, SCENE, NARRATOR
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--host", default="127.0.0.1")
@@ -554,6 +567,8 @@ def main():
     parser.add_argument("--belief", default="tabpfn", choices=("tabpfn", "counting"),
                         help="who gives the belief the search starts from: TabPFN (fit() on synthetic check-ins; "
                              "3.5 with TABPFN_TOKEN or the repo's .env, else v2) or the counting Bayes model")
+    parser.add_argument("--no-narration", action="store_true",
+                        help="no metacon narration of the search (text and voice lines on every page)")
     args = parser.parse_args()
 
     KEY = llm.api_key()
@@ -578,7 +593,13 @@ def main():
                   flush=True)
         except Exception as error:
             print("[app] no TabPFN belief ({}), using the counting belief".format(error), flush=True)
-    APARTMENT = Apartment(seed=args.flat, robot=ROBOT if args.scene == "apartment" else None, model=model)
+    if not args.no_narration:
+        NARRATOR = Narrator(
+            HUB, complete=(lambda system, user: llm.complete(system, user, KEY, timeout=6.0)) if KEY else None,
+            speak=lambda text: voice.speak(text, wait=3.0), voice_up=voice.available, call_busy=LINE.busy, chats=CHATS,
+            on_line=lambda text, source: APARTMENT and APARTMENT.note(text, "metacon"))
+    APARTMENT = Apartment(seed=args.flat, robot=ROBOT if args.scene == "apartment" else None, model=model,
+                          on_event=NARRATOR.event if NARRATOR else None)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
     print("JetHexa app on http://{}:{} (model {}, front end {})".format(

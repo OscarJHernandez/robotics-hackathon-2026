@@ -23,6 +23,13 @@ export const SECTIONS: SectionInfo[] = [
   { id: "how-next", nav: "Limits and next" },
 ];
 
+/** Under the flow diagram: what the "metacon narrates" step does (app/narrate.py). */
+export const NARRATION =
+  "While it searches, metacon (the qwen3:8b chat model behind the app's terminal) says what is happening: where the robot goes, " +
+  "what it did not find there and where it goes next, and when it finds her. The line is built from the search's own " +
+  "numbers, and metacon only rewords it; if its wording names another room or changes a number, the plain line is " +
+  "used. It shows on every screen, and the phone says it aloud when its speaker is on.";
+
 /** "One example per task": the three uses of TabPFN side by side. */
 export const TASKS = [
   {

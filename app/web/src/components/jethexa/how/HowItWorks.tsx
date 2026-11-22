@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Maximize2, X } from "lucide-react";
 import {
-  AVOID_LIMITS, EXPERT_SCREEN, FINAL, FIRST_STUDENT, HARD, LADDER, MEDIA, NIGHT, SEARCH, SEARCH_FAILED, SEARCH_INPUTS,
+  AVOID_LIMITS, EXPERT_SCREEN, FINAL, FIRST_STUDENT, HARD, LADDER, MEDIA, NARRATION, NIGHT, SEARCH, SEARCH_FAILED, SEARCH_INPUTS,
   SECTIONS, TASKS, WALK, WALK_INPUTS, WALK_OUTPUTS, WALK_VARIANTS, ZONES_CHECKED,
 } from "@/content/howItWorks";
 import { HexMark } from "../Brand";
@@ -133,6 +133,7 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
           <Section id="how-flow" num="01" title="The flow of “Find Margarete”"
             lede="A loop: guess, walk, look, update. Two of the three models are in the loop today; the third is being tested to replace the walking part.">
             <FlowDiagram />
+            <p className="how-prose mt-5">{NARRATION}</p>
 
             <Block title="One example per task">
               <p className="how-prose mb-5">

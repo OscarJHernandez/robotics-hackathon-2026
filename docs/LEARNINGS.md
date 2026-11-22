@@ -43,6 +43,12 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): Asked to "say the same thing" in one sentence, qwen3:8b on metacon returns the draft
+  word for word; told "do not copy the draft" it rewords, but once said "I'm not in the bedroom" (the robot, not
+  Margarete) and once turned "found her" into "didn't find her". So `app/narrate.py` keeps a template and checks every
+  reply (same zones, no new numbers, same outcome, no "I'm not in"); test prompt changes against those cases.
+- 2026-11-22 (Oscar's agent): The search can look in the same zone twice (the look misses her 20% of the time), so a
+  line like "Not in the bedroom, the bedroom is now most likely" happens; `narrate.template` says "I'll look again".
 - 2026-11-22 (Oscar's agent): Safari on iPhone will not play a `<video>` from a server that ignores `Range`, and
   `app/server.py` used to send every file whole with 200. `static()` now answers single ranges with 206 (tests in
   `tests/test_server_static.py`); check with `curl -H "Range: bytes=0-1"` (206, 2 bytes) before adding a video.

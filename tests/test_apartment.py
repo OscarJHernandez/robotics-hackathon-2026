@@ -201,6 +201,27 @@ class ApartmentTest(unittest.TestCase):
         self.assertEqual((s["journal"][0]["zone"], s["journal"][0]["source"]), ("kitchen", "search"))
         self.assertAlmostEqual(s["belief"]["kitchen"], 1.0)
 
+    def test_on_event_gets_every_step_in_order(self):
+        events = []
+        a = make(on_event=lambda kind, facts: events.append((kind, facts)))
+        plan = a.state()["plan"]
+        a.start(plan[1], miss_rate=0.0)  # the second zone it looks at: one miss, then found
+        finish(a)
+        kinds = [k for k, _ in events]
+        self.assertEqual(kinds, ["start", "heading", "miss", "heading", "found"])
+        start, first, miss, second, found = (f for _, f in events)
+        self.assertEqual(len(start["top"]), 3)
+        self.assertEqual((first["zone"], first["look"]), (plan[0], 1))
+        self.assertEqual((miss["zone"], miss["next"]), (plan[0], plan[1]))
+        self.assertAlmostEqual(sum(miss["belief"].values()), 1.0, places=6)
+        self.assertEqual((second["zone"], second["look"]), (plan[1], 2))
+        self.assertEqual((found["zone"], found["looks"]), (plan[1], 2))
+
+        events.clear()
+        a.start("out")
+        finish(a)
+        self.assertIn(events[-1][0], ("nobody_home", "gave_up"))
+
     def test_random_puts_her_in_any_zone_at_one_of_its_spots(self):
         zones, spots = set(), set()
         for _ in range(120):  # enough runs that "every zone and both living-room spots turn up" cannot fail by chance

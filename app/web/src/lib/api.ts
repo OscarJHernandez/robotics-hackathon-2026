@@ -5,7 +5,7 @@ export type View = "chase" | "orbit" | "overhead" | "eye";
 export const VIEWS: View[] = ["chase", "orbit", "overhead", "eye"];
 export interface Health {
   ok: boolean; model: string; llm: boolean; commands: string; views?: View[]; voice?: boolean;
-  scene?: "apartment" | "floor"; apartment?: boolean;
+  scene?: "apartment" | "floor"; apartment?: boolean; narration?: boolean;
 }
 export interface RobotState {
   mode: Mode; x: number; y: number; height: number; yaw_deg: number;
@@ -191,6 +191,12 @@ export const knockFind = () => knockPost("find");
 export const knockStop = () => knockPost("stop");
 export const knockChoice = (choice: KnockChoice) => knockPost("choice", { choice });
 export const knockAudioUrl = (path: string) => `${API}${path}`;
+
+/** metacon's line about the search (app/narrate.py), on /api/live: first the text, then the same id with `audio`. */
+export interface NarrationEvent {
+  type: "narration"; id: string; kind: string; text: string; source: "metacon" | "template"; audio?: string; seq: number;
+}
+export const narrationAudioUrl = (path: string) => `${API}${path}`;
 
 // ---- The apartment: zones, obstacles, journal, belief and the search loop (app/apartment.py) ----
 

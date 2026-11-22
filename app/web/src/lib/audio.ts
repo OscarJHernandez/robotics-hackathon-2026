@@ -53,6 +53,9 @@ export function playAudio(blob: Blob): Promise<void> {
   });
 }
 
+/** True while something plays through playAudio (a call reply or a narration line). */
+export const isPlaying = () => current !== null;
+
 export function stopAudio() {
   if (!current) return;
   const c = current;

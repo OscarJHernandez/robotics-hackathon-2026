@@ -121,13 +121,14 @@ def transcribe(audio, content_type, wait=True):
     return str(answer.get("text") or "").strip()
 
 
-def speak(text):
-    """MP3 of the robot's voice saying text (cut to MAX_SPEAK characters)."""
+def speak(text, wait=30.0):
+    """MP3 of the robot's voice saying text (cut to MAX_SPEAK characters). Waits up to `wait` seconds for the
+    service to be free (TimeoutError after that)."""
     payload = {"input": text.strip()[:MAX_SPEAK], "response_format": "mp3"}
     voice = voice_id()
     if voice:
         payload["voice"] = voice
-    if not LOCK.acquire(timeout=30):
+    if not LOCK.acquire(timeout=wait):
         raise TimeoutError("voice service is busy")
     try:
         return _request("/v1/audio/speech", json.dumps(payload).encode(), {"Content-Type": "application/json"},

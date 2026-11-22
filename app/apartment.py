@@ -199,8 +199,9 @@ def parse_time(text):
 
 class Apartment:
     def __init__(self, seed=0, name="Margarete", now=datetime.datetime.now, sleep=time.sleep, walk=WALK, look=LOOK,
-                 robot=None, model=None):
+                 robot=None, model=None, on_event=None):
         self._now, self._sleep, self._walk, self._look = now, sleep, walk, look
+        self._on_event = on_event  # called with (kind, facts) as the search goes (app/narrate.py); must not block
         self._robot = robot  # LiveRobot in the apartment scene, or None: a marker walks instead
         self._model = model  # tabpfn_belief.TabPFNBelief, or None: the counting belief
         self._predicted = (None, None)  # the last TabPFN belief and what it was for
@@ -504,6 +505,7 @@ class Apartment:
             top = sorted(((p, z) for z, p in start.items()), reverse=True)[:3]
             self._say("Belief ({}): {}".format(self.model_info()["label"], ", ".join(
                 "{} {:.0f}%".format(NAMES[z], 100 * p) for p, z in top)), "belief")
+            self._emit("start", name=self.name, top=[[z, float(p)] for p, z in top])
             self._thread = threading.Thread(target=self._loop, args=(truth, miss), daemon=True)
             self._thread.start()
             return True
@@ -564,6 +566,7 @@ class Apartment:
                     self.run.update(status="walking", goal=goal["zone"])
                     self._say("Proposal {}: {} ({:.0f}%), the most likely zone".format(
                         len(search.steps) + 1, NAMES[goal["zone"]], 100 * goal["p"]), "proposal")
+                    self._emit("heading", zone=goal["zone"], p=float(goal["p"]), look=len(search.steps) + 1)
                     start = (self.robot["x"], self.robot["y"])
                 self._move(start, (goal["x"], goal["y"]), goal["heading_deg"])
                 with self._lock:
@@ -584,6 +587,10 @@ class Apartment:
                         self._say("Update: {} {:.0f}% -> {:.0f}%, {} {:.0f}% -> {:.0f}%".format(
                             NAMES[goal["zone"]], 100 * before[goal["zone"]], 100 * step["belief_after"][goal["zone"]],
                             NAMES[rise], 100 * before[rise], 100 * step["belief_after"][rise]), "update")
+                        upcoming = search.goal()  # the zone the next proposal picks (None when the search ends)
+                        self._emit("miss", zone=goal["zone"], belief={z: float(p) for z, p in step["belief_after"].items()},
+                                   next=upcoming["zone"] if upcoming else None,
+                                   next_p=float(upcoming["p"]) if upcoming else None)
             with self._lock:
                 self.run.update(status=search.status, goal=None)
                 looks = len(search.steps)
@@ -591,23 +598,29 @@ class Apartment:
                 if search.status == "found":
                     zone = search.steps[-1]["zone"]
                     self._say("Found {} in the {} {}".format(self.name, NAMES[zone].lower(), tail), "found")
+                    self._emit("found", name=self.name, zone=zone, looks=looks, metres=float(self.run["walked"]))
                     day, _, minute = self.when()
                     self._add(day, minute, zone, "search")
                     self._say("Journal: {} {} (seen by the robot)".format(hhmm(minute), NAMES[zone]), "journal")
                 elif search.status == "nobody_home":
                     self._say("Nobody home ({:.0f}% sure) {}".format(100 * search.belief.get("out", 0.0), tail), "out")
+                    self._emit("nobody_home", name=self.name, looks=looks, metres=float(self.run["walked"]),
+                               p_out=float(search.belief.get("out", 0.0)))
                 else:
                     self._say("Gave up {}".format(tail), "out")
+                    self._emit("gave_up", name=self.name, looks=looks, metres=float(self.run["walked"]))
         except _Stopped:
             if self._robot is not None:
                 self._command("stop")
             with self._lock:
                 self.run.update(status="stopped", goal=None)
                 self._say("Search stopped", "info")
+                self._emit("stopped", name=self.name)
         except _Failed as error:
             with self._lock:
                 self.run.update(status="failed", goal=None)
                 self._say("Search ended: {}".format(error), "out")
+                self._emit("failed", name=self.name, reason=str(error))
 
     def _move(self, start, end, heading_deg=None):
         """Get the robot to `end` and face `heading_deg`. With a LiveRobot it really walks there; without one a
@@ -688,6 +701,19 @@ class Apartment:
             self._sleep(seconds)
         if self._stop.is_set():
             raise _Stopped()
+
+    def _emit(self, kind, **facts):
+        """Tell on_event what just happened. Never lets it stop the search."""
+        if self._on_event is None:
+            return
+        try:
+            self._on_event(kind, facts)
+        except Exception as error:  # noqa: BLE001 - the narration must never break the search
+            print("[apartment] on_event failed: {}".format(error), flush=True)
+
+    def note(self, text, kind="metacon"):
+        """A line from outside the search loop in the log (metacon's narration)."""
+        self._say(text, kind)
 
     def _say(self, text, kind):
         with self._lock:

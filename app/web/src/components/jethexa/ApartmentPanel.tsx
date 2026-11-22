@@ -10,6 +10,8 @@ import {
   ZONE_CLASSES, ZONE_COLOR, ZONE_LABEL,
   type ApartmentState, type Belief, type Stage, type ZoneClass, type ZoneName,
 } from "@/lib/api";
+import { unlockAudio } from "@/lib/audio";
+import type { Narration } from "@/hooks/useNarration";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const PARTS = ["morning", "afternoon", "evening"];
@@ -103,7 +105,7 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
                 <Square className="h-4 w-4" />Stop the search
               </button>
             ) : (
-              <button onClick={() => void run(apartmentSearch(where))} className="knock-btn knock-primary h-11 min-w-[170px] flex-1 gap-2 whitespace-nowrap">
+              <button onClick={() => { unlockAudio(); void run(apartmentSearch(where)); }} className="knock-btn knock-primary h-11 min-w-[170px] flex-1 gap-2 whitespace-nowrap">
                 <Search className="h-4 w-4" />Find {a.name}
               </button>
             )}
@@ -561,7 +563,7 @@ function Journal({ a, run, onError, onChanged }: {
 const LOG_TONE: Record<string, string> = {
   start: "text-video", proposal: "text-video", belief: "text-video/60", update: "text-video/60", miss: "text-term-amber",
   seen: "text-term-green", found: "text-term-green font-semibold", out: "text-term-amber font-semibold",
-  journal: "text-video/55", info: "text-video/45",
+  journal: "text-video/55", info: "text-video/45", metacon: "text-video/85",
 };
 
 function Log({ a }: { a: ApartmentState }) {
@@ -580,7 +582,9 @@ function Log({ a }: { a: ApartmentState }) {
         {a.log.map((l) => (
           <div key={l.id} className="flex gap-2">
             <span className="shrink-0 tabular-nums text-video/35">{l.time}</span>
-            <span className={LOG_TONE[l.kind] ?? "text-video/70"}>{l.text}</span>
+            <span className={LOG_TONE[l.kind] ?? "text-video/70"}>
+              {l.kind === "metacon" && <span className="apt-tag-metacon">metacon</span>}{l.text}
+            </span>
           </div>
         ))}
       </div>
@@ -592,8 +596,10 @@ function Log({ a }: { a: ApartmentState }) {
  * The apartment on a phone: who and where, the status, the floor plan with the belief, the looks so far, and
  * Find Margarete. "Details" opens the whole panel (time, belief steps, journal, log) as a full-screen sheet.
  */
-export function ApartmentPhoneCard({ apartment: a, onError, onChanged }: {
+export function ApartmentPhoneCard({ apartment: a, onError, onChanged, narration }: {
   apartment: ApartmentState; onError: (m: string) => void; onChanged: () => void;
+  /** metacon's latest line about the search, while it is recent. */
+  narration?: Narration | null;
 }) {
   const [sheet, setSheet] = useState(false);
   const status = statusText(a);
@@ -625,6 +631,12 @@ export function ApartmentPhoneCard({ apartment: a, onError, onChanged }: {
         )}
         <ResetButton a={a} run={run} />
       </div>
+      {narration && (
+        <div key={narration.id} role="status" aria-live="polite" className="apt-narration rise-in">
+          <span className="pixel text-[9px] tracking-[0.2em] text-term-red">metacon</span>
+          <span className="text-[14.5px] leading-snug">{narration.text}</span>
+        </div>
+      )}
       <Pipeline a={a} />
       <Plan a={a} belief={a.belief} showHer={found} />
       <Looks a={a} />
@@ -635,10 +647,10 @@ export function ApartmentPhoneCard({ apartment: a, onError, onChanged }: {
           </button>
         ) : (
           <>
-            <button type="button" onClick={() => void run(apartmentSearch("routine"))} className="knock-btn knock-primary h-12 gap-2">
+            <button type="button" onClick={() => { unlockAudio(); void run(apartmentSearch("routine")); }} className="knock-btn knock-primary h-12 gap-2">
               <Search className="h-[18px] w-[18px]" />Find {a.name}
             </button>
-            <button type="button" onClick={() => void run(apartmentSearch("random"))} className="knock-btn knock-secondary h-12 w-12"
+            <button type="button" onClick={() => { unlockAudio(); void run(apartmentSearch("random")); }} className="knock-btn knock-secondary h-12 w-12"
               aria-label={`Put ${a.name} somewhere random and find her`} title="Put her somewhere random, then search">
               <Dices className="h-5 w-5" />
             </button>

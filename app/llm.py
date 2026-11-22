@@ -153,6 +153,22 @@ def stream_chat(messages, state, key, voice=False):
         yield pending
 
 
+THINK = re.compile(r"<think>.*?(</think>|$)", re.S)
+
+
+def complete(system, user, key, timeout=6.0, max_tokens=80):
+    """One short answer, not streamed: the whole reply as text, with <think> blocks removed. Same gateway and model
+    as stream_chat. Raises on any error or after `timeout` seconds (the caller falls back to its own words)."""
+    body = json.dumps({"model": MODEL, "stream": False, "temperature": 0.5, "think": False, "max_tokens": max_tokens,
+                       "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}).encode()
+    request = urllib.request.Request(GATEWAY + "/chat/completions", data=body, method="POST", headers={
+        "Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        answer = json.loads(response.read())
+    text = answer["choices"][0]["message"].get("content") or ""
+    return THINK.sub("", text).strip()
+
+
 def spoken(text):
     """The answer as it should be said aloud: no [[command]] markers, no markdown symbols, one line."""
     text = COMMAND.sub(" ", text)

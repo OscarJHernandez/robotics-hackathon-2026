@@ -7,6 +7,7 @@ import { ArrowUp, Info, Keyboard, Mic, RotateCcw } from "lucide-react";
 import type { Conn } from "@/hooks/useRobotState";
 import type { LiveCall } from "@/hooks/useLiveCall";
 import type { Knock } from "@/hooks/useKnock";
+import type { Narration } from "@/hooks/useNarration";
 import { phaseText, type Phase } from "@/hooks/useVoiceCall";
 import type { ApartmentState, RobotState, View } from "@/lib/api";
 import { ApartmentPhoneCard } from "./ApartmentPanel";
@@ -24,7 +25,7 @@ export interface VoiceProps {
   press: () => void; release: () => void; cancel: () => void;
 }
 
-export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend, onClear, apartment, onApartmentChanged, onError, onHowItWorks }: {
+export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend, onClear, apartment, onApartmentChanged, onError, onHowItWorks, narration }: {
   conn: Conn; views: View[]; state: RobotState | null; lines: Line[]; busy: boolean; chatOff: boolean;
   voice: VoiceProps; other: LiveCall | null; knock: Knock; speakerOn: boolean; onToggleSpeaker: () => void;
   onSend: (text: string) => void;
@@ -34,6 +35,8 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
   apartment?: ApartmentState | null; onApartmentChanged?: () => void; onError?: (m: string) => void;
   /** Opens the "How it works" page. */
   onHowItWorks?: () => void;
+  /** metacon's latest line about the search, while it is recent (shown on the apartment card). */
+  narration?: Narration | null;
 }) {
   const live = conn === "live";
   const [view, setView] = useState<View>("chase");
@@ -110,7 +113,7 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
       <div ref={scroll} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
         {other && !other.ended && <LiveCallCard call={other} className="sticky top-0 z-10" />}
         <div className="pb-1.5">
-          {apartment ? <ApartmentPhoneCard apartment={apartment} onError={onError ?? (() => {})} onChanged={onApartmentChanged ?? (() => {})} />
+          {apartment ? <ApartmentPhoneCard apartment={apartment} onError={onError ?? (() => {})} onChanged={onApartmentChanged ?? (() => {})} narration={narration} />
             : <KnockCard k={knock} />}
         </div>
         {lines.length > 0 && (
@@ -194,7 +197,7 @@ function Bubble({ line: l }: { line: Line }) {
     return (
       <div className="flex justify-start">
         <div className="glass max-w-[85%] rounded-2xl rounded-bl-md px-3.5 py-2 text-[15px] leading-snug">
-          <div className="pixel mb-0.5 text-[9px] tracking-[0.2em] text-term-red">metacon</div>
+          <div className="pixel mb-0.5 text-[9px] tracking-[0.2em] text-term-red">metacon{l.narr && <span className="text-video/45"> · search</span>}</div>
           {l.text}{l.pending && <span className="cursor-blink">▍</span>}
         </div>
       </div>

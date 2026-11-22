@@ -374,6 +374,17 @@
 @utility apt-strip-good { border-color: oklch(0.79 0.18 150 / 55%); background: oklch(0.79 0.18 150 / 16%); color: oklch(0.9 0.12 150); }
 @utility apt-strip-warn { border-color: oklch(0.82 0.15 80 / 50%); background: oklch(0.82 0.15 80 / 13%); color: oklch(0.9 0.1 80); }
 @utility apt-strip-idle { color: oklch(1 0 0 / 70%); }
+/* metacon's narration: a tag in the log, and the latest line on the phone's apartment card */
+@utility apt-tag-metacon {
+  display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 16px;
+  letter-spacing: 0.06em; text-transform: uppercase; vertical-align: 1px;
+  color: var(--color-term-red); background: color-mix(in oklch, var(--color-term-red) 16%, transparent);
+}
+@utility apt-narration {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 12px;
+  border: 1px solid color-mix(in oklch, var(--color-term-red) 30%, transparent);
+  background: color-mix(in oklch, var(--color-term-red) 9%, transparent); color: oklch(1 0 0 / 90%);
+}
 @utility apt-look {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px 0 4px; border-radius: 999px;
   font-size: 12px; border: 1px solid oklch(1 0 0 / 13%); background: oklch(1 0 0 / 6%); color: oklch(1 0 0 / 82%);
