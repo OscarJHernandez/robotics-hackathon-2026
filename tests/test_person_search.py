@@ -152,23 +152,49 @@ class SpotterTest(unittest.TestCase):
 
 class DetectRobot(FakeRobot):
     """FakeRobot with a person detector: a look-around confirms her when she is within `sight` metres (or confirms
-    `decoy`, a look-alike, on the first look); the close-up (watch) counts hits only when the estimate is her."""
+    `decoy`, a look-alike, on the first look); the first estimate of her is `off` metres beyond her (ranged on the
+    furniture behind). `approach` walks up to the estimate, re-ranges her on the way (the estimate becomes her) and
+    counts `approach_hits` close-up matches; `lost`: she is lost on the way. The watch counts hits only near her."""
 
-    def __init__(self, sight=2.5, decoy=None, on_the_way=False):
+    def __init__(self, sight=2.5, decoy=None, on_the_way=False, off=0.0, approach_hits=3, lost=False):
         super().__init__()
         self.her, self.sight, self.decoy, self.on_the_way = None, sight, decoy, on_the_way
+        self.off, self.approach_hits, self.lost = off, approach_hits, lost
         self.spot = {"status": "ready", "confirmed": False, "watch_hits": 0}
         self.look = {"running": False}
+        self.approach = {"running": False}
 
     def person(self, x=None, y=None, yaw_deg=0.0, pose="lying"):
         super().person(x, y, yaw_deg, pose)
         self.her = None if x is None else (x, y)
 
     def _confirm(self, p):
+        if p == self.her and self.off:
+            d = math.hypot(p[0] - self.x, p[1] - self.y) or 1.0
+            p = (p[0] + self.off * (p[0] - self.x) / d, p[1] + self.off * (p[1] - self.y) / d)
         self.spot.update(confirmed=True, x=p[0], y=p[1], match={"sim": 0.9})
 
     def command(self, text):
         word, *args = text.split()
+        if word == "approach":
+            self.commands.append(text)
+            stop = float(args[0])
+            est = (self.spot["x"], self.spot["y"])
+            if self.lost:
+                self.approach = {"running": False, "reason": "lost", "estimate": list(est), "goal": None,
+                                 "updates": 0}
+                return text
+            is_her = self.her is not None and math.hypot(est[0] - self.her[0], est[1] - self.her[1]) < 1.5
+            if is_her:  # closer up, the camera ranges her, not the furniture behind her
+                est = self.her
+                self.spot.update(x=est[0], y=est[1])
+            d = math.hypot(est[0] - self.x, est[1] - self.y) or 1.0
+            self.x, self.y = est[0] - stop * (est[0] - self.x) / d, est[1] - stop * (est[1] - self.y) / d
+            self.spot["watch_hits"] = self.approach_hits if is_her else 0
+            self.approach = {"running": False, "reason": "arrived", "estimate": list(est),
+                             "goal": [self.x, self.y], "updates": 2 if self.off else 0}
+            self._mode = "goto"
+            return text
         if word == "look":
             self.commands.append(text)
             self._mode = "look"
@@ -183,7 +209,7 @@ class DetectRobot(FakeRobot):
             self._mode = "watch"
             near = self.her is not None and self.spot.get("confirmed") and math.hypot(
                 self.spot["x"] - self.her[0], self.spot["y"] - self.her[1]) < 0.6
-            self.spot["watch_hits"] = 3 if near else 0
+            self.spot["watch_hits"] += 3 if near else 0
             return text
         if word == "spot":
             self.commands.append(text)
@@ -207,7 +233,7 @@ class DetectRobot(FakeRobot):
 
     def state(self):
         s = super().state()
-        s["spotter"], s["look"] = dict(self.spot), dict(self.look)
+        s["spotter"], s["look"], s["approach"] = dict(self.spot), dict(self.look), dict(self.approach)
         return s
 
 
@@ -225,8 +251,41 @@ class DetectorSearchTest(unittest.TestCase):
         self.assertEqual(robot.poses[-1], "standing")
         self.assertIn("spot reset", robot.commands)
         self.assertIn("look", robot.commands)
-        self.assertIn("watch {}".format(apartment.CHECK_CYCLES), robot.commands)
+        self.assertIn("approach {:.2f}".format(apartment.APPROACH_STOP), robot.commands)
+        self.assertNotIn("watch {}".format(apartment.CHECK_CYCLES), robot.commands)  # checked on the way in
         self.assertLess(s["found_error"], 0.01)
+        self.assertAlmostEqual(s["robot_to_person"], apartment.APPROACH_STOP, places=2)
+
+    def test_the_approach_re_ranges_her_and_stops_near_her(self):
+        robot = DetectRobot(off=0.9)  # the first range lands 0.9 m behind her (on the furniture)
+        a = make(robot=robot)
+        a.start("kitchen", pose="lying")
+        finish(a)
+        s = a.state()["search"]
+        self.assertEqual(s["status"], "found")
+        self.assertLess(s["found_error"], 0.01)  # the final estimate, not the first one
+        self.assertAlmostEqual(s["robot_to_person"], apartment.APPROACH_STOP, places=2)
+        self.assertEqual(s["approach"]["reason"], "arrived")
+        self.assertGreater(s["approach"]["updates"], 0)
+        self.assertIn("approach", [e["kind"] for e in a.state()["log"]])
+
+    def test_too_few_hits_on_the_way_then_the_watch_decides(self):
+        robot = DetectRobot(approach_hits=0)
+        a = make(robot=robot)
+        a.start("kitchen")
+        finish(a)
+        self.assertIn("watch {}".format(apartment.CHECK_CYCLES), robot.commands)
+        self.assertEqual(a.state()["search"]["status"], "found")
+
+    def test_lost_on_the_way_is_a_false_alarm(self):
+        robot = DetectRobot(lost=True)
+        a = make(robot=robot)
+        a.start("kitchen")
+        finish(a)
+        s = a.state()["search"]
+        self.assertGreaterEqual(s["false_alarms"], 1)
+        self.assertIn("spot reject", robot.commands)
+        self.assertNotIn("watch {}".format(apartment.CHECK_CYCLES), robot.commands)
 
     def test_a_look_alike_is_a_false_alarm_and_the_search_goes_on(self):
         robot = DetectRobot(decoy=(-3.0, 3.0))
@@ -335,13 +394,109 @@ class LookModeTest(unittest.TestCase):
         self.assertLess(st["look"]["turned_deg"], 180.0)
 
 
+class ApproachPointTest(unittest.TestCase):
+    def test_on_the_line_when_free_else_around_her(self):
+        from robot import approach_point, clearance
+        half = 3.5
+        p = approach_point((0.0, 0.0), (3.0, 0.0), 0.6, [], half)
+        self.assertAlmostEqual(p[0], 0.6)
+        self.assertAlmostEqual(p[1], 0.0)
+        box = {"kind": "box", "x": 0.8, "y": 0.0, "yaw": 0.0, "hx": 0.3, "hy": 0.3}  # a chest between them
+        p = approach_point((0.0, 0.0), (3.0, 0.0), 0.6, [box], half)
+        self.assertGreaterEqual(clearance([box], half, p), 0.30)
+        self.assertAlmostEqual(math.hypot(*p), 0.6, places=5)
+        self.assertGreater(abs(p[1]), 0.1)  # moved round her, off the line
+        self.assertIsNone(approach_point((3.3, 3.3), (0.0, 0.0), 0.6,
+                                         [{"kind": "circle", "x": 3.3, "y": 3.3, "r": 1.5}], half))
+
+
+class MovingSpotter:
+    """Sees her every cycle at `est`, which a test can move; `last` is a match while `seeing`."""
+
+    status = "ready"
+    ready = True
+
+    def __init__(self, est):
+        class E:
+            confirmed = True
+        self.estimate = E()
+        self.estimate.est = est
+        self.seeing, self.cycles, self.on = True, 0, []
+        self.last = {"sim": 0.9}
+
+    def see(self, sim):
+        self.cycles += 1
+        self.last = {"sim": 0.9} if self.seeing else None
+
+    def approach(self, on):
+        self.on.append(on)
+
+    def state(self):
+        return {"status": "ready", "confirmed": True, "cycles": self.cycles}
+
+
+@unittest.skipUnless(gl_available(), "needs MuJoCo rendering")
+class ApproachModeTest(unittest.TestCase):
+    def start(self, spotter):
+        from robot import LiveRobot
+        robot = LiveRobot("apartment", "rule", realtime=False, spotter=spotter)
+        robot.wait_ready(120)
+        robot.command("reset")
+        time.sleep(0.3)
+        robot.command("approach")
+        return robot
+
+    def wait(self, robot, seconds=120, until=None):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            time.sleep(0.05)
+            st = robot.state()
+            ap = st.get("approach") or {}
+            if until is not None and until(st):
+                return st
+            if until is None and not ap.get("running") and ap.get("reason"):
+                return st
+        self.fail("the approach did not end")
+
+    def test_follows_her_moving_estimate_stops_short_and_faces_her(self):
+        spotter = MovingSpotter((0.0, 1.8))
+        robot = self.start(spotter)
+        st = self.wait(robot, until=lambda s: (s.get("approach") or {}).get("cycles", 0) >= 3)
+        spotter.estimate.est = (0.9, 1.8)  # a closer match ranges her 0.9 m further right
+        st = self.wait(robot)
+        ap = st["approach"]
+        self.assertEqual(ap["reason"], "arrived")
+        self.assertGreaterEqual(ap["updates"], 1)
+        self.assertEqual(ap["estimate"], [0.9, 1.8])
+        dist = math.hypot(st["x"] - 0.9, st["y"] - 1.8)
+        self.assertLess(dist, 0.6 + 0.35)
+        face = math.degrees(math.atan2(1.8 - st["y"], 0.9 - st["x"]))
+        self.assertLess(abs((face - st["yaw_deg"] + 180) % 360 - 180), 15.0)
+        self.assertEqual(spotter.on, [True, False])
+
+    def test_ends_lost_when_she_is_no_longer_seen(self):
+        import robot as robot_module
+        spotter = MovingSpotter((0.0, 2.5))
+        spotter.seeing = False
+        lost, robot_module.APPROACH_LOST = robot_module.APPROACH_LOST, 4  # before it could get there (~15 cycles)
+        try:
+            st = self.wait(self.start(spotter))
+        finally:
+            robot_module.APPROACH_LOST = lost
+        self.assertEqual(st["approach"]["reason"], "lost")
+        self.assertEqual(st["mode"], "idle")
+        self.assertGreater(math.hypot(st["x"], st["y"] - 2.5), 1.0)  # stopped where it was
+
+
 class ParseTest(unittest.TestCase):
     def test_new_commands(self):
         from robot import parse_command
         self.assertEqual(parse_command("look"), ("look",))
         self.assertEqual(parse_command("watch 4"), ("watch", 4))
         self.assertEqual(parse_command("spot reject"), ("spot", "reject"))
-        for bad in ("watch 0", "watch 99", "spot now", "look 3"):
+        self.assertEqual(parse_command("approach"), ("approach", 0.6))
+        self.assertEqual(parse_command("approach 0.8"), ("approach", 0.8))
+        for bad in ("watch 0", "watch 99", "spot now", "look 3", "approach 0.1", "approach 3"):
             with self.assertRaises(ValueError):
                 parse_command(bad)
 

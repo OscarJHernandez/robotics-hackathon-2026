@@ -296,6 +296,11 @@ export interface ApartmentState {
     false_alarms?: number;
     /** Where the robot found her, and how far that is from where she really is (metres). */
     found_at?: [number, number] | null; found_error?: number | null;
+    /** At the end: the robot's distance to where she really is (metres). */
+    robot_to_person?: number | null;
+    /** The walk up to her: the destination, recomputed every gait cycle from the camera's range of her. */
+    approach?: { goal: [number, number] | null; estimate: [number, number] | null; updates: number;
+      reason: string | null } | null;
   };
   /** The robot's person detector (app/spotter.py): the confirmed estimate, the last match, rejected spots. */
   spotter?: SpotterInfo;

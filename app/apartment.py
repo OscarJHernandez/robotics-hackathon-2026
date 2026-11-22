@@ -48,7 +48,7 @@ LOOK = 0.9  # seconds a look takes
 # miss rate; measured with just search-bench), how long a look-around may take, and the close-up check.
 DETECT_MISS_RATE = 0.1
 LOOK_TIMEOUT = 90.0
-APPROACH_STOP = 0.8   # metres short of her estimate the robot stops to check
+APPROACH_STOP = 0.6   # metres from her the robot stops (its approach keeps re-ranging her on the way)
 CHECK_CYCLES = 4      # gait cycles it looks at her from there
 CHECK_HITS = 2        # matches near the estimate in those cycles that make it "found"
 POSES = ("lying", "standing")
@@ -552,7 +552,7 @@ class Apartment:
             self.run = {"status": "starting", "goal": None, "truth": truth, "miss_rate": miss, "walked": 0.0,
                         "fallbacks": 0, "contacts": 0, "pose": pose if person else None,
                         "look_by": "detector" if detect else "mock", "sightings": [], "false_alarms": 0,
-                        "found_at": None, "found_error": None,
+                        "found_at": None, "found_error": None, "robot_to_person": None, "approach": None,
                         "person": list(person[:2]) if person else None,
                         "path": [[self.robot["x"], self.robot["y"]]]}
             self._paint(start)
@@ -654,8 +654,11 @@ class Apartment:
                         self._paint(search.steps[-1]["belief_after"])
                         person = self.run.get("person")
                         error = math.hypot(where[0] - person[0], where[1] - person[1]) if person else None
+                        # for the log and the bench only (never decides anything): the robot's true distance to her
+                        near = math.hypot(self.robot["x"] - person[0], self.robot["y"] - person[1]) if person else None
                         self.run.update(found_at=[round(where[0], 2), round(where[1], 2)],
-                                        found_error=None if error is None else round(error, 2))
+                                        found_error=None if error is None else round(error, 2),
+                                        robot_to_person=None if near is None else round(near, 2))
                         self._say("Observation: sees {} in the {} ({:.1f} m from the robot{})".format(
                             self.name, NAMES[zone].lower(), math.hypot(where[0] - self.robot["x"],
                                                                          where[1] - self.robot["y"]),
@@ -809,30 +812,76 @@ class Apartment:
                 return None
 
     def _check(self, where, zone):
-        """The close-up: walk to APPROACH_STOP short of `where`, face it, look CHECK_CYCLES cycles. (x, y) of the
-        refined estimate when CHECK_HITS matches agree, else None (a false alarm)."""
+        """The close-up: the robot walks up to her (its `approach`: every gait cycle the destination is recomputed
+        from the detector's estimate, APPROACH_STOP short of her) and faces her; the strong matches from up close on
+        the way count for the check. Too few by then: it stands and looks CHECK_CYCLES more cycles. (x, y) of the
+        final estimate when CHECK_HITS matches agree, else None (a false alarm)."""
         with self._lock:
             self.run["status"] = "approaching"
-            rx, ry = self.robot["x"], self.robot["y"]
-        dist = math.hypot(where[0] - rx, where[1] - ry)
-        if dist > APPROACH_STOP + 0.25:
-            t = (dist - APPROACH_STOP) / dist
-            self._drive((rx + t * (where[0] - rx), ry + t * (where[1] - ry)), None)
-        pose = self._pose()
-        face = math.degrees(math.atan2(where[1] - pose["y"], where[0] - pose["x"]))
-        turn = (face - pose["yaw_deg"] + 180.0) % 360.0 - 180.0
-        if abs(turn) > 8.0:
-            self._command("turn {:.1f}".format(turn))
-            self._settle(TURN_TIMEOUT)
+            self.run["approach"] = {"goal": None, "estimate": [round(where[0], 2), round(where[1], 2)],
+                                    "updates": 0, "reason": None}
+        self._command("spot mark")
+        reason = self._approach(where)
         with self._lock:
             self.run["status"] = "checking"
-        self._command("spot mark")
-        self._command("watch {}".format(CHECK_CYCLES))
-        self._settle(CHECK_CYCLES * 3.0 + 20.0, idle_modes=("watch",))
         spot = self._spotter()
+        if reason == "arrived" and spot.get("watch_hits", 0) < CHECK_HITS:
+            self._command("watch {}".format(CHECK_CYCLES))
+            self._settle(CHECK_CYCLES * 3.0 + 20.0, idle_modes=("watch",))
+            spot = self._spotter()
         if spot.get("watch_hits", 0) >= CHECK_HITS and spot.get("x") is not None:
             return (spot["x"], spot["y"])
         return None
+
+    def _approach(self, where):
+        """Send `approach` and follow it on the plan until it ends; log the destination when it moves (her range was
+        measured again). Returns how it ended: arrived, lost, interrupted, fallen or timeout."""
+        state = self._robot.state()
+        self._seen = {"fallbacks": state.get("fallbacks", 0) or 0, "contacts": state.get("contacts", 0) or 0}
+        start = (self.robot["x"], self.robot["y"])
+        with self._lock:
+            self._say("Walking up to {}: {:.1f} m away, to stop {:.1f} m from her".format(
+                self.name, math.hypot(where[0] - start[0], where[1] - start[1]), APPROACH_STOP), "approach")
+        self._command("approach {:.2f}".format(APPROACH_STOP))
+        timeout = WALK_TIMEOUT * math.hypot(where[0] - start[0], where[1] - start[1]) + 60.0
+        waited, said = 0.0, None
+        while True:
+            self._wait(POLL)
+            waited += POLL
+            state = self._robot.state()
+            ap = state.get("approach") or {}
+            with self._lock:
+                last = self.robot
+                self.robot = self._pose()
+                self.run["walked"] += math.hypot(self.robot["x"] - last["x"], self.robot["y"] - last["y"])
+                tail = self.run["path"][-1]
+                if math.hypot(self.robot["x"] - tail[0], self.robot["y"] - tail[1]) > 0.15:
+                    self.run["path"].append([self.robot["x"], self.robot["y"]])
+                self.run["approach"] = {"goal": ap.get("goal"), "estimate": ap.get("estimate"),
+                                        "updates": ap.get("updates", 0), "reason": ap.get("reason")}
+                goal = ap.get("goal")
+                if goal is not None and said is not None and math.hypot(goal[0] - said[0], goal[1] - said[1]) > 0.3:
+                    self._say("Destination updated: the camera ranges {} at {:.1f} m; the robot now heads for "
+                              "({:.1f}, {:.1f})".format(self.name, ap.get("range") or 0.0, goal[0], goal[1]),
+                              "approach")
+                if goal is not None and (said is None or math.hypot(goal[0] - said[0], goal[1] - said[1]) > 0.3):
+                    said = goal
+            self._watch(state)
+            if state.get("mode") == "fallen":
+                raise _Failed("the robot fell over")
+            if not ap.get("running") and waited >= 2 * POLL:
+                reason = ap.get("reason") or "lost"
+                with self._lock:
+                    est = ap.get("estimate")
+                    if reason == "arrived" and est is not None:
+                        self._say("Standing {:.1f} m from {}, facing her".format(
+                            math.hypot(est[0] - self.robot["x"], est[1] - self.robot["y"]), self.name), "approach")
+                    elif reason == "lost":
+                        self._say("Lost sight of whoever it was on the way", "approach")
+                return reason
+            if waited > timeout:
+                self._command("stop")
+                return "timeout"
 
     def _settle(self, timeout, near=None, watch=False, idle_modes=()):
         """Wait until the robot has finished its command; follow it on the plan meanwhile. `watch`: return (x, y)
@@ -969,6 +1018,7 @@ class Apartment:
                            "look_by": self.run.get("look_by", "detector" if self.detector_ready() else "mock"),
                            "sightings": self.run.get("sightings", []), "false_alarms": self.run.get("false_alarms", 0),
                            "found_at": self.run.get("found_at"), "found_error": self.run.get("found_error"),
+                           "robot_to_person": self.run.get("robot_to_person"), "approach": self.run.get("approach"),
                            "steps": [{"zone": s["zone"], "p": s["p_before"], "seen": s["seen"], "metres": s["metres"]}
                                      for s in (search.steps if search else [])]},
                 "robot": dict(self._pose() if self._robot is not None else self.robot),
