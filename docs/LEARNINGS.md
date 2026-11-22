@@ -43,6 +43,24 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): DAgger v2 in the arena: the best student (98% goals, 2% collisions on 200 fresh layouts,
+  two start seeds) is TabPFN 3.5 on all round 0 rows with a 360 degree lidar and the robot's own plan on its lidar map
+  (`nav/dagger/lidarmap.py`). The camera-only students plateaued at 58-70%; see docs/navigation.md "DAgger v2".
+- 2026-11-22 (Oscar's agent): A privileged ceiling experiment (the expert's look-ahead bearing as input) found the
+  real gap in one run: 100% vs a 95% plateau, so the student lacked path information, not obstacle sensing or model
+  capacity. Run a ceiling before tuning features or outputs.
+- 2026-11-22 (Oscar's agent): For TabPFN students more real rows helped (8k -> 31k: 89% -> 95%), while re-weighting
+  the same rows (balanced or lidar-distance quotas), gating, history and 8 estimators did not; beyond 31k rows (52k,
+  61k, incl. DAgger rounds) nothing more. Compact inputs (114 columns) make 31k-row fits take about 4 min on an M4 Pro.
+- 2026-11-22 (Oscar's agent): Hand-written lidar safety stops made it worse (stuck, spinning): the JetHexa touches
+  furniture while turning on the spot, so a reflex at contact distance is too late.
+- 2026-11-22 (Oscar's agent): In zsh `$h:Projects` applies the `:P` modifier, so `scp file $h:Projects/...` wrote to a
+  local folder `vendettarojects/` with exit code 0. Quote as `"${h}:..."`; `nav/dagger/transfer.py` uses argument lists.
+- 2026-11-22 (Oscar's agent): TabPFN 3.5 on metacon's CPU is fine for compact inputs: 8k x 114 fit in 142 s, predict
+  for 32 rows 0.2 s (faster than MPS for small batches). DINOv2 on CPU (about 115 ms per picture) is then the bottleneck.
+- 2026-11-22 (Oscar's agent): The offline "stop recall at stride < 0.02" metric is unstable for plain regressors (two
+  identical students: 0% vs 55%); judge with closed-loop runs, paired on the same layouts.
+
 - 2026-11-21 (Oscar's agent): DAgger round 1 student (TabPFN 3.5 fitted on 32k expert rows) matched the expert
   closely at beta 0.5 (100/100 goals, mean |d turn| 0.05) but collided in 3 of 3 held-out layouts when driving alone:
   it keeps walking when the expert says stop and turn on the spot, a label only 6.6% of the rows have. Judge a
@@ -200,6 +218,11 @@ in the same pull request as the work.
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Suggestions (open)
+
+- 2026-11-22 (Oscar's agent): Check the simulated lidar against the real JetHexa lidar (rays, range, noise) and
+  test `lidarmap.py` with real odometry drift before trusting the 98% on the robot.
+- 2026-11-22 (Oscar's agent): The `stage analyse` printout says "expert on screen" also for the confirmation and final
+  sets; rename it to the set's name.
 
 - 2026-11-21 (Oscar's agent): DAgger: try a label-balanced context (`max_context_rows: 20000`) from round 2 on,
   and run DINOv2 on the Radeon iGPUs (ROCm torch) to speed up the Linux workers.
