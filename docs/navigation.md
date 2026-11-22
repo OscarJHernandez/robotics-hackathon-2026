@@ -324,3 +324,10 @@ with the furniture at home and with the four loose pieces shuffled (`homes/flats
 | A* + a→b | home + shuffled | 100 | 100.0% | 96.3–100% | 0.0% |
 
 Up to 60 steps per leg, stuck rule 40 steps; no leg got stuck or timed out. Both take about 32 cycles per leg.
+
+### Mess levels (2026-11-22)
+
+`just student-bench --levels clean,medium,messy --driver baseline-only`: A* + a→b on the legs of a search in
+10 random flats per level (no API credits). Clean: 50/50 legs reached (100%); medium (8 loose things): 50/50
+(100%); messy (16 loose things): 47/50 (94%, 95% interval 83.8–97.9%), 3 legs stuck, no contacts in any level.
+Cycles per leg grow with the clutter: 32.5, 37.1, 38.7.
