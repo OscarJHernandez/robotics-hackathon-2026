@@ -52,8 +52,9 @@ class FakeRobot:
         self.loaded.append(flat["flat_id"])
         self.x, self.y = flat["dock"]["x"], flat["dock"]["y"]
 
-    def person(self, x=None, y=None, yaw_deg=0.0):
+    def person(self, x=None, y=None, yaw_deg=0.0, pose="lying"):
         self.people.append(None if x is None else (x, y))
+        self.poses = getattr(self, "poses", []) + [pose]
 
     def paint(self, belief):
         self.painted.append(dict(belief))

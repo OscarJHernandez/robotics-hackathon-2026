@@ -131,16 +131,18 @@ class Detector:
         best = int(np.argmax(sim))
         if sim[best] < self.threshold:
             return sim, None
-        cells = sim[:COLS // 2 * 2].reshape(-1, 2).max(axis=1)
-        cell = min(best // 2, len(cells) - 1)
-        far = np.abs(np.arange(len(cells)) - cell) > 2
-        if far.any() and cells[cell] - cells[far].max() < self.cfg["margin"]:
-            return sim, None
         c0 = c1 = best
         while c0 > 0 and sim[c0 - 1] >= self.threshold:
             c0 -= 1
         while c1 < COLS - 1 and sim[c1 + 1] >= self.threshold:
             c1 += 1
+        # margin: the matched stretch must beat every place outside it (and 2 cells either side of it). Only
+        # outside: a person close by fills most of the view, and then the whole view is one match.
+        cells = sim[:COLS // 2 * 2].reshape(-1, 2).max(axis=1)
+        idx = np.arange(len(cells))
+        far = (idx < c0 // 2 - 2) | (idx > c1 // 2 + 2)
+        if far.any() and sim[best] - cells[far].max() < self.cfg["margin"]:
+            return sim, None
         return sim, (c0, c1, best)
 
     def bearing(self, sim, c0, c1):
@@ -305,6 +307,68 @@ def make_schedule(name, seed):
     return SCHEDULES[name](seed)
 
 
+# ---- the goal estimate from detections ---------------------------------------------------------------------------
+
+class Estimate:
+    """Where the target is, from detections over steps: a weighted running mean (weight = similarity / range,
+    halved at the image edge; older detections fade by `fuse_decay`). Confirmed after `confirm` detections within
+    `fuse_radius`; once confirmed, detections within `max_jump` are fused, farther ones need `confirm` agreeing
+    detections (within `window` steps) to move it. An unconfirmed estimate not seen again for `stale_steps` is
+    dropped. `reject()` forgets the estimate and ignores later detections near it (a spot that turned out empty).
+    Used by TargetSearch (the arena test) and by app/spotter.py (the app)."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.rejected = []
+        self.reset()
+
+    def reset(self):
+        """Forget the estimate (the rejected spots stay; `clear()` forgets those too)."""
+        self.est, self.w, self.hits, self.step, self.confirmed, self.jump = None, 0.0, 0, -1, False, []
+
+    def clear(self):
+        self.reset()
+        self.rejected = []
+
+    def reject(self):
+        if self.est is not None:
+            self.rejected.append(self.est)
+        self.reset()
+
+    def add(self, d, step):
+        """Fuse detection `d` (dict with x, y, sim, range, edge) seen at `step`. True when it counted for the
+        estimate (fused, or it moved it after a confirmed jump); False when it was ignored or is waiting."""
+        cfg = self.cfg
+        p = (d["x"], d["y"])
+        if any(_dist(p, r) < cfg["fuse_radius"] for r in self.rejected):
+            return False
+        w = d["sim"] / max(d["range"], 0.3) * (0.5 if d["edge"] else 1.0)
+        if self.est is not None and not self.confirmed and step - self.step > cfg["stale_steps"]:
+            self.est, self.hits = None, 0  # an unconfirmed estimate that was not seen again
+        if self.est is None:
+            self.est, self.w, self.hits, self.step = p, w, 1, step
+        elif _dist(p, self.est) <= (cfg["max_jump"] if self.confirmed else cfg["fuse_radius"]):
+            keep = self.w * cfg["fuse_decay"]
+            self.est = ((self.est[0] * keep + p[0] * w) / (keep + w), (self.est[1] * keep + p[1] * w) / (keep + w))
+            self.w, self.step = keep + w, step
+            self.hits += 1
+            self.jump = []
+        else:
+            self.jump = [j for j in self.jump if step - j[2] <= cfg["window"]] + [(p[0], p[1], step, w)]
+            if len(self.jump) < cfg["confirm"]:
+                return False
+            total = sum(j[3] for j in self.jump)
+            mx = sum(j[0] * j[3] for j in self.jump) / total
+            my = sum(j[1] * j[3] for j in self.jump) / total
+            if not all(_dist((j[0], j[1]), (mx, my)) <= cfg["fuse_radius"] for j in self.jump):
+                return False
+            self.est, self.w, self.step, self.hits = (mx, my), total, step, len(self.jump)
+            self.jump = []
+        if not self.confirmed and self.hits >= cfg["confirm"]:
+            self.confirmed = True
+        return True
+
+
 # ---- the search: goal estimate, look-arounds, locations --------------------------------------------------------
 
 def _dist(a, b):
@@ -328,10 +392,7 @@ class TargetSearch:
         self.current = None
         self.phase = "walking"    # walking | looking | reposition | to_target | not_found
         self.look_at = None       # "location" | "estimate"
-        self.est, self.est_w, self.est_hits, self.est_step = None, 0.0, 0, -1
-        self.confirmed = False
-        self.jump = []            # far detections waiting to be confirmed
-        self.rejected = []        # estimates that turned out empty
+        self.fusion = Estimate(cfg)  # the goal estimate from detections (est, confirmed, hits, rejected)
         self.hits = deque(maxlen=cfg["window"])
         self.fresh = 0            # confirmed-looking detections during the current look-around
         self.spin_turned, self.spin_yaw, self.repos_tries, self.repos_left, self.repos_goal = 0.0, None, 0, 0, None
@@ -346,40 +407,19 @@ class TargetSearch:
     # -- detections
 
     def _fuse(self, d):
-        cfg = self.cfg
-        p = (d["x"], d["y"])
-        if any(_dist(p, r) < cfg["fuse_radius"] for r in self.rejected):
+        if not self.fusion.add(d, self.step):
             return
-        w = d["sim"] / max(d["range"], 0.3) * (0.5 if d["edge"] else 1.0)
-        if self.est is not None and not self.confirmed and self.step - self.est_step > cfg["stale_steps"]:
-            self.est, self.est_hits = None, 0  # an unconfirmed estimate that was not seen again
-        if self.est is None:
-            self.est, self.est_w, self.est_hits, self.est_step = p, w, 1, self.step
-        elif _dist(p, self.est) <= (cfg["max_jump"] if self.confirmed else cfg["fuse_radius"]):
-            keep = self.est_w * cfg["fuse_decay"]
-            self.est = ((self.est[0] * keep + p[0] * w) / (keep + w), (self.est[1] * keep + p[1] * w) / (keep + w))
-            self.est_w, self.est_step = keep + w, self.step
-            self.est_hits += 1
-            self.jump = []
-        else:
-            self.jump = [j for j in self.jump if self.step - j[2] <= cfg["window"]] + [(p[0], p[1], self.step, w)]
-            if len(self.jump) >= cfg["confirm"]:
-                mx = sum(j[0] * j[3] for j in self.jump) / sum(j[3] for j in self.jump)
-                my = sum(j[1] * j[3] for j in self.jump) / sum(j[3] for j in self.jump)
-                if not all(_dist((j[0], j[1]), (mx, my)) <= cfg["fuse_radius"] for j in self.jump):
-                    return
-                self.est, self.est_w, self.est_step = (mx, my), sum(j[3] for j in self.jump), self.step
-                self.est_hits = len(self.jump)
-                self.jump = []
-            else:
-                return
         if self.phase == "looking":
             self.fresh += 1
-        if not self.confirmed and self.est_hits >= cfg["confirm"]:
-            self.confirmed = True
-            if self.found_step is None:
-                self.found_step = self.step
-                self.detect_dist = d["range"]
+        if self.fusion.confirmed and self.found_step is None:
+            self.found_step = self.step
+            self.detect_dist = d["range"]
+
+    # the estimate lives in self.fusion (an Estimate); these keep TargetSearch's own names
+    est = property(lambda self: self.fusion.est, lambda self, v: setattr(self.fusion, "est", v))
+    confirmed = property(lambda self: self.fusion.confirmed, lambda self, v: setattr(self.fusion, "confirmed", v))
+    est_hits = property(lambda self: self.fusion.hits, lambda self, v: setattr(self.fusion, "hits", v))
+    rejected = property(lambda self: self.fusion.rejected)
 
     # -- locations
 
@@ -413,8 +453,7 @@ class TargetSearch:
     def _finish_look(self, pose):
         if self.look_at == "estimate":
             self.false_positives += 1
-            self.rejected.append(self.est)
-            self.est, self.confirmed, self.est_hits = None, False, 0
+            self.fusion.reject()
         self._mark_covered(pose)
         self._next_location(pose)
 

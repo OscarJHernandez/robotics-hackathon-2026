@@ -47,7 +47,8 @@ The apartment (app/apartment.py): the flat's zones and obstacles, the journal, t
     POST /api/apartment/inputs          {"text": "<that JSON, edited>"}  routines replace her stated habits, a
                                         journal replaces her journal; the belief follows at once
     POST /api/apartment/clock           {"weekday": 0-6?, "time": "10:35"?}  the check-in time; {} = the real time
-    POST /api/apartment/search          {"where": "routine" | "random" | zone | "out", "miss_rate": 0.2?}  start, or 409
+    POST /api/apartment/search          {"where": "routine" | "random" | zone | "out", "miss_rate": 0.2?,
+                                         "pose": "lying" | "standing" | "random"?}  start, or 409
                                         ("random": she is in a random zone, at a random spot in it)
     POST /api/apartment/stop            {}
     POST /api/apartment/clear           {}  ready for another run: no search, Margarete out, the robot on its dock
@@ -407,7 +408,8 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "clock":
                 self.send_json(200, {"ok": True, "clock": APARTMENT.set_clock(body.get("weekday"), body.get("time"))})
             elif action == "search":
-                if APARTMENT.start(str(body.get("where", "routine")), body.get("miss_rate")):
+                if APARTMENT.start(str(body.get("where", "routine")), body.get("miss_rate"),
+                                   str(body.get("pose", "random"))):
                     self.send_json(200, {"ok": True})
                 else:
                     self.send_json(409, {"error": "a search is already running"})
@@ -581,6 +583,8 @@ def main():
     parser.add_argument("--belief", default="tabpfn", choices=("tabpfn", "counting"),
                         help="who gives the belief the search starts from: TabPFN (fit() on synthetic check-ins; "
                              "3.5 with TABPFN_TOKEN or the repo's .env, else v2) or the counting Bayes model")
+    parser.add_argument("--no-detector", action="store_true",
+                        help="no person detector (app/spotter.py): the search's looks are the mock again")
     parser.add_argument("--no-narration", action="store_true",
                         help="no metacon narration of the search (text and voice lines on every page)")
     args = parser.parse_args()
@@ -594,7 +598,11 @@ def main():
     voice.watch()
     LINE.sweep()
     SCENE = args.scene
-    ROBOT = LiveRobot(args.scene, args.driver, args.controller, student_calls=args.student_calls)
+    spotter = None
+    if args.scene == "apartment" and not args.no_detector:
+        from spotter import Spotter
+        spotter = Spotter().load_async()  # DINOv2 + her signature; the search uses the mock look until it is ready
+    ROBOT = LiveRobot(args.scene, args.driver, args.controller, student_calls=args.student_calls, spotter=spotter)
     ROBOT.wait_ready(240)  # the TabPFN controller's fit() takes a few seconds
     KNOCK = Knock(HUB, ROBOT, lambda text: voice.speak(text) if voice.available() else None)
     model = None

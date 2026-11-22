@@ -44,6 +44,14 @@ POLL = 0.25  # seconds between looks at the robot while it walks
 WALK_TIMEOUT = 40.0  # seconds a walk may take per metre of straight line, plus a minute
 TURN_TIMEOUT = 40.0
 LOOK = 0.9  # seconds a look takes
+# With the robot's person detector (app/spotter.py): how often a look-around overlooks her (the Bayesian update's
+# miss rate; measured with just search-bench), how long a look-around may take, and the close-up check.
+DETECT_MISS_RATE = 0.1
+LOOK_TIMEOUT = 90.0
+APPROACH_STOP = 0.8   # metres short of her estimate the robot stops to check
+CHECK_CYCLES = 4      # gait cycles it looks at her from there
+CHECK_HITS = 2        # matches near the estimate in those cycles that make it "found"
+POSES = ("lying", "standing")
 TICK = 0.1  # seconds between marker positions
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 NAMES = dict(F.LABELS, out="Out")
@@ -495,11 +503,20 @@ class Apartment:
 
     # ---- the search ----------------------------------------------------------------------------------
 
-    def start(self, where="routine", miss_rate=None):
-        """Start the search loop. False while one is running."""
+    def detector_ready(self):
+        """True when the robot has its person detector (app/spotter.py) loaded: then looks are real."""
+        if self._robot is None:
+            return False
+        return (self._robot.state().get("spotter") or {}).get("status") == "ready"
+
+    def start(self, where="routine", miss_rate=None, pose="random"):
+        """Start the search loop. False while one is running. `pose`: Margarete "lying", "standing" or "random"."""
         if where not in WHERE:
             raise ValueError("where must be one of: " + ", ".join(WHERE))
-        miss = S.MISS_RATE if miss_rate is None else float(miss_rate)
+        if pose not in POSES + ("random",):
+            raise ValueError("pose must be lying, standing or random")
+        detect = self.detector_ready()
+        miss = (DETECT_MISS_RATE if detect else S.MISS_RATE) if miss_rate is None else float(miss_rate)
         if not 0.0 <= miss <= 0.9:
             raise ValueError("miss_rate must be 0 to 0.9")
         with self._lock:
@@ -509,18 +526,22 @@ class Apartment:
             start = self.stages()["last_heard"]
             truth = self._truth(where, weekday, minute)
             self.search = S.Search(self.flat, start, miss)
-            person = None  # where she lies: the zone's main spot, or any of its spots for "random"
+            person = None  # where she is: the zone's main spot, or any of its spots for "random"
+            if pose == "random":
+                pose = POSES[int(np.random.default_rng().integers(len(POSES)))]
             if truth != "out":
                 spots = F.zone(self.flat, truth)["spots"]
                 spot = spots[int(np.random.default_rng().integers(len(spots)))] if where == "random" else spots[0]
                 person = (spot["person_x"], spot["person_y"], spot["heading_deg"] + 90.0)
             if self._robot is None:
                 self.robot = dict(self.flat["dock"])
-            else:  # Margarete lies where she really is; the robot starts from where it stands
-                self._robot.person(*person) if person else self._robot.person()
+            else:  # Margarete is where she really is; the robot starts from where it stands
+                self._robot.person(*person, pose=pose) if person else self._robot.person()
                 self.robot = self._pose()
             self.run = {"status": "starting", "goal": None, "truth": truth, "miss_rate": miss, "walked": 0.0,
-                        "fallbacks": 0, "contacts": 0,
+                        "fallbacks": 0, "contacts": 0, "pose": pose if person else None,
+                        "look_by": "detector" if detect else "mock", "sightings": [], "false_alarms": 0,
+                        "found_at": None, "found_error": None,
                         "person": list(person[:2]) if person else None,
                         "path": [[self.robot["x"], self.robot["y"]]]}
             self._paint(start)
@@ -530,7 +551,7 @@ class Apartment:
             self._say("Belief ({}): {}".format(self.model_info()["label"], ", ".join(
                 "{} {:.0f}%".format(NAMES[z], 100 * p) for p, z in top)), "belief")
             self._emit("start", name=self.name, top=[[z, float(p)] for p, z in top])
-            self._thread = threading.Thread(target=self._loop, args=(truth, miss), daemon=True)
+            self._thread = threading.Thread(target=self._loop, args=(truth, miss, detect), daemon=True)
             self._thread.start()
             return True
 
@@ -578,10 +599,15 @@ class Apartment:
             self._say("Reset: {} is out of the room, the robot is on its dock".format(self.name), "info")
             self._paint()
 
-    def _loop(self, truth, miss):
+    def _loop(self, truth, miss, detect=False):
+        """Propose the most likely zone, walk there, look, update; until found, nobody home or gave up.
+        `detect`: the robot's person detector looks (walking, then a look-around at the zone, then a close-up
+        check of anything it saw); else the mock look (S.observe, `miss` of the looks overlook her)."""
         rng = np.random.default_rng()
         search = self.search
         try:
+            if detect:
+                self._command("spot reset")
             while True:
                 with self._lock:
                     goal = search.goal()
@@ -592,29 +618,46 @@ class Apartment:
                         len(search.steps) + 1, NAMES[goal["zone"]], 100 * goal["p"]), "proposal")
                     self._emit("heading", zone=goal["zone"], p=float(goal["p"]), look=len(search.steps) + 1)
                     start = (self.robot["x"], self.robot["y"])
-                self._move(start, (goal["x"], goal["y"]), goal["heading_deg"])
-                with self._lock:
-                    self.run["status"] = "looking"
-                self._wait(self._look)
-                seen = bool(S.observe(goal["zone"], truth, rng, miss))
-                with self._lock:
-                    before = dict(search.belief)
-                    search.report(seen)
-                    step = search.steps[-1]
-                    self._paint(step["belief_after"])
-                    if seen:
-                        self._say("Observation: sees {} in the {}".format(self.name, NAMES[goal["zone"]].lower()), "seen")
-                    else:
-                        self._say("Observation: nobody seen in the {}".format(NAMES[goal["zone"]].lower()), "miss")
-                        rise = max((z for z in before if z != goal["zone"]),
-                                   key=lambda z: step["belief_after"][z] - before[z])
-                        self._say("Update: {} {:.0f}% -> {:.0f}%, {} {:.0f}% -> {:.0f}%".format(
-                            NAMES[goal["zone"]], 100 * before[goal["zone"]], 100 * step["belief_after"][goal["zone"]],
-                            NAMES[rise], 100 * before[rise], 100 * step["belief_after"][rise]), "update")
-                        upcoming = search.goal()  # the zone the next proposal picks (None when the search ends)
-                        self._emit("miss", zone=goal["zone"], belief={z: float(p) for z, p in step["belief_after"].items()},
-                                   next=upcoming["zone"] if upcoming else None,
-                                   next_p=float(upcoming["p"]) if upcoming else None)
+                if not detect:
+                    self._move(start, (goal["x"], goal["y"]), goal["heading_deg"])
+                    with self._lock:
+                        self.run["status"] = "looking"
+                    self._wait(self._look)
+                    self._report(search, goal, bool(S.observe(goal["zone"], truth, rng, miss)))
+                    continue
+                spotted = self._drive((goal["x"], goal["y"]), goal["heading_deg"], watch=True)
+                on_the_way = spotted is not None
+                if spotted is None:
+                    with self._lock:
+                        self.run["status"] = "looking"
+                        self._say("Looking around in the {}".format(NAMES[goal["zone"]].lower()), "look")
+                    spotted = self._look_around()
+                if spotted is None:
+                    self._report(search, goal, False)
+                    continue
+                where = self._check(spotted, goal["zone"])
+                if where is not None:
+                    zone = F.zone_at(self.flat, where[0], where[1])
+                    with self._lock:
+                        search.report_found(zone)
+                        self._paint(search.steps[-1]["belief_after"])
+                        person = self.run.get("person")
+                        error = math.hypot(where[0] - person[0], where[1] - person[1]) if person else None
+                        self.run.update(found_at=[round(where[0], 2), round(where[1], 2)],
+                                        found_error=None if error is None else round(error, 2))
+                        self._say("Observation: sees {} in the {} ({:.1f} m from the robot{})".format(
+                            self.name, NAMES[zone].lower(), math.hypot(where[0] - self.robot["x"],
+                                                                         where[1] - self.robot["y"]),
+                            "" if error is None else "; {:.2f} m from where she really is".format(error)), "seen")
+                    break
+                with self._lock:  # the close-up showed nobody: a look-alike
+                    self.run["false_alarms"] = self.run.get("false_alarms", 0) + 1
+                    self._say("False alarm: nobody there on a closer look; the robot ignores that spot now",
+                              "false_alarm")
+                self._emit("false_alarm", zone=goal["zone"])
+                self._command("spot reject")
+                if not on_the_way:  # it was the look-around of this zone: she was not seen there
+                    self._report(search, goal, False)
             with self._lock:
                 self.run.update(status=search.status, goal=None)
                 looks = len(search.steps)
@@ -673,26 +716,123 @@ class Apartment:
         except ValueError as error:
             raise _Failed(str(error))
 
-    def _drive(self, end, heading_deg):
-        """The real walk: goto, wait until the robot stands near `end`, then turn to face the zone."""
+    def _report(self, search, goal, seen):
+        """Tell the Bayesian search what the look at `goal` showed; log and narrate the update."""
+        with self._lock:
+            before = dict(search.belief)
+            search.report(seen)
+            step = search.steps[-1]
+            self._paint(step["belief_after"])
+            if seen:
+                self._say("Observation: sees {} in the {}".format(self.name, NAMES[goal["zone"]].lower()), "seen")
+                return
+            self._say("Observation: nobody seen in the {}".format(NAMES[goal["zone"]].lower()), "miss")
+            rise = max((z for z in before if z != goal["zone"]), key=lambda z: step["belief_after"][z] - before[z])
+            self._say("Update: {} {:.0f}% -> {:.0f}%, {} {:.0f}% -> {:.0f}%".format(
+                NAMES[goal["zone"]], 100 * before[goal["zone"]], 100 * step["belief_after"][goal["zone"]],
+                NAMES[rise], 100 * before[rise], 100 * step["belief_after"][rise]), "update")
+            upcoming = search.goal()  # the zone the next proposal picks (None when the search ends)
+            self._emit("miss", zone=goal["zone"], belief={z: float(p) for z, p in step["belief_after"].items()},
+                       next=upcoming["zone"] if upcoming else None,
+                       next_p=float(upcoming["p"]) if upcoming else None)
+
+    def _spotter(self, state=None):
+        return ((state or self._robot.state()).get("spotter") or {})
+
+    def _drive(self, end, heading_deg, watch=False):
+        """The real walk: goto, wait until the robot stands near `end`, then turn to face the zone. `watch`: stop
+        as soon as the person detector confirms her; returns where (x, y), else None."""
         state = self._robot.state()
         self._seen = {"fallbacks": state.get("fallbacks", 0) or 0, "contacts": state.get("contacts", 0) or 0}
         self._command("goto {:.2f} {:.2f}".format(*end))
-        self._settle(WALK_TIMEOUT * math.hypot(end[0] - self.robot["x"], end[1] - self.robot["y"]) + 60.0, near=end)
+        spotted = self._settle(WALK_TIMEOUT * math.hypot(end[0] - self.robot["x"], end[1] - self.robot["y"]) + 60.0,
+                               near=end, watch=watch)
+        if spotted is not None:
+            return spotted
         if heading_deg is not None:
             turn = (heading_deg - self._pose()["yaw_deg"] + 180.0) % 360.0 - 180.0
             if abs(turn) > 8.0:
                 self._command("turn {:.1f}".format(turn))
                 self._settle(TURN_TIMEOUT)
+        return None
 
-    def _settle(self, timeout, near=None):
-        """Wait until the robot has finished its command; follow it on the plan meanwhile."""
+    def _sighted(self, spot):
+        """The detector confirmed her: log it once, narrate it; returns (x, y)."""
+        where = (spot["x"], spot["y"])
+        with self._lock:
+            zone = F.zone_at(self.flat, where[0], where[1])
+            dist = math.hypot(where[0] - self.robot["x"], where[1] - self.robot["y"])
+            self.run["sightings"].append({"x": round(where[0], 2), "y": round(where[1], 2), "zone": zone,
+                                          "dist": round(dist, 2), "while": self.run["status"]})
+            self.run["status"] = "approaching"
+            self._say("Spotted someone {:.1f} m away, in the {} (camera match {:.2f}); going closer to check".format(
+                dist, NAMES[zone].lower(), (spot.get("match") or {}).get("sim", spot.get("best") or 0.0)), "spotted")
+        self._emit("spotted", zone=zone, metres=float(dist))
+        return where
+
+    def _look_around(self):
+        """Turn once on the spot with the detector looking; (x, y) when it confirms her, else None."""
+        self._command("look")
+        waited = 0.0
+        while True:
+            self._wait(POLL)
+            waited += POLL
+            state = self._robot.state()
+            with self._lock:
+                self.robot = self._pose()
+            spot = self._spotter(state)
+            if spot.get("confirmed"):
+                self._command("stop")
+                return self._sighted(spot)
+            look = state.get("look") or {}
+            if state.get("mode") == "idle" and not look.get("running") and waited >= 2 * POLL:
+                if look.get("blocked"):
+                    with self._lock:
+                        self._say("No room to turn all the way round here (something within {:.0f} cm); looked "
+                                  "{:.0f} degrees".format(100 * 0.33, look.get("turned_deg", 0.0)), "info")
+                return None
+            if state.get("mode") == "fallen":
+                raise _Failed("the robot fell over")
+            if waited > LOOK_TIMEOUT:
+                self._command("stop")
+                return None
+
+    def _check(self, where, zone):
+        """The close-up: walk to APPROACH_STOP short of `where`, face it, look CHECK_CYCLES cycles. (x, y) of the
+        refined estimate when CHECK_HITS matches agree, else None (a false alarm)."""
+        with self._lock:
+            self.run["status"] = "approaching"
+            rx, ry = self.robot["x"], self.robot["y"]
+        dist = math.hypot(where[0] - rx, where[1] - ry)
+        if dist > APPROACH_STOP + 0.25:
+            t = (dist - APPROACH_STOP) / dist
+            self._drive((rx + t * (where[0] - rx), ry + t * (where[1] - ry)), None)
+        pose = self._pose()
+        face = math.degrees(math.atan2(where[1] - pose["y"], where[0] - pose["x"]))
+        turn = (face - pose["yaw_deg"] + 180.0) % 360.0 - 180.0
+        if abs(turn) > 8.0:
+            self._command("turn {:.1f}".format(turn))
+            self._settle(TURN_TIMEOUT)
+        with self._lock:
+            self.run["status"] = "checking"
+        self._command("spot mark")
+        self._command("watch {}".format(CHECK_CYCLES))
+        self._settle(CHECK_CYCLES * 3.0 + 20.0, idle_modes=("watch",))
+        spot = self._spotter()
+        if spot.get("watch_hits", 0) >= CHECK_HITS and spot.get("x") is not None:
+            return (spot["x"], spot["y"])
+        return None
+
+    def _settle(self, timeout, near=None, watch=False, idle_modes=()):
+        """Wait until the robot has finished its command; follow it on the plan meanwhile. `watch`: return (x, y)
+        as soon as the person detector confirms her (and stop the walk); otherwise returns None. `idle_modes`:
+        more modes that count as "the command has started" (watch)."""
         waited, started = 0.0, False
         while True:
             self._wait(POLL)
             waited += POLL
             state = self._robot.state()
-            started = started or state.get("mode") in ("goto", "turn")
+            started = started or state.get("mode") in ("goto", "turn") + tuple(idle_modes)
             with self._lock:
                 last = self.robot
                 self.robot = self._pose()
@@ -702,6 +842,9 @@ class Apartment:
                 if math.hypot(self.robot["x"] - tail[0], self.robot["y"] - tail[1]) > 0.15:
                     self.run["path"].append([self.robot["x"], self.robot["y"]])
             self._watch(state)
+            if watch and self._spotter(state).get("confirmed"):
+                self._command("stop")
+                return self._sighted(self._spotter(state))
             if state.get("mode") == "fallen":
                 raise _Failed("the robot fell over")
             # "idle" means done only once the robot was seen walking (the simulator may take a moment to pick the
@@ -709,7 +852,7 @@ class Apartment:
             if state.get("mode") == "idle" and waited >= 2 * POLL:
                 there = near is None or math.hypot(state["x"] - near[0], state["y"] - near[1]) < 0.45
                 if there and (started or near is not None or waited > 3.0):
-                    return
+                    return None
                 if started or waited > 5.0:
                     raise _Failed("the robot stopped before it got there (another command?)")
             if waited > timeout:
@@ -778,7 +921,7 @@ class Apartment:
             day, weekday, minute = self.when()
             stages = self.stages()
             search = self.search
-            running = self.run["status"] in ("starting", "walking", "looking")
+            running = self.run["status"] in ("starting", "walking", "looking", "approaching", "checking")
             belief = dict(search.belief) if search is not None and self.run["status"] != "idle" else stages["last_heard"]
             if sum(belief.values()) <= 0:
                 belief = stages["last_heard"]
@@ -809,12 +952,17 @@ class Apartment:
                            "truth": self.run["truth"], "person": self.run.get("person"),
                            "miss_rate": self.run["miss_rate"], "path": self.run["path"],
                            "metres": self.run.get("walked", 0.0), "fallbacks": self.run.get("fallbacks", 0),
-                           "contacts": self.run.get("contacts", 0),
+                           "contacts": self.run.get("contacts", 0), "pose": self.run.get("pose"),
+                           "look_by": self.run.get("look_by", "detector" if self.detector_ready() else "mock"),
+                           "sightings": self.run.get("sightings", []), "false_alarms": self.run.get("false_alarms", 0),
+                           "found_at": self.run.get("found_at"), "found_error": self.run.get("found_error"),
                            "steps": [{"zone": s["zone"], "p": s["p_before"], "seen": s["seen"], "metres": s["metres"]}
                                      for s in (search.steps if search else [])]},
                 "robot": dict(self._pose() if self._robot is not None else self.robot),
                 "driver": robot_state.get("driver", "marker"),
                 "student": robot_state.get("student", {"status": "off"}),
+                "spotter": robot_state.get("spotter", {"status": "off"}),
+                "look": robot_state.get("look", {"running": False}),
                 "ab_driver": robot_state.get("ab_driver"),
                 "contact_points": robot_state.get("contact_points", []),
                 "route": robot_state.get("route", []) if robot_state.get("mode") == "goto" else [],

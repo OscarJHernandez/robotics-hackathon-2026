@@ -120,31 +120,52 @@ def picture_scores(sim, share, threshold, distance):
     return out
 
 
+def build_from_band(band, share, train, test, distance, min_share=0.25, precision=0.97, k=3, seed=0, groups=None):
+    """Signature from a ready horizon band (n, 46, 384) and target share (n, 46). `train` / `test`: bool per
+    picture. `groups` (one label per picture, e.g. "lying" / "standing"): k prototypes per group, so every pose
+    gets its own; None: k for all. Returns (vectors, center (384,), sim (n, 46), report)."""
+    band = np.asarray(band, dtype=np.float32)
+    positive, negative = share >= min_share, share == 0
+    center = band[train][negative[train]].mean(axis=0)
+    if groups is None:
+        vectors = unit(prototypes(band[train][positive[train]] - center, k, seed))
+    else:
+        groups = np.asarray(groups)
+        parts = []
+        for g in sorted(set(groups[train & positive.any(axis=1)])):
+            sel = train & (groups == g)
+            cols = band[sel][positive[sel]]
+            if len(cols):
+                parts.append(prototypes(cols - center, k, seed))
+        vectors = unit(np.concatenate(parts))
+    sim = similarity(band, vectors, center)
+    threshold = pick_threshold(sim[train], positive[train], negative[train], precision)
+    bg = sim[train][negative[train]]
+    report = {"min_share": min_share, "precision_goal": precision, "prototypes": int(len(vectors)),
+              "threshold": threshold, "bg_mean": float(bg.mean()), "bg_std": float(bg.std()),
+              "target_mean": float(sim[train][positive[train]].mean()),
+              "train_columns": column_scores(sim[train], positive[train], negative[train], threshold),
+              "test_columns": column_scores(sim[test], positive[test], negative[test], threshold),
+              "test_pictures": picture_scores(sim[test], share[test], threshold, distance[test])}
+    if groups is not None:
+        report["test_pictures_by_group"] = {
+            str(g): picture_scores(sim[test & (groups == g)], share[test & (groups == g)], threshold,
+                                   distance[test & (groups == g)])
+            for g in sorted(set(groups[test]))}
+    return vectors, center, sim, report
+
+
 def build(features, counts, frames, layouts, train_eps, test_eps, min_share=0.25, precision=0.97, k=3, seed=0):
     """Signature from the training layouts' target columns, threshold from the training layouts; held-out scores.
 
     Returns (vectors (k, 384), center (384,), report)."""
     episodes = np.array([f["episode"] for f in frames])
-    band = band_of(features)
-    share = target_share(counts)
-    positive, negative = share >= min_share, share == 0
-    train = np.isin(episodes, train_eps)
-    test = np.isin(episodes, test_eps)
-    center = band[train][negative[train]].mean(axis=0)
-    vectors = unit(prototypes(band[train][positive[train]] - center, k, seed))
-    sim = similarity(band, vectors, center)
-    threshold = pick_threshold(sim[train], positive[train], negative[train], precision)
-    bg = sim[train][negative[train]]
     distance = np.array([math.hypot(f["pose"][0] - layouts[f["episode"]]["target"][0],
                                     f["pose"][1] - layouts[f["episode"]]["target"][1]) for f in frames])
-    report = {"min_share": min_share, "precision_goal": precision, "prototypes": int(len(vectors)),
-              "threshold": threshold,
-              "bg_mean": float(bg.mean()), "bg_std": float(bg.std()),
-              "target_mean": float(sim[train][positive[train]].mean()),
-              "train_columns": column_scores(sim[train], positive[train], negative[train], threshold),
-              "test_columns": column_scores(sim[test], positive[test], negative[test], threshold),
-              "test_pictures": picture_scores(sim[test], share[test], threshold, distance[test]),
-              "train_episodes": [int(e) for e in train_eps], "test_episodes": [int(e) for e in test_eps]}
+    vectors, center, _, report = build_from_band(
+        band_of(features), target_share(counts), np.isin(episodes, train_eps), np.isin(episodes, test_eps),
+        distance, min_share, precision, k, seed)
+    report.update(train_episodes=[int(e) for e in train_eps], test_episodes=[int(e) for e in test_eps])
     return vectors, center, report
 
 
@@ -160,16 +181,30 @@ def main():
     parser.add_argument("--prototypes", type=int, default=3, help="signature vectors (k-means clusters)")
     parser.add_argument("--test-fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--band", action="store_true",
+                        help="the run holds band.npy, share.npy and meta.json (app/person_data.py): split by flat, "
+                             "prototypes per pose")
     args = parser.parse_args()
     run = run_dir(args.run)
     meta = json.loads((run / "meta.json").read_text())
-    frames, layouts = meta["frames"], meta["layouts"]
-    episodes = np.array([f["episode"] for f in frames])
-    train_eps, test_eps = split_episodes(episodes, args.test_fraction, args.seed)
-    features = np.load(run / "features.npy", mmap_mode="r")
-    counts = np.load(run / "patch_counts.npy")
-    vectors, center, report = build(features, counts, frames, layouts, train_eps, test_eps, args.min_share,
-                                    args.precision, args.prototypes, args.seed)
+    frames = meta["frames"]
+    if args.band:
+        episodes = np.array([f["flat"] for f in frames])
+        train_eps, test_eps = split_episodes(episodes, args.test_fraction, args.seed)
+        distance = np.array([f["dist"] if f["dist"] is not None else 0.0 for f in frames])
+        groups = np.array([f["pose"] for f in frames])
+        vectors, center, _, report = build_from_band(
+            np.load(run / "band.npy"), np.load(run / "share.npy"), np.isin(episodes, train_eps),
+            np.isin(episodes, test_eps), distance, args.min_share, args.precision, args.prototypes, args.seed, groups)
+        report.update(train_flats=[int(e) for e in train_eps], test_flats=[int(e) for e in test_eps])
+    else:
+        layouts = meta["layouts"]
+        episodes = np.array([f["episode"] for f in frames])
+        train_eps, test_eps = split_episodes(episodes, args.test_fraction, args.seed)
+        features = np.load(run / "features.npy", mmap_mode="r")
+        counts = np.load(run / "patch_counts.npy")
+        vectors, center, report = build(features, counts, frames, layouts, train_eps, test_eps, args.min_share,
+                                        args.precision, args.prototypes, args.seed)
     report.update(run=run.name, name=args.name)
     np.savez(run / "signature-{}.npz".format(args.name), vectors=vectors, center=center, threshold=report["threshold"],
              bg_mean=report["bg_mean"], bg_std=report["bg_std"], name=args.name, band_rows=np.array(BAND_ROWS))
@@ -186,6 +221,11 @@ def main():
     for b in tp["by_distance"]:
         if b["pictures"]:
             print("  {:.0f}-{:.0f} m: {:.1%} of {}".format(b["from_m"], b["to_m"], b["found_rate"], b["pictures"]))
+    for g, gp in report.get("test_pictures_by_group", {}).items():
+        if gp["pictures_with_target"]:
+            print("  {}: found in {:.1%} of {} ({})".format(g, gp["found_rate"], gp["pictures_with_target"], ", ".join(
+                "{:.0f}-{:.0f} m {:.0%}".format(b["from_m"], b["to_m"], b["found_rate"])
+                for b in gp["by_distance"] if b["pictures"])))
     print("saved", run / "signature-{}.npz".format(args.name))
 
 
