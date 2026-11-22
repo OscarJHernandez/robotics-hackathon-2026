@@ -23,7 +23,7 @@ const NODES: Node[] = [
   { id: "update", title: "Bayes update", sub: "lower the zone looked at", kind: "step", wide: { x: 344, y: 176 }, tall: 7 },
   { id: "narrate", title: "metacon narrates", sub: "text; voice on the phone", kind: "step", wide: { x: 0, y: 176, w: 196 }, tall: 8 },
   { id: "sensors", title: "Lidar + camera", sub: "its own sensors", kind: "progress", wide: { x: 344, y: 336 }, tall: 9 },
-  { id: "student", title: "TabPFN student", sub: "in progress · tested in simulation", kind: "progress", wide: { x: 560, y: 336, w: 280 }, tall: 10 },
+  { id: "student", title: "TabPFN student", sub: "live · drives the walk", kind: "progress", wide: { x: 560, y: 336, w: 280 }, tall: 10 },
 ];
 interface Shift { dy?: number; dx?: number }
 const EDGES: [string, string, Shift?][] = [
@@ -122,7 +122,7 @@ function Wide({ id }: { id: string }) {
       {/* the student would replace the route and the controller */}
       <path d={`M${student.x + student.w / 2 + 60},${student.y} V${br.y + br.h + 2}`} fill="none" stroke={AMBER} strokeWidth={1.5}
         strokeDasharray="5 4" markerEnd={`url(#${id}-p)`} />
-      <text x={student.x + student.w / 2 + 70} y={br.y + br.h + 30} fontSize={12} fill="oklch(0.9 0.1 80)">would replace</text>
+      <text x={student.x + student.w / 2 + 70} y={br.y + br.h + 30} fontSize={12} fill="oklch(0.9 0.1 80)">drives instead</text>
       {NODES.map((n) => <NodeBox key={n.id} n={n} b={at[n.id]!} />)}
     </svg>
   );
@@ -168,7 +168,7 @@ export function FlowDiagram() {
       <figcaption className="how-caption flex flex-wrap items-center gap-x-5 gap-y-2">
         <span className="inline-flex items-center gap-2"><span className="inline-block h-3 w-5 rounded-[4px] border border-[oklch(0.78_0.13_172/75%)] bg-[oklch(0.78_0.13_172/16%)]" />TabPFN model</span>
         <span className="inline-flex items-center gap-2"><span className="inline-block h-3 w-5 rounded-[4px] border border-video/20 bg-video/5" />Step</span>
-        <span className="inline-flex items-center gap-2"><span className="inline-block h-3 w-5 rounded-[4px] border border-dashed border-[oklch(0.82_0.15_80/70%)] bg-[oklch(0.82_0.15_80/9%)]" />In progress, not in the app</span>
+        <span className="inline-flex items-center gap-2"><span className="inline-block h-3 w-5 rounded-[4px] border border-dashed border-[oklch(0.82_0.15_80/70%)] bg-[oklch(0.82_0.15_80/9%)]" />Obstacle-avoiding student, in the app (fallback: A* + a → b)</span>
       </figcaption>
     </figure>
   );

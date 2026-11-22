@@ -306,3 +306,17 @@ waits up to 60 s for it, so do not keep a SQL tool connected to it while a run i
   several cycles, so "previous command" almost gives the answer. Its default inputs are the goal only.
 - **Fine-tuning was tried and dropped.** Four fine-tuning rounds gave one small gain and none after, and
   the planner without any training beat them.
+
+### The student in the app's flats (2026-11-22)
+
+`just student-bench` walks the legs of a search (dock → viewing spot → next viewing spot) in 10 random flats,
+with the furniture at home and with the four loose pieces shuffled (`homes/flats.py` `scatter`). The student
+(v29, through the TabPFN API, 54 calls) against A* + a→b, which is given the furniture's positions:
+
+| Driver | Furniture | Legs | Reached, no contact | 95% interval | Collisions |
+|---|---|---:|---:|---|---:|
+| Student | home | 50 | 98.0% | 89.5–99.6% | 2.0% |
+| Student | shuffled | 50 | 100.0% | 92.9–100% | 0.0% |
+| A* + a→b | home + shuffled | 100 | 100.0% | 96.3–100% | 0.0% |
+
+Up to 60 steps per leg, stuck rule 40 steps; no leg got stuck or timed out. Both take about 32 cycles per leg.

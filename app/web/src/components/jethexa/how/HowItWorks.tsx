@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Maximize2, X } from "lucide-react";
 import {
-  AVOID_LIMITS, EXPERT_SCREEN, FINAL, FIRST_STUDENT, HARD, LADDER, MEDIA, NARRATION, NIGHT, SEARCH, SEARCH_FAILED, SEARCH_INPUTS,
+  AVOID_LIMITS, EXPERT_SCREEN, FINAL, FIRST_STUDENT, HARD, IN_APP, LADDER, MEDIA, NARRATION, NIGHT, SEARCH, SEARCH_FAILED, SEARCH_INPUTS,
   SECTIONS, TASKS, WALK, WALK_INPUTS, WALK_OUTPUTS, WALK_VARIANTS, ZONES_CHECKED,
 } from "@/content/howItWorks";
 import { HexMark } from "../Brand";
@@ -131,7 +131,7 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
 
           {/* The flow */}
           <Section id="how-flow" num="01" title="The flow of “Find Margarete”"
-            lede="A loop: guess, walk, look, update. Two of the three models are in the loop today; the third is being tested to replace the walking part.">
+            lede="A loop: guess, walk, look, update. All three models are in the loop: the belief picks the room, the student walks there around obstacles, and A* + a → b takes over if it gets stuck.">
             <FlowDiagram />
             <p className="how-prose mt-5">{NARRATION}</p>
 
@@ -357,14 +357,35 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
           </Section>
 
           {/* 3. Avoiding furniture */}
-          <Section id="how-avoid" num="04" title="Avoiding furniture" status="progress" statusDetail="tested in simulation"
+          <Section id="how-avoid" num="04" title="Avoiding furniture" status="live" statusDetail="in the app · simulation"
             lede={<>A student model that drives to the target through a furnished room from its own sensors, picking stride and
-              turn every second. It would replace the route and the controller above. <strong className="text-video">It is not in
-              the live app.</strong></>}>
-            <div className="how-note-progress mt-6 text-[14.5px] leading-relaxed text-video/80">
-              Tested only in simulation, on a branch that is not merged yet (pull request #22). Nothing on this part runs in
-              the demo you just saw.
-            </div>
+              turn every second. <strong className="text-video">In the app it walks the search:</strong> it is not told
+              where the furniture is, so it also gets round obstacles you shuffle with “Shuffle obstacles”.</>}>
+            <Block title="In the app">
+              <div className="how-prose mb-4">
+                <p>
+                  The student only ever sees the room it was trained in. Before each decision the app copies the robot and
+                  the furniture into a plain copy of the training arena (grey floor, tall walls, no zone colours, no decor,
+                  no Margarete) and takes the camera picture there; the lidar ignores everything that has no collisions.
+                  So the flat’s colours and decoration cannot change what the policy sees. A test checks that the inputs
+                  are the same as in the training scene. Each decision is one call to Prior Labs’ hosted TabPFN 3.5 through
+                  the TabPFN client; if the student gets stuck or the API credits run out, A* + a → b walks the rest.
+                </p>
+              </div>
+              <table className="how-table">
+                <thead><tr><th scope="col">Legs of a search, 10 random flats</th><th scope="col" className="num">Reached, no contact</th><th scope="col" className="num">Collisions</th></tr></thead>
+                <tbody>
+                  {IN_APP.map((f) => (
+                    <tr key={f.run}>
+                      <td>{f.run}</td>
+                      <td className="num">{f.goal}<div className="text-[11.5px] font-normal text-video/45">95% CI {f.ci}</div></td>
+                      <td className="num">{f.collisions}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="how-caption mt-3">50 legs per row for the student, 100 for A* + a → b, up to 60 steps each. Source: data/student-bench/bench.md (just student-bench).</p>
+            </Block>
 
             <Block title="DAgger, in four steps">
               <p className="how-prose mb-4">
@@ -484,7 +505,7 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
               {[
                 { t: "Where is she", s: "live" as const, items: ["The look is simulated: a fixed 20% miss rate, no false alarms.", "Residents, routines and habits are generated: the numbers say the method works on this data, not how well it works for a real person."] },
                 { t: "Walking a → b", s: "live" as const, items: ["Tested on an empty floor.", "It avoids furniture only because the route goes around what the app knows."] },
-                { t: "Avoiding furniture", s: "progress" as const, items: ["Simulation only, with the true pose and an assumed lidar.", "Not merged, not in the app, not on the real robot."] },
+                { t: "Avoiding furniture", s: "live" as const, items: ["Simulation only, with the true pose and an assumed lidar.", "Each decision costs TabPFN API credits; not on the real robot."] },
               ].map((c) => (
                 <div key={c.t} className="apt-card">
                   <div className="mb-3 text-[14.5px] font-semibold">{c.t}</div>
@@ -497,8 +518,7 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
             </div>
             <Block title="Next">
               <ol className="how-steps how-prose">
-                <li>Merge pull request #22, the avoiding-furniture work.</li>
-                <li>Wire the student into the app, in place of the route and the controller.</li>
+                <li>Spend fewer API calls: decide every second cycle on straight stretches, or batch several robots.</li>
                 <li>Check the lidar and the odometry on the real robot, and try a denser lidar for thin table legs.</li>
               </ol>
             </Block>

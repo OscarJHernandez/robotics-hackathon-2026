@@ -19,7 +19,7 @@ export const SECTIONS: SectionInfo[] = [
   { id: "how-flow", nav: "The flow" },
   { id: "how-search", nav: "Where is she", status: "live" },
   { id: "how-walk", nav: "Walking a → b", status: "live" },
-  { id: "how-avoid", nav: "Avoiding furniture", status: "progress" },
+  { id: "how-avoid", nav: "Avoiding furniture", status: "live" },
   { id: "how-next", nav: "Limits and next" },
 ];
 
@@ -46,7 +46,7 @@ export const TASKS = [
   },
   {
     task: "Avoid furniture", section: "how-avoid",
-    tabpfn: "3.5, two command regressors", // PR #22 nav/dagger/policy.py (stride, turn)
+    tabpfn: "3.5, through the TabPFN API (one call per decision)", // PR #22 nav/dagger/policy.py (stride, turn)
     row: "Goal, lidar, camera horizon band, its own plan",
     answer: "The expert's stride and turn",
   },
@@ -152,7 +152,7 @@ export const WALK_VARIANTS = [
   },
 ];
 
-// --- 3. Avoiding furniture (in progress) --------------------------------------------------------------------
+// --- 3. Avoiding furniture (live in the app, simulation) --------------------------------------------------------------------
 // PR #22: docs/navigation.md, docs/dagger-report.md, docs/dagger/promotion.md, docs/LEARNINGS.md; STATUS.md;
 // data/nav/dagger/dagger1/rounds.json and timings.json (main checkout); docs/vision.md.
 export const FIRST_STUDENT = {
@@ -203,8 +203,18 @@ export const AVOID_LIMITS = [
   "The plan uses the simulator's true pose. Real odometry drifts, and the map would smear.",
   "The lidar's 36 rays, 0.15–8 m range and lack of noise are assumptions, not the JetHexa lidar's datasheet.",
   "8 of the 9 collisions in the final check were into table legs 5 cm across, which fall between rays 10° apart.",
-  "Not merged (PR #22), not in the live app, not on the real robot.",
+  "In the app it runs through the TabPFN API (Prior Labs' hosted TabPFN 3.5): one predict() call per decision, 10,000 credits each. When the credits run out it hands the walk to A* + a → b.",
+  "Not on the real robot.",
 ]; // dagger-report.md §6, §7
+
+/** The student in the app's flats: legs as the search walks them (dock -> viewing spot -> next spot), 10 flats,
+ *  50 legs each with the furniture "home" and "scattered", up to 60 steps; student through the TabPFN API
+ *  (54 calls). data/student-bench/bench.md, `just student-bench`, 2026-11-22. */
+export const IN_APP = [
+  { run: "Student, furniture at home", goal: "98.0%", ci: "89.5–99.6", collisions: "2.0%" },
+  { run: "Student, obstacles shuffled", goal: "100.0%", ci: "92.9–100", collisions: "0.0%" },
+  { run: "A* + a → b (knows the map)", goal: "100.0%", ci: "96.3–100", collisions: "0.0%" },
+];
 
 // --- Clips and pictures ---------------------------------------------------------------------------------
 // Source run and episode of each; the ffmpeg commands are in docs/app.md ("How it works" page).
