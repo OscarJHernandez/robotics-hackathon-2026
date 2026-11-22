@@ -4,7 +4,9 @@ No GPU, no TabPFN key and no downloads: TabPFN and DINOv2 are replaced by fakes.
 """
 
 import math
+import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -18,6 +20,19 @@ try:
     HAVE_ML = True
 except ImportError:
     HAVE_ML = False
+
+
+HAVE_MUJOCO_GL = bool(os.environ.get("MUJOCO_GL")) or sys.platform == "darwin"
+
+
+def _inside(fp, px, py):
+    """Is (px, py) inside a footprint from SimEnv.footprints()?"""
+    if fp["kind"] == "circle":
+        return math.hypot(px - fp["x"], py - fp["y"]) < fp["r"]
+    c, s = math.cos(-fp["yaw"]), math.sin(-fp["yaw"])
+    lx = c * (px - fp["x"]) - s * (py - fp["y"])
+    ly = s * (px - fp["x"]) + c * (py - fp["y"])
+    return abs(lx) < fp["hx"] and abs(ly) < fp["hy"]
 
 
 @unittest.skipUnless(HAVE_ML, "needs the ml packages: uv run --group ml --group vision")
@@ -119,6 +134,244 @@ class FeaturesTest(unittest.TestCase):
         pooled_c, pooled_d = pool_grid(classes, patches, 2)
         self.assertEqual(pooled_c.shape, (13, 23))
         self.assertEqual(int(pooled_c[0, 0]), OBSTACLE)
+
+    def test_depth_obstacles_history_and_safety(self):
+        from nav.dagger.featurize import DEPTH, Featurizer, columns, depth_obstacles
+        from nav.dagger.rollout import safety_command
+        # a level camera 0.15 m up at the robot's centre, looking along +x; a flat wall 1.0 m ahead
+        camera = {"pos": np.array([0.0, 0.0, 0.15]), "mat": np.array([[0, 0, -1], [-1, 0, 0], [0, 1, 0]], float)}
+        depth = np.full((360, 640), 1.0, np.float32)
+        d = depth_obstacles(depth, camera, (0.0, 0.0, 0.0), goal=(5.0, 5.0))
+        self.assertAlmostEqual(d["dc_ahead"], 1.0, places=3)
+        self.assertGreater(d["dc_left"], 1.0)  # the wall's left part is farther than straight ahead
+        self.assertAlmostEqual(d["dc_near"], 1.0, places=2)
+        # the same wall turned away (robot yaw 180 degrees) is behind the robot: nothing in the corridor ahead
+        self.assertEqual(depth_obstacles(depth, camera, (0.0, 0.0, math.pi))["dc_ahead"], 10.0)
+        # the target pillar is not an obstacle
+        self.assertEqual(depth_obstacles(depth, camera, (0.0, 0.0, 0.0), goal=(1.0, 0.0))["dc_ahead"], 10.0)
+
+        feature, _ = columns(2, False, True, 2)
+        self.assertEqual(len(feature), 299 * 2 + 8 + 4 + 2 * 9)
+        self.assertEqual(feature[-1], "h2_dc_near")
+        f = Featurizer("truth", patch_pool=2, depth_summary=True, history=2)
+        obs = {"seg": np.zeros((360, 640), np.int32), "depth": depth, "camera": camera,
+               "robot_pose": (0.0, 0.0, 0.0), "goal_point": (3.0, 0.0)}
+        m1, s1 = f.build_batch([obs], [None])
+        row1 = dict(zip(f.columns, m1[0]))
+        self.assertAlmostEqual(row1["h1_dc_ahead"], row1["dc_ahead"])  # first step: history repeats the present
+        far = dict(obs, depth=np.full((360, 640), 2.0, np.float32))
+        m2, s2 = f.build_batch([far], s1)
+        row2 = dict(zip(f.columns, m2[0]))
+        self.assertAlmostEqual(row2["dc_ahead"], 2.0, places=3)
+        self.assertAlmostEqual(row2["h1_dc_ahead"], 1.0, places=3)
+        self.assertAlmostEqual(row2["h2_dc_ahead"], 1.0, places=3)
+        self.assertEqual(set(s2[0]["depth"]), set(DEPTH))
+
+        safety = {"stop_distance": 0.45, "turn": 0.25}
+        near = {"dc_ahead": 0.3, "dc_left": 0.4, "dc_right": 1.5, "dc_near": 0.3}
+        self.assertEqual(safety_command((0.3, 0.05), near, safety), ((0.0, -0.25), True))  # right is freer
+        self.assertEqual(safety_command((0.3, 0.05), dict(near, dc_ahead=0.8), safety), ((0.3, 0.05), False))
+        self.assertEqual(safety_command((0.3, 0.05), near, None), ((0.3, 0.05), False))
+
+    def test_depth_only_scan_and_column_groups(self):
+        from nav.dagger.config import load_config
+        from nav.dagger.featurize import Featurizer, select_columns
+        from nav.dagger.policy import TabPFNPolicy
+        camera = {"pos": np.array([0.0, 0.0, 0.15]), "mat": np.array([[0, 0, -1], [-1, 0, 0], [0, 1, 0]], float)}
+        depth = np.full((360, 640), 3.0, np.float32)
+        depth[:, :160] = 1.0  # something close on the left quarter of the picture
+        f = Featurizer("none", patch_pool=2, depth_summary=True, history=2, depth_scan=15)
+        self.assertEqual(len(f.columns), 299 + 3 + 4 + 15 + 8)
+        self.assertFalse(any(c.startswith("pc_") or c in ("near_dist", "free_ahead") for c in f.columns))
+        obs = {"depth": depth, "camera": camera, "robot_pose": (0.0, 0.0, 0.0), "goal_point": (5.0, 0.0)}
+        m, _ = f.build_batch([obs], [None])
+        row = dict(zip(f.columns, m[0]))
+        self.assertLess(row["ds_0"], 1.3)  # leftmost direction: the close thing
+        self.assertGreater(row["ds_14"], 2.9)  # rightmost: the far wall
+        self.assertAlmostEqual(row["dc_ahead"], 3.0, places=2)
+        self.assertEqual(len(select_columns(f.columns, ["goal", "depth", "history"])), 15)
+        self.assertEqual(len(select_columns(f.columns, ["goal", "depth", "history", "scan"])), 30)
+        self.assertEqual(len(select_columns(f.columns, ["goal", "depth", "history", "patch_depth"])), 314)
+        cfg = load_config(str(Path(__file__).resolve().parent.parent / "nav" / "dagger" / "depth.yaml"))
+        self.assertEqual(Featurizer.from_config(cfg["features"], Path("."), None).columns, f.columns)
+        cols = select_columns(f.columns, cfg["student"]["column_groups"])
+        policy = TabPFNPolicy(cols, []).use_source_columns(f.columns)
+        self.assertEqual([f.columns[i] for i in policy.source_index], cols)
+
+    def test_lidar_strip_columns_and_api_timeout(self):
+        from nav.dagger.config import load_config
+        from nav.dagger.featurize import Featurizer, lidar_summary, select_columns
+        from nav.dagger.policy import call_api
+        ranges = np.full(36, 10.0, np.float32)
+        ranges[0] = 0.8   # straight ahead
+        ranges[9] = 0.5   # 90 degrees: left
+        ranges[18] = 2.0  # behind
+        s = lidar_summary(ranges)
+        self.assertAlmostEqual(s["lc_ahead"], 0.8, places=5)
+        self.assertAlmostEqual(s["lc_left"], 0.5, places=5)
+        self.assertEqual(s["lc_right"], 10.0)
+        self.assertAlmostEqual(s["lc_rear"], 2.0, places=5)
+        self.assertAlmostEqual(s["lc_near"], 0.5, places=5)
+
+        rng = np.random.default_rng(1)
+        pca = {"mean": np.zeros(384, np.float32), "components": rng.normal(size=(3, 384)).astype(np.float32),
+               "band": 6, "cells": 23, "fake": True}
+        f = Featurizer("strip", patch_pool=2, patch_depths=False, history=2, lidar_beams=36, strip_pca=pca)
+        self.assertEqual(len(f.columns), 3 + 36 + 5 + 69 + 10)
+        self.assertFalse(any(c.startswith(("pc_", "pd_", "dc_", "ds_")) for c in f.columns))
+        camera = {"pos": np.array([0.0, 0.0, 0.15]), "mat": np.array([[0, 0, -1], [-1, 0, 0], [0, 1, 0]], float)}
+        band = np.zeros((6, 46, 384), np.float32)
+        band[2:4, :2] = 1.0  # the horizon rows, first 2 columns = cell 0
+        obs = {"depth": np.full((360, 640), 3.0, np.float32), "camera": camera, "robot_pose": (0.0, 0.0, 0.0),
+               "goal_point": (2.0, 0.0), "lidar": ranges, "band": band}
+        m, st = f.build_batch([obs], [None])
+        row = dict(zip(f.columns, m[0]))
+        self.assertAlmostEqual(row["lr_9"], 0.5, places=5)
+        self.assertAlmostEqual(row["h1_lc_left"], 0.5, places=5)  # first step: history repeats the present
+        expected = pca["components"] @ np.ones(384, np.float32)
+        self.assertAlmostEqual(row["dp_0_0"], float(expected[0]), places=3)
+        self.assertAlmostEqual(row["dp_1_0"], 0.0, places=5)
+        self.assertIn("dc_ahead", st[0]["depth"])  # the safety stop still gets the depth camera's distance
+        cfg = load_config(str(Path(__file__).resolve().parent.parent / "nav" / "dagger" / "lidar.yaml"))
+        self.assertEqual(len(select_columns(f.columns, cfg["student"]["column_groups"])), 123)
+
+        calls = {"n": 0}
+
+        def slow_then_fast():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                time.sleep(1.0)
+            return "ok"
+
+        self.assertEqual(call_api(slow_then_fast, state={"last": 0.0}, timeout=0.2), "ok")
+        self.assertEqual(calls["n"], 2)
+
+    def test_leg_aware_lidar_safety(self):
+        from nav.dagger.rollout import lidar_safety
+        safety = {"stop_distance": 0.48, "corridor": 0.32, "side_clearance": 0.32, "nudge": 0.1,
+                  "sweep_radius": 0.35, "turn": 0.25}
+
+        def beams(**hits):  # degrees -> range in metres, everything else free
+            r = np.full(36, 10.0, np.float32)
+            for deg, dist in hits.items():
+                r[int(deg[1:]) // 10] = dist
+            return r
+
+        self.assertEqual(lidar_safety((0.3, 0.0), beams(), safety), ((0.3, 0.0), ""))
+        # something 0.4 m ahead: no stride; it turns on the spot toward the freer side
+        (stride, turn), rule = lidar_safety((0.3, 0.0), beams(a0=0.4, a90=0.6), safety)
+        self.assertEqual(stride, 0.0)
+        self.assertLess(turn, 0)  # left is closer (0.6 m at 90 degrees), so it turns right
+        self.assertIn("stop", rule)
+        # the corridor covers the legs: a hit at 30 degrees, 0.5 m away, is 0.25 m to the side -> still a stop
+        self.assertIn("stop", lidar_safety((0.3, 0.0), beams(a30=0.5), safety)[1])
+        # walking past something 0.28 m to the left: turn away (right) at least the nudge
+        (stride, turn), rule = lidar_safety((0.3, 0.05), beams(a90=0.28), safety)
+        self.assertEqual(stride, 0.3)
+        self.assertLessEqual(turn, -0.1)
+        self.assertIn("side", rule)
+        # a left turn with an obstacle 0.3 m front-left would swing the front legs into it: flipped right
+        (stride, turn), rule = lidar_safety((0.0, 0.2), beams(a40=0.3), safety)
+        self.assertLess(turn, 0)
+        self.assertIn("sweep", rule)
+        # rear-right is also bad for a left turn (the rear legs swing that way)
+        self.assertLess(lidar_safety((0.0, 0.2), beams(a220=0.3), safety)[0][1], 0)
+        # a right turn there is fine
+        self.assertEqual(lidar_safety((0.0, -0.2), beams(a40=0.3), safety), ((0.0, -0.2), ""))
+
+    def test_edge_recovery_and_backward_strides(self):
+        from nav.dagger import STRIDE
+        from nav.dagger.expert import Expert, recovery_command
+        from nav.dagger.policy import choose_context
+        from nav.dagger.rollout import lidar_safety
+        import pandas as pd
+        box = {"kind": "box", "x": 1.0, "y": 0.0, "yaw": 0.0, "hx": 0.2, "hy": 0.5}  # front face at x = 0.8
+        state = {"key": "t", "footprints": [box], "half": 3.5, "goal": (2.5, 2.0), "pose": (0.55, 0.1, 0.0)}
+        # 0.25 m from the box, which is ahead and a little to the right: back up, turn left (away from it)
+        stride, turn = recovery_command(state)
+        self.assertLess(stride, 0)
+        self.assertGreater(turn, 0)
+        # clear of everything: no recovery
+        self.assertIsNone(recovery_command(dict(state, pose=(0.0, 0.0, 0.0))))
+        # the box behind the robot: no recovery (normal path following moves away from it)
+        self.assertIsNone(recovery_command(dict(state, pose=(0.55, 0.1, math.pi))))
+        # the box beside the robot, 0.27 m away, heading 30 degrees into it (box on the right): step back
+        # slightly and turn left, away from it
+        stride, turn = recovery_command(dict(state, pose=(0.53, 0.1, math.pi / 2 - math.radians(30))))
+        self.assertLess(stride, 0)
+        self.assertGreater(stride, -0.1)
+        self.assertGreater(turn, 0)
+        # the same spot walking alongside it (parallel), as the plain expert passes edges: no recovery
+        self.assertIsNone(recovery_command(dict(state, pose=(0.53, 0.1, math.pi / 2))))
+        expert = Expert(recover={"clearance": 0.30, "back_stride": -0.12, "turn": 0.2, "cone": 45})
+        stride, turn = expert.act(state)
+        self.assertTrue(expert.recovering)
+        self.assertEqual(stride, -0.12)
+        expert.act(dict(state, pose=(-1.0, -1.0, 0.0)))
+        self.assertFalse(expert.recovering)
+        self.assertEqual(STRIDE[0], -0.15)
+        # backing into something 0.35 m behind: the rear rule stops it
+        r = np.full(36, 10.0, np.float32)
+        r[18] = 0.33  # behind (the lidar is 2.3 cm behind the centre: 0.353 m from the centre)
+        safety = {"stop_distance": 0.48, "corridor": 0.32, "rear_distance": 0.40, "sweep_radius": 0.35}
+        (stride, _), rule = lidar_safety((-0.12, 0.0), r, safety)
+        self.assertEqual(stride, 0.0)
+        self.assertIn("rear", rule)
+        self.assertEqual(lidar_safety((-0.12, 0.0), np.full(36, 10.0, np.float32), safety)[0][0], -0.12)
+        # the balanced context keeps the rare backing-up rows in their own bin
+        table = pd.DataFrame({"y_stride": [0.3] * 900 + [0.0] * 90 + [-0.12] * 10, "y_turn": [0.0] * 1000})
+        self.assertEqual(int((choose_context(table, 100).y_stride < 0).sum()), 10)
+
+    @unittest.skipUnless(HAVE_MUJOCO_GL, "needs MuJoCo rendering")
+    def test_replay_adds_the_same_depth_columns(self):
+        import pandas as pd
+        from nav.dagger.augment import new_columns, replay_episode
+        from nav.dagger.env import SimEnv
+        from nav.dagger.expert import Expert
+        from nav.dagger.featurize import Featurizer
+        f = Featurizer("none", patch_pool=2, patch_depths=False, depth_summary=True, depth_scan=15, history=2)
+        expert = Expert()
+        env = SimEnv(7, 3, expert=expert)
+        obs, state, rows, live = env.reset(), None, [], []
+        for step in range(12):  # record a short expert episode with the live featurizer
+            m, states = f.build_batch([obs], [state])
+            state = states[0]
+            live.append(dict(zip(f.columns, m[0])))
+            x, y, yaw = env.pose()
+            cmd = expert.act(env.state())
+            obs, info = env.step(cmd)
+            rows.append({"episode": 1, "scene_id": 7, "seed": 3, "step": step, "x": x, "y": y,
+                         "executed_stride": info["stride"], "executed_turn": info["turn"],
+                         "done_reason": info["done_reason"]})
+            if info["done"]:
+                break
+        env.close()
+        replay_env = SimEnv(7, 3, expert=Expert())
+        frame, deviation, _ = replay_episode(replay_env, pd.DataFrame(rows), 15, 2, 10.0)
+        replay_env.close()
+        self.assertLess(deviation, 1e-6)
+        self.assertEqual(len(new_columns(15, 2)), 4 + 15 + 8)
+        for name in ["dc_ahead", "dc_near", "ds_0", "ds_7", "ds_14", "h1_dc_ahead", "h2_dc_left"]:
+            np.testing.assert_allclose(frame[name].to_numpy(), [r[name] for r in live], atol=1e-4, err_msg=name)
+
+    @unittest.skipUnless(HAVE_MUJOCO_GL, "needs MuJoCo rendering")
+    def test_lidar_in_the_sim_matches_the_furniture(self):
+        from nav.dagger.env import SimEnv
+        env = SimEnv(100012, 99)
+        obs = env.reset()
+        self.assertEqual(obs["lidar"].shape, (36,))
+        _, _, yaw = obs["robot_pose"]
+        x, y, _ = env.sim.data.geom("lidar_geom").xpos  # beams start at the lidar, 2.3 cm behind the centre
+        for k in (0, 9, 18, 27):  # check four beams against the true footprints in the lidar plane
+            a = yaw + math.radians(10 * k)
+            truth = 10.0
+            for t in np.arange(0.05, 10.0, 0.01):
+                px, py = x + t * math.cos(a), y + t * math.sin(a)
+                if abs(px) > 3.5355 or abs(py) > 3.5355 or any(_inside(fp, px, py) for fp in env.footprints()):
+                    truth = t
+                    break
+            self.assertLess(abs(float(obs["lidar"][k]) - truth), 0.06, "beam {}".format(k))
+        env.close()
 
     def test_repool_matches_live_pooling(self):
         import pandas as pd

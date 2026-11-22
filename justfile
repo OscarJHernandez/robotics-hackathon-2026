@@ -86,6 +86,18 @@ dagger-merge *args:
 dagger-bench *args:
     uv run --group ml --group vision python -m nav.dagger.bench {{ args }}
 
+# Film recorded DAgger episodes (camera, map with lidar, lidar heatmap, DINOv2 strip): just dagger-video --run R --round heldout --episodes 99000012
+dagger-video *args:
+    uv run --group ml --group vision python -m nav.dagger.video {{ args }}
+
+# Add depth-camera columns to recorded rounds by exact replay: just dagger-augment --run R --rounds 0 1 --out R2 --config nav/dagger/lidar3.yaml
+dagger-augment *args:
+    uv run --group ml --group vision python -m nav.dagger.augment {{ args }}
+
+# Fit the 3-value PCA of DINOv2 features on the horizon strip (once per vision run): just strip-pca full60
+strip-pca run="full60":
+    cd vision && uv run --group vision python strip_pca.py {{ run }}
+
 # Run the DAgger tests
 test-dagger:
     uv run --group ml --group vision python -m unittest tests.test_dagger -v

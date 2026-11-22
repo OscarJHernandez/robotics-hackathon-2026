@@ -4,7 +4,16 @@ Each episode is replayed exactly from the dataset (same scene, start seed and ex
 physics is deterministic) and checked against the recorded poses. Frames (1280 x 720, 2x real time):
 
     robot camera with the patch probe's classes | chase camera
-    top-down map: furniture, path, target         | step, commands (expert / student / executed), outcome
+    top-down map: furniture, path, target, lidar  | step, commands (expert / student / executed), safety, outcome
+    lidar ranges as a heatmap around the robot    | DINOv2 horizon strip: its 3 PCA values as R, G, B
+
+Frames are 1280 x 1080. Lidar colours everywhere: red = near, blue = DEPTH_MAX (5 m) or more. The map
+draws the live 36 beams in those colours; the lidar panel shows the same 36 ranges around the robot
+(heading up, one 10 degree wedge per beam, wedge length = range up to 3 m) and unrolled as a bar from
+behind-left through ahead to behind-right. The strip panel colours the 23 horizon cells the student sees
+(dp_* columns of the recorded row; R, G, B = PCA components 1, 2, 3, each scaled by its 2nd to 98th
+percentile over the round) on a dimmed camera picture, with an enlarged copy of the same strip below it.
+The map also shows the legs' reach (0.29 m, grey circle) and the turn-sweep tolerance (0.35 m, dashed).
 
 Writes data/nav/dagger/<run>/videos/round<R>-episode<E>.mp4 (needs ffmpeg).
 """
@@ -44,9 +53,23 @@ def font(size):
         return ImageFont.load_default()
 
 
+DEPTH_MAX = 5.0  # metres: the depth heatmap's colour scale
+STRIP_ROWS = (12, 14)  # the 2 patch rows (of 26) on the horizon that the strip cells average
+
+
+def strip_scale(table):
+    """Per PCA component (2nd, 98th percentile) over a round's dp_* columns, or None without them."""
+    cols = [c for c in table.columns if c.startswith("dp_")]
+    if not cols:
+        return None
+    values = table[cols].to_numpy().reshape(len(table), -1, 3)
+    return np.percentile(values.reshape(-1, 3), [2, 98], axis=0)
+
+
 class Filmer:
-    def __init__(self, env, probe, dino):
+    def __init__(self, env, probe, dino, scale=None):
         self.env, self.probe, self.dino = env, probe, dino
+        self.scale = scale  # strip_scale() of the round, for the PCA colours
         model = env.sim.model
         self.chase = mujoco.Renderer(model, height=H, width=W)
         self.camera = mujoco.MjvCamera()
@@ -89,6 +112,19 @@ class Filmer:
             xs, ys = zip(*self.path)
             ax.plot(xs, ys, color="#2a6fdb", lw=2)
         x, y, yaw = self.env.pose()
+        ranges = self.env.lidar()
+        ox, oy, _ = self.env.sim.data.geom("lidar_geom").xpos
+        cmap = plt.get_cmap("turbo_r")
+        for k, r in enumerate(ranges):
+            a = yaw + k * 2 * math.pi / len(ranges)
+            hx, hy = ox + r * math.cos(a), oy + r * math.sin(a)
+            colour = cmap(min(1.0, r / DEPTH_MAX))
+            hit = r < 9.99
+            ax.plot([ox, hx], [oy, hy], color=colour, lw=0.9, alpha=0.7 if hit else 0.2)
+            if hit:
+                ax.plot(hx, hy, marker="o", ms=3.5, color=colour)
+        ax.add_patch(plt.Circle((x, y), 0.29, fill=False, lw=1.2, color="0.35"))  # leg reach
+        ax.add_patch(plt.Circle((x, y), 0.35, fill=False, lw=1.0, ls="--", color="0.35"))  # sweep tolerance
         ax.arrow(x, y, 0.3 * math.cos(yaw), 0.3 * math.sin(yaw), width=0.04, color="#123a80")
         fig.canvas.draw()
         image = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
@@ -112,17 +148,81 @@ class Filmer:
             "",
             "goal {:.2f} m away".format(math.hypot(row["goal_x"] - self.env.pose()[0], row["goal_y"] - self.env.pose()[1])),
         ]
+        if "lc_ahead" in row:
+            lines.append("lidar  ahead {:.2f} m   nearest {:.2f} m".format(row["lc_ahead"], row["lc_near"]))
+        if "safety_rule" in row and isinstance(row["safety_rule"], str):
+            lines.append("safety  " + (row["safety_rule"] or "-"))
         for i, line in enumerate(lines):
-            draw.text((24, 70 + 30 * i), line, fill=(40, 40, 40), font=small)
+            draw.text((24, 62 + 26 * i), line, fill=(40, 40, 40), font=small)
         if outcome:
             draw.rectangle((24, H - 64, W - 24, H - 20), fill=REASON_COLOR.get(outcome, (90, 90, 90)))
             draw.text((40, H - 58), "episode ends: " + outcome, fill=(255, 255, 255), font=big)
         return np.asarray(panel)
 
+    def lidar_view(self):
+        """The 36 lidar ranges as a heatmap: wedges around the robot (heading up) and an unrolled bar."""
+        ranges = np.asarray(self.env.lidar(), np.float64)
+        n = len(ranges)
+        cmap = plt.get_cmap("turbo_r")
+        colours = cmap(np.clip(ranges / DEPTH_MAX, 0, 1))
+        fig = plt.figure(figsize=(W / 100, H / 100), dpi=100)
+        ax = fig.add_axes([0.07, 0.27, 0.4, 0.64], projection="polar")
+        ax.set_theta_zero_location("N")  # ahead is up; beams count counter-clockwise (left)
+        angles = np.arange(n) * 2 * np.pi / n
+        ax.bar(angles, np.minimum(ranges, 3.0), width=2 * np.pi / n, color=colours, edgecolor="white", lw=0.4)
+        ax.plot(np.linspace(0, 2 * np.pi, 100), np.full(100, 0.29), color="0.2", lw=1.2)  # leg reach
+        ax.set_ylim(0, 3.0)
+        ax.set_yticks([0.5, 1, 2, 3])
+        ax.set_yticklabels(["0.5", "1", "2", "3 m"], fontsize=7)
+        ax.set_xticks([0, np.pi / 2, np.pi, 3 * np.pi / 2])
+        ax.set_xticklabels(["ahead", "left", "behind", "right"], fontsize=8)
+        bar = fig.add_axes([0.04, 0.06, 0.92, 0.1])
+        order = [(k + n // 2) % n for k in range(n)][::-1]  # behind via left, ahead in the middle, right, behind
+        bar.imshow(colours[order][None, :, :3], aspect="auto")
+        bar.set_yticks([])
+        bar.set_xticks([0, n // 4, n // 2, 3 * n // 4, n - 1])
+        bar.set_xticklabels(["behind", "left", "ahead", "right", "behind"], fontsize=8)
+        legend = fig.add_axes([0.58, 0.32, 0.38, 0.06])
+        legend.imshow(cmap(np.linspace(0, 1, 100))[None, :, :3], aspect="auto")
+        legend.set_yticks([])
+        legend.set_xticks([0, 99])
+        legend.set_xticklabels(["0 m", "{:.0f} m+".format(DEPTH_MAX)], fontsize=8)
+        fig.text(0.58, 0.45, "lidar ranges\nred = near, blue/black = far\nnearest {:.2f} m".format(ranges.min()), fontsize=11)
+        fig.canvas.draw()
+        image = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
+        plt.close(fig)
+        return np.asarray(Image.fromarray(image).resize((W, H)))
+
+    def strip_view(self, row):
+        rgb = self.env.sim.render().astype(np.float32)
+        panel = Image.fromarray((0.45 * rgb).astype(np.uint8))
+        draw = ImageDraw.Draw(panel)
+        cols = sorted((c for c in row.index if isinstance(c, str) and c.startswith("dp_")),
+                      key=lambda c: tuple(int(v) for v in c.split("_")[1:]))
+        if not cols or self.scale is None:
+            draw.text((24, 24), "no DINOv2 strip features in this run", fill=(255, 255, 255), font=font(22))
+            return np.asarray(panel)
+        values = np.asarray([row[c] for c in cols], np.float64).reshape(-1, 3)
+        lo, hi = self.scale
+        colours = (np.clip((values - lo) / np.maximum(hi - lo, 1e-9), 0, 1) * 255).astype(np.uint8)
+        cells = len(colours)
+        top, bottom = (int(round(r * H / 26)) for r in STRIP_ROWS)
+        for k, c in enumerate(colours):  # the cells in place on the picture ...
+            x0, x1 = int(k * W / cells), int((k + 1) * W / cells)
+            draw.rectangle((x0, top, x1 - 1, bottom), fill=tuple(int(v) for v in c))
+            draw.rectangle((x0, H - 96, x1 - 1, H - 36), fill=tuple(int(v) for v in c))  # ... and enlarged below
+        draw.rectangle((10, 10, 520, 40), fill=(0, 0, 0))
+        draw.text((18, 14), "DINOv2 horizon strip (23 cells): PCA 1, 2, 3 = R, G, B", fill=(255, 255, 255), font=font(18))
+        draw.text((18, H - 120), "the same 23 cells, enlarged:", fill=(230, 230, 230), font=font(16))
+        draw.text((18, H - 30), "left of view", fill=(230, 230, 230), font=font(16))
+        draw.text((W - 120, H - 30), "right of view", fill=(230, 230, 230), font=font(16))
+        return np.asarray(panel)
+
     def frame(self, footprints, goal, title, row, step, steps, outcome=""):
         top = np.concatenate([self.eye_with_classes(), self.chase_view()], axis=1)
-        bottom = np.concatenate([self.map_view(footprints, goal), self.info_view(title, row, step, steps, outcome)], axis=1)
-        return np.concatenate([top, bottom], axis=0)
+        middle = np.concatenate([self.map_view(footprints, goal), self.info_view(title, row, step, steps, outcome)], axis=1)
+        bottom = np.concatenate([self.lidar_view(), self.strip_view(row)], axis=1)
+        return np.concatenate([top, middle, bottom], axis=0)
 
 
 def film(run, round_, episode, config, probe, dino, out):
@@ -135,7 +235,7 @@ def film(run, round_, episode, config, probe, dino, out):
     env = SimEnv(simple=env_cfg["simple"], goal_radius=env_cfg["goal_radius"], max_steps=env_cfg["max_steps"],
                  min_start_dist=env_cfg["min_start_dist"], expert=expert)
     env.reset(int(rows["scene_id"][0]), int(rows["seed"][0]))
-    filmer = Filmer(env, probe, dino)
+    filmer = Filmer(env, probe, dino, strip_scale(table))
     footprints, goal = env.footprints(), env.goal
     outcome = rows["done_reason"].iloc[-1]
     share = rows["used_expert"].mean()
@@ -143,7 +243,7 @@ def film(run, round_, episode, config, probe, dino, out):
               else "mixed: expert {:.0%} of steps".format(share))
     title = "round {} ep. {}: scene {}, {}".format(round_, episode, int(rows["scene_id"][0]), driver)
     ffmpeg = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
-                               "-s", "{}x{}".format(2 * W, 2 * H), "-r", str(FPS), "-i", "-", "-c:v", "libx264",
+                               "-s", "{}x{}".format(2 * W, 3 * H), "-r", str(FPS), "-i", "-", "-c:v", "libx264",
                                "-pix_fmt", "yuv420p", "-crf", "23", str(out)], stdin=subprocess.PIPE)
     deviation = 0.0
     counter = {"n": 0}

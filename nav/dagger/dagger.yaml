@@ -37,9 +37,19 @@ features:
                        # 1 = all 26 x 46 patches (2,400 columns). Re-pool old runs: python -m nav.dagger.repool
   depth_cap: 10.0      # metres
   use_prev_command: false
+  depth_summary: true  # + dc_ahead, dc_left, dc_right, dc_near: obstacle distances from the depth camera alone
+  history: 2           # + the obstacle summary and depth distances of the 2 previous steps (h1_*, h2_*)
+                       # with both: 606 + 4 + 2 x 9 = 628 columns
+
+safety:                # depth-camera stop, applied only when the student's command is executed
+  enabled: true
+  stop_distance: 0.45  # metres from the body centre to the nearest obstacle in the robot-wide corridor ahead
+  turn: 0.25           # then: no stride, turn on the spot toward the freer side (dc_left vs dc_right)
 
 student:
   model_version: v3.5
-  device: auto         # cuda, then mps, then cpu
+  backend: api         # local: TabPFN on this machine; api: Prior Labs' hosted TabPFN (tabpfn-client), which
+                       # uploads the rows and uses the account's monthly quota on every predict()
+  device: auto         # cuda, then mps, then cpu (local backend only)
   n_estimators: 4
-  max_context_rows: null   # null = every aggregated row
+  max_context_rows: 8000   # rows spread evenly over the expert's stride and turn bins; null = every aggregated row

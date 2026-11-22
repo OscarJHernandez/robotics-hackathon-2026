@@ -4,7 +4,8 @@ A scene id fixes the obstacle layout and the target pillar (the goal); the episo
 `reset()` returns an observation, `step((stride, turn))` returns (observation, info):
 
     obs  = {"rgb": uint8 (360, 640, 3), "depth": float32 metres (360, 640), "seg": class map or None,
-            "robot_pose": (x, y, yaw), "goal_point": (x, y)}
+            "robot_pose": (x, y, yaw), "goal_point": (x, y), "camera": {"pos": (3,), "mat": (3, 3)},
+            "lidar": float32 metres (36,), beam k at k * 10 degrees counter-clockwise from ahead}
     info = {"collision": bool, "done": bool, "done_reason": "" | "goal" | "collision" | "timeout" | "fell"}
 
 Collision = any contact between a robot geom and a wall or obstacle geom, checked every 20 ms.
@@ -15,15 +16,17 @@ import math
 import mujoco
 import numpy as np
 
-from nav.common import CONTROL_DT, CYCLE, FALLEN, PHASE0, clip_command
+from nav.common import CONTROL_DT, CYCLE, FALLEN, PHASE0, TURN_RANGE
 
-from . import REPO  # noqa: F401  (sets sys.path for sim/ and vision/)
+from . import REPO, STRIDE  # noqa: F401  (sets sys.path for sim/ and vision/)
 from .timing import Timer
 
 from jethexa_sim import tripod_targets  # noqa: E402
 from scene import HALF, ROBOT_RADIUS, Arena  # noqa: E402
 
 CLEARANCE_HEIGHT = 0.25  # metres: shapes whose bottom is above this (the table top) do not block the robot
+LIDAR_BEAMS = 36  # horizontal lidar at lidar_geom (about 0.15 m above the floor): one beam per 10 degrees
+LIDAR_CUTOFF = 10.0  # metres
 LAYOUT_ATTEMPTS = 20
 
 
@@ -48,6 +51,8 @@ class SimEnv:
         names = [model.geom(g).name for g in range(model.ngeom)]
         self._solid_geom = np.array([n.startswith(("wall_", "obs_")) for n in names])
         self._solid_ids = np.flatnonzero(self._solid_geom)
+        self._target_geom = model.geom("target_geom").id
+        self._floor_geom = model.geom("floor").id
         self.goal_radius, self.max_steps, self.min_start_dist = goal_radius, max_steps, min_start_dist
         self.segmentation = segmentation
         self.expert = expert  # used by reset() to make sure the start can reach the goal
@@ -90,7 +95,7 @@ class SimEnv:
 
     def step(self, cmd, on_control=None):
         """One gait cycle with `cmd` = (stride, turn). `on_control(env)` runs after every 20 ms (videos)."""
-        stride, turn = clip_command(*cmd)
+        stride, turn = float(np.clip(cmd[0], *STRIDE)), float(np.clip(cmd[1], *TURN_RANGE))
         sim = self.sim
         collision = fell = reached = False
         last = self.pose()
@@ -135,7 +140,45 @@ class SimEnv:
         if self.segmentation:
             with self.timer("render_seg"):
                 seg = self.arena.class_map()
-        return {"rgb": rgb, "depth": depth, "seg": seg, "robot_pose": self.pose(), "goal_point": self.goal}
+        cam = self.sim.data.cam("eye")
+        camera = {"pos": cam.xpos.copy(), "mat": cam.xmat.reshape(3, 3).copy()}  # world pose of the depth camera
+        with self.timer("lidar"):
+            lidar = self.lidar()
+        return {"rgb": rgb, "depth": depth, "seg": seg, "robot_pose": self.pose(), "goal_point": self.goal,
+                "camera": camera, "lidar": lidar}
+
+    def lidar(self, n=LIDAR_BEAMS, cutoff=LIDAR_CUTOFF):
+        """A horizontal 360 degree lidar at the robot's lidar mount: n ranges in metres, beam k at bearing
+        k * 360/n degrees in the body frame (0 = ahead, counter-clockwise), `cutoff` where nothing is hit.
+
+        Rays only see geom group 0 (walls, furniture, the floor and the target pillar; the robot is in
+        groups 1 to 3). A hit on the pillar (no collisions) is cast again from just behind it; a hit on the
+        floor (the body tilting while it walks) counts as nothing in the way."""
+        model, data = self.sim.model, self.sim.data
+        origin = data.geom("lidar_geom").xpos.copy()
+        angles = np.arange(n) * (2 * math.pi / n)
+        local = np.stack([np.cos(angles), np.sin(angles), np.zeros(n)], axis=1)
+        vec = local @ data.body("body").xmat.reshape(3, 3).T  # body frame -> world
+        geomid = np.zeros(n, np.int32)
+        dist = np.zeros(n, np.float64)
+        group = np.array([1, 0, 0, 0, 0, 0], np.uint8)
+        mujoco.mj_multiRay(model, data, origin, vec.reshape(-1), group, 1, -1, geomid, dist, None, n, cutoff)
+        out = np.where(dist < 0, cutoff, dist)
+        for k in range(n):
+            start, travelled = origin, 0.0
+            for _ in range(3):  # pass through the pillar, at most a few times
+                if dist[k] < 0 or geomid[k] != self._target_geom:
+                    break
+                travelled += dist[k] + 0.08
+                start = origin + vec[k] * travelled
+                one = np.zeros(1, np.int32)
+                dist[k] = mujoco.mj_ray(model, data, start, vec[k], group, 1, -1, one)
+                geomid[k] = one[0]
+            if dist[k] < 0 or geomid[k] == self._floor_geom or geomid[k] == self._target_geom:
+                out[k] = cutoff
+            else:
+                out[k] = min(cutoff, travelled + dist[k])
+        return out.astype(np.float32)
 
     def _touching(self):
         data = self.sim.data

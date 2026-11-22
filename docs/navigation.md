@@ -158,7 +158,9 @@ The controllers above walk an empty floor. `nav/dagger/` drives the robot to the
 
 Settings are in `nav/dagger/dagger.yaml`. TabPFN 3.5 needs an API key from https://ux.priorlabs.ai with
 the 3.5 licence accepted once: set `TABPFN_TOKEN`, or put `TABPFN_TOKEN=...` in the repo's `.env`
-(gitignored, never commit it). Inference stays on the machine; only the key is checked online.
+(gitignored, never commit it). With `student.backend: local` inference stays on the machine and only the
+key is checked online; with `backend: api` (the default in the configs since 2026-11-22) it runs on Prior
+Labs' servers through `tabpfn-client` (see "Inputs, settings and results" below).
 
 ```bash
 just dagger local --run try1 --smoke          # every round on this machine, tiny: about 3 minutes
@@ -176,6 +178,74 @@ executed commands, labels, pose, done reason), `round_<N>.json` (outcome rates),
 `timings.json`, and `logs/<host>-r<round>-p<process>.log` and `.jsonl`: start (machine, versions, config),
 a heartbeat every 30 s (episodes done, steps per second, elapsed, ETA, finish time, outcomes, time per
 phase) and one line per episode. Linux needs headless OpenGL: `MUJOCO_GL=egl` is set automatically.
+
+### Inputs, settings and results (2026-11-22)
+
+Every student below is TabPFN 3.5 fitted on 8,000 rows (`max_context_rows`, spread evenly over bins of
+the expert's stride and turn, with backing up in its own bin), driving alone (beta 0) in the 200 held-out
+layouts with its safety layer on. Same layouts for every row of the results table, so the numbers compare.
+
+| Config | Perception | Student columns | Safety | Goal | Collision | Timeout |
+|---|---|---|---|---|---|---|
+| `dagger.yaml` (DINOv2 classes) | probe | 606 (2 x 299 patch class + depth, 8 summary) | none | 60% | 40% | 0 |
+| `depth.yaml`, `column_groups` b | none | 15 (goal, `dc_*`, their history) | depth stop | 77.0% | 22.0% | 1.0% |
+| `depth.yaml`, `column_groups` c | none | 30 (+ `ds_*` scan) | depth stop | 82.8% | 17.2% | 0 |
+| `lidar.yaml` | strip | 123 (goal, lidar, DINOv2 strip) | leg-aware lidar | 92.5% | 4.0% | 3.5% |
+| `lidar2.yaml`, + DAgger round 1 with 56 recovery labels | strip | 123 | leg-aware lidar | 94.5% | 3.0% | 2.5% |
+| **`lidar3.yaml`, + depth camera** | **strip** | **150** | **leg-aware lidar** | **97.5%** | **0.5%** | **2.0%** |
+| the expert (round 0) | true layout | | | 99.8% | 0.2% | 0 |
+
+The 606-column row is from a 199-episode run; (c) from 198 of 200 episodes (one API call hung).
+
+**The 150 student columns of `lidar3.yaml`** (`student.column_groups: [goal, depth, scan, lidar,
+lidar_summary, history, dino_strip]`). Distances are metres from the body centre, capped at 10.
+
+| Group | Columns | n | Source | Meaning |
+|---|---|---|---|---|
+| goal | `goal_dist`, `goal_sin`, `goal_cos` | 3 | pose + target | distance to the target, and its bearing from the heading (left positive) |
+| depth | `dc_ahead`, `dc_left`, `dc_right`, `dc_near` | 4 | depth camera | every 4th depth pixel back-projected with the camera pose; points 3 to 25 cm above the floor (not the target pillar) are obstacles. `dc_ahead`: nearest in a ±0.25 m corridor straight ahead; `dc_left` / `dc_right`: nearest in the left / right third of the 62° view; `dc_near`: nearest in view |
+| scan | `ds_0` … `ds_14` | 15 | depth camera | nearest obstacle in 15 equal slices of the 62° view, about 4° each, `ds_0` leftmost (2.5x finer than the lidar ahead) |
+| lidar | `lr_0` … `lr_35` | 36 | lidar | horizontal 360° lidar at `lidar_geom` (0.15 m above the floor, the camera's height): range of beam k at k·10° counter-clockwise from ahead (`lr_9` left, `lr_18` behind). `mj_multiRay` on geom group 0, passing through the target pillar, ignoring floor hits |
+| lidar_summary | `lc_ahead`, `lc_left`, `lc_right`, `lc_rear`, `lc_near` | 5 | lidar | nearest hit in the ±0.25 m corridor ahead; in the 90° sector left / right / behind; anywhere |
+| history | `h1_dc_*`, `h1_lc_*`, `h2_dc_*`, `h2_lc_*` | 18 | | the depth and lidar summaries 1 and 2 steps ago (the first step repeats the present) |
+| dino_strip | `dp_0_0` … `dp_22_2` | 69 | camera + DINOv2 | DINOv2 runs on a band of 6 patch rows around the horizon only (about 6x cheaper than the whole picture); the 2 rows on the horizon, averaged in 2 x 2 patch blocks, give 23 cells across the view; a fixed PCA (`vision/strip_pca.py`, fitted on the 960 `full60` pictures, 45.7% of the variance) keeps 3 values per cell |
+
+Labels: `y_stride`, `y_turn` = the expert's command. Stride runs from -0.15 (walking backwards, 6 cm per
+cycle) to 0.30 (13 cm forward), turn from -0.25 to 0.25 rad (`nav.dagger.STRIDE`, `nav.common.TURN_RANGE`).
+
+**Expert recovery** (`expert.recover`, `recovery_command` in `expert.py`), the labels that teach backing away:
+- an obstacle within ±45° ahead closer than 0.30 m: walk backwards (-0.12) while turning the front away;
+- an obstacle beside (45° to 135°) closer than 0.31 m **and** a 10 cm step forward would bring it 2 cm
+  closer (heading into it): step back slightly (-0.06) while turning away from it;
+- only turn when 10 cm further back is tighter. The heading condition matters: the plain expert passes
+  furniture at 0.29 to 0.31 m running alongside it; it reaches 60 of 60 layouts with the rule on.
+
+**Leg-aware safety** (`safety` with `source: lidar`, `lidar_safety` in `rollout.py`; only on the student's
+commands). The legs reach 0.27 m ahead and behind, 0.26 m sideways and 0.29 m at the corners (measured
+while walking and turning). Stop: no stride when the ±0.32 m corridor ahead is closer than 0.48 m. Side:
+walking with something closer than 0.32 m beside the legs adds a 0.1 turn away. Sweep: a turn on the spot
+swings the front legs toward the turn side and the rear legs the other way, so a turn with an obstacle
+within 0.35 m in those quadrants is flipped or dropped. Rear: no backing up into something within 0.40 m.
+Every row records the rule that fired (`safety_rule`).
+
+**Commands** (on a Linux box set `MUJOCO_GL=egl`):
+
+```bash
+just strip-pca full60                                                          # the strip PCA, once
+just dagger-augment --run lidar4 --rounds 0 1 --out lidar5 --config nav/dagger/lidar3.yaml  # depth columns by replay
+just dagger context --run lidar5 --round 2 --config nav/dagger/lidar3.yaml
+just dagger plan --run lidar5 --round heldout --weights victory=1 --config nav/dagger/lidar3.yaml
+just dagger-worker --run lidar5 --round heldout --plan data/nav/dagger/lidar5/plans/round_99-victory.json \
+    --context data/nav/dagger/lidar5/context_2.parquet --beta 0 --procs 1 --n-envs 100 \
+    --config nav/dagger/lidar3.yaml
+just dagger-video --run lidar5 --round heldout --episodes 99000012           # replay with lidar and strip panels
+```
+
+`augment.py` replays recorded episodes exactly (deterministic physics) to add columns that need the raw
+depth pictures; it stops if a replay moves more than 1 cm from the recording. `student.backend: api` uses
+Prior Labs' hosted TabPFN (`tabpfn-client`): the rows go to their servers, each `predict()` costs about
+10,000 credits of a 50 M monthly quota, and at most 1,500 calls per hour are allowed. `backend: local`
+keeps everything on the machine.
 
 ## Where the data is
 

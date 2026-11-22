@@ -78,10 +78,13 @@ def run_shard(job):
     if job["beta"] < 1.0:
         context = pd.read_parquet(job["context"])
         context = choose_context(context, config["student"]["max_context_rows"], config["seed"])
-        policy = TabPFNPolicy.from_config(config["student"], featurizer.columns, featurizer.categorical, config["seed"])
+        from .featurize import select_columns
+        student_columns = select_columns(featurizer.columns, config["student"].get("column_groups"))
+        policy = TabPFNPolicy.from_config(config["student"], student_columns, featurizer.categorical, config["seed"])
+        policy.use_source_columns(featurizer.columns)
         log.event("fit", "TabPFN {} fit() on {} rows x {} columns, device {} ...".format(
-            policy.model_version, len(context), len(featurizer.columns), policy.device),
-            rows=len(context), columns=len(featurizer.columns))
+            policy.model_version, len(context), len(student_columns), policy.device),
+            rows=len(context), columns=len(student_columns))
         seconds = policy.fit(context)
         timer.add("student_fit", seconds)
         log.event("fit", "fit() done in {:.1f} s".format(seconds), seconds=seconds, rows=len(context))
@@ -103,7 +106,8 @@ def run_shard(job):
     rng = np.random.default_rng([config["seed"], round_, job["proc"], 12345])
     started = time.time()
     counts, steps = run_episodes(envs, featurizer, expert, policy, job["beta"], job["plan"], round_, rng, log=log,
-                                 timer=timer, on_chunk=write, heartbeat_every=job["heartbeat"])
+                                 timer=timer, on_chunk=write, heartbeat_every=job["heartbeat"],
+                                 safety=config.get("safety"))
     seconds = time.time() - started
     log.event("end", "{} episodes, {} steps, {} rows in {} parts ({:.1f} MB) in {:.1f} s; {:.2f} steps/s; "
               "peak memory {} MB".format(sum(counts.values()), steps, chunk["rows"], chunk["n"], chunk["bytes"] / 1e6,

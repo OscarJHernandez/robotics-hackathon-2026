@@ -82,17 +82,34 @@ def load_dino(device=None):
     return model.to(device or pick_device())
 
 
-def extract(model, images):
-    """Patch features of RGB uint8 pictures (n, h, w, 3): float32 array (n, 26, 46, 384)."""
+def band_rows(band):
+    """The patch rows (first, last + 1) of a band of `band` rows centred on the picture's middle (the horizon
+    of the level robot camera)."""
+    first = ROWS // 2 - band // 2
+    return first, first + band
+
+
+def extract(model, images, band=None):
+    """Patch features of RGB uint8 pictures (n, h, w, 3): float32 array (n, 26, 46, 384).
+
+    With band = k, only a strip of k patch rows centred on the horizon goes through DINOv2 (fewer tokens,
+    so faster): float32 (n, k, 46, 384). Strip features differ from full-picture ones (less context), so
+    anything fitted on them (vision/strip_pca.py) must use the same band.
+    """
     import torch
     device = next(model.parameters()).device
     x = torch.from_numpy(np.array(images)).to(device).permute(0, 3, 1, 2).float() / 255.0
     x = torch.nn.functional.interpolate(x, size=(ROWS * PATCH, COLS * PATCH), mode="bilinear", align_corners=False)
+    rows = ROWS
+    if band:
+        first, last = band_rows(band)
+        x = x[:, :, first * PATCH:last * PATCH]
+        rows = band
     mean = torch.tensor(MEAN, device=device).view(1, 3, 1, 1)
     std = torch.tensor(STD, device=device).view(1, 3, 1, 1)
     with torch.no_grad():
         tokens = model.forward_features((x - mean) / std)["x_norm_patchtokens"]
-    return tokens.reshape(len(images), ROWS, COLS, DIM).float().cpu().numpy()
+    return tokens.reshape(len(images), rows, COLS, DIM).float().cpu().numpy()
 
 
 def main():

@@ -11,6 +11,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
+# (min, max) stride of the DAgger robot, radians of coxa swing. Negative = walking backwards (measured:
+# -0.10 moves 4 cm back per 1 s cycle, -0.15 6 cm); the expert backs away from edges it is too close to.
+# The rest of nav/ keeps nav.common.STRIDE_RANGE (0, 0.3).
+STRIDE = (-0.15, 0.30)
+
 # Headless rendering on Linux: MuJoCo reads MUJOCO_GL when it is first imported, so set it here.
 if sys.platform.startswith("linux"):
     os.environ.setdefault("MUJOCO_GL", "egl")

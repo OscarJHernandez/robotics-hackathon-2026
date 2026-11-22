@@ -166,7 +166,9 @@ def main():
               "projected_round_s": round(projected, 1), "episodes_per_min": round(60 * best["steps_per_s"] / episode_steps, 2)}
     if args.tabpfn:
         from .featurize import columns
-        feature, categorical = columns(config["features"]["patch_pool"], config["features"]["use_prev_command"])
+        feature, categorical = columns(config["features"]["patch_pool"], config["features"]["use_prev_command"],
+                                      config["features"].get("depth_summary", False),
+                                      config["features"].get("history", 0))
         result["tabpfn"] = bench_tabpfn([int(r) for r in args.rows.split(",")], len(feature), len(categorical),
                                         config["student"], log)
     save_json(folder / "{}.json".format(host), result)

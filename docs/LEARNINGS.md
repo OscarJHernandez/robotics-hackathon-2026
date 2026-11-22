@@ -43,6 +43,24 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (new_horizon's agent): For the arena DAgger student, geometry beats DINOv2 classes. Driving alone in 200 held-out
+  layouts: 606 DINOv2 class + depth columns 60% goals; 15 depth-camera columns + a depth stop 77%; 360° lidar +
+  DINOv2 horizon-strip PCA + leg-aware safety 92.5%; + the depth camera's `dc_*`/`ds_*` 97.5% (expert 99.8%).
+  Inputs and settings: [navigation.md](navigation.md), "Inputs, settings and results".
+- 2026-11-22 (new_horizon's agent): Most student collisions are side contacts: furniture 70-90° to the side at 0.22-0.24 m while
+  walking at full stride (the legs reach 0.27 m ahead and behind, 0.26 m sideways, 0.29 m at the corners). A
+  recovery rule only for obstacles ahead fired once in 9,478 rows; a distance-only side rule fires in the
+  expert's own driving (it passes furniture at 0.29-0.31 m). Trigger on "beside and heading into it" instead.
+- 2026-11-22 (new_horizon's agent): Compare students on the same held-out layouts and count gained / lost layouts. Rates over
+  different episode subsets (a stopped run misses its slowest, hardest episodes) and videos of layouts picked
+  from another run made a no-change look like +2 points and an equal student look worse.
+- 2026-11-22 (new_horizon's agent): The TabPFN API (`backend: api`) costs about 10,000 credits per `predict()`, allows 1,500 calls
+  an hour and 50 M credits a month; two processes of 50 robots used about 45 M in one night, and a `predict()`
+  once hung for good. `policy.call_api` now spaces calls, retries 429s and times out at 120 s; prefer one
+  process with many robots (fewer calls per step).
+- 2026-11-22 (new_horizon's agent): A worker process with 100 robots needs about 14 GB (one MuJoCo renderer per robot); 2 x 100
+  or 1 x 200 tripped the memory guard on victory (59 GB). Replaying recorded episodes is exact (0 m deviation),
+  so `nav/dagger/augment.py` adds new depth columns to old rounds in minutes instead of collecting again.
 - 2026-11-21 (Oscar's agent): DAgger round 1 student (TabPFN 3.5 fitted on 32k expert rows) matched the expert
   closely at beta 0.5 (100/100 goals, mean |d turn| 0.05) but collided in 3 of 3 held-out layouts when driving alone:
   it keeps walking when the expert says stop and turn on the spot, a label only 6.6% of the rows have. Judge a
@@ -60,6 +78,9 @@ in the same pull request as the work.
 - 2026-11-21 (Oscar's agent): A 32-process benchmark ran metacon out of memory; earlyoom then stopped Ollama and
   the user's systemd services (Minerva, Sophy). `nav/dagger/guard.py` now caps processes to free memory and stops
   workers under a reserve; a `pkill -f` pattern must not match its own ssh command (use `[r]obotics...`).
+  2026-11-22 (new_horizon's agent): the bracket trick fails when the plain text also appears elsewhere in the same command
+  (a path or module name later in the ssh line): it paused and killed its own shell twice. Wait on or kill
+  exact PIDs (save `$!`), and `cd` before a `&`, not in an `&&` chain that goes to the background.
 - 2026-11-21 (Oscar's agent): `multiprocessing.Pool.map` waits forever if one worker is killed; use
   `ProcessPoolExecutor` (raises `BrokenProcessPool`), as `nav/dagger/worker.py` does.
 - 2026-11-21 (Oscar's agent): Copies to the homelab machines sometimes did not arrive although rsync/scp
@@ -201,8 +222,12 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
-- 2026-11-21 (Oscar's agent): DAgger: try a label-balanced context (`max_context_rows: 20000`) from round 2 on,
-  and run DINOv2 on the Radeon iGPUs (ROCm torch) to speed up the Linux workers.
+- 2026-11-22 (new_horizon's agent): DAgger stop loops: all remaining timeouts of the best student (2%) are the robot stopping
+  0.30-0.35 m from furniture 40-70° to the side, the leg-aware stop firing on most of 300 steps while the
+  student steers back into it. Try: after a few stops in a row keep turning one way, or more recovery rows
+  (only 56 of 8,000 now; the student backs up on its own 4 times in 7,948 steps).
+- 2026-11-22 (new_horizon's agent): DAgger speed: one TabPFN model for stride and turn would halve the API calls per step, and
+  DINOv2 on the Radeon iGPU (ROCm torch, user in the `render` and `video` groups) is the main CPU cost left.
 - 2026-11-21 (Oscar's agent): `vision/scene.py` places the target only 0.15 m from furniture; both expert
   collisions in DAgger round 0 were targets in such gaps. Use about 0.35 m. The chase camera in
   `nav/dagger/video.py` clips into walls near corners.
@@ -258,3 +283,7 @@ in the same pull request as the work.
   storage outside the repo. Until then, keep them out of commits.
 
 ## Suggestions (done or declined)
+
+- 2026-11-21 (Oscar's agent): DAgger: try a label-balanced context (`max_context_rows`) from round 2 on. Done
+  2026-11-22 (new_horizon's agent): every student since uses 8,000 rows balanced over stride and turn bins, with backing up in
+  its own bin; 8,000 balanced rows did as well as all 32,455 and fit 2.5x faster. The ROCm part is still open.
