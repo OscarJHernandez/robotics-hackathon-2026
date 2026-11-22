@@ -41,6 +41,10 @@ PERSON = {"signature": SIGNATURE, "range_source": "depth", "lidar_sees_target": 
 # the first sighting may be her feet or head, and up close the camera matches her middle (a live search at 0.5 m
 # called her a false alarm twice, 2026-11-22).
 CHECK_RADIUS = 1.0
+# ... and only strong matches: up close (under 1.5 m) her best band column is at least 0.76 in 90% of the person-v2
+# pictures (median 0.84-0.89), while the look-alikes that passed the 0.65 threshold in the bench scored 0.66-0.67
+# (the edge of a brown cylinder, seed 7110). Two such matches in CHECK_CYCLES looks are needed.
+CHECK_SIM = 0.75
 
 
 class Spotter:
@@ -112,7 +116,8 @@ class Spotter:
         self.cycles += 1
         if d is not None:
             self.estimate.add(d, self.cycles)
-            if self.marked is not None and math.hypot(d["x"] - self.marked[0], d["y"] - self.marked[1]) <= CHECK_RADIUS:
+            if self.marked is not None and d["sim"] >= CHECK_SIM \
+                    and math.hypot(d["x"] - self.marked[0], d["y"] - self.marked[1]) <= CHECK_RADIUS:
                 self.watch_hits += 1
         self.seconds = 0.8 * self.seconds + 0.2 * (time.monotonic() - started) if self.cycles > 1 else \
             time.monotonic() - started
