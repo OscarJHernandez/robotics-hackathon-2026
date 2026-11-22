@@ -90,6 +90,14 @@ dagger-eval *args:
 dagger-bench *args:
     uv run --group ml --group vision python -m nav.dagger.bench {{ args }}
 
+# The target's DINOv2 signature for the horizon band, and how well it matches: just vision-signature full60
+vision-signature *args:
+    uv run --group vision python vision/target_signature.py {{ args }}
+
+# Target detector checks in the sim (expert walks, look-arounds; no TabPFN): just target-check --set final --count 40
+target-check *args:
+    uv run --group ml --group vision python -m nav.dagger.target_check {{ args }}
+
 # Run the DAgger tests
 test-dagger:
     uv run --group ml --group vision python -m unittest tests.test_dagger -v
@@ -125,6 +133,15 @@ search-sim *args:
 # The student in the flats, next to A* + a-to-b (TabPFN API: each call 10,000 credits): just student-bench --flats 40 --budget-calls 80
 student-bench *args:
     uv run --group ml --group vision python -m nav.dagger.flatbench {{ args }}
+
+# Pictures of Margarete (lying, standing) in the app's own flat, then her DINOv2 signature: just person-data
+person-data *args:
+    uv run --group app --group ml --group vision python app/person_data.py --name person-v2 {{ args }}
+    uv run --group vision python vision/target_signature.py person-v2 --band --name margarete
+
+# The app's whole search with the robot's own eyes, many times, no browser (A* walker: no credits): just search-bench --runs 40
+search-bench *args:
+    uv run --group app --group ml --group vision python app/searchbench.py {{ args }}
 
 # Run the tests for homes/ (Knock data, arena flats, Bayesian search, does TabPFN's belief make sense)
 test-homes:

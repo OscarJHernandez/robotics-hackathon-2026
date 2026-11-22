@@ -32,3 +32,6 @@ app/web/dist/
 
 # Synthetic Knock data in homes/data/ is committed on purpose (small parquet files)
 !homes/data/
+
+# rendered videos (binary, never commit)
+videos/

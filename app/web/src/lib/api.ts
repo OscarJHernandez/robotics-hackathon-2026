@@ -249,6 +249,12 @@ export const MESS_LEVELS: { id: MessLevel; label: string; hint: string }[] = [
   { id: "medium", label: "Medium", hint: "Medium messy: the stool, armchair, crate and plant plus 4 small things, at random spots" },
   { id: "messy", label: "Messy", hint: "Messy room: the four loose pieces plus up to 12 small things, at random spots" },
 ];
+/** The person detector: the robot's camera picture matched to Margarete's DINOv2 signature, ranged by depth. */
+export interface SpotterInfo {
+  status: "off" | "loading" | "ready" | "failed"; reason?: string; confirmed?: boolean; x?: number; y?: number;
+  hits?: number; best?: number | null; threshold?: number | null; seen?: boolean; rejected?: [number, number][];
+  match?: { x: number; y: number; sim: number; range: number; bearing_deg: number; column: number };
+}
 /** The obstacle-avoiding student (app/student.py): loading, ready, failed or no_credits, with the reason. */
 export interface StudentInfo {
   status: "off" | "loading" | "ready" | "failed" | "no_credits"; reason?: string; decisions?: number;
@@ -272,14 +278,29 @@ export interface ApartmentState {
   last_heard: { zone: ZoneClass; minutes: number } | null;
   stages: Record<Stage, Belief>; belief: Belief; plan: ZoneName[];
   search: {
-    status: "idle" | "starting" | "walking" | "looking" | "found" | "nobody_home" | "gave_up" | "stopped" | "failed";
+    status: "idle" | "starting" | "walking" | "looking" | "approaching" | "checking" | "found" | "nobody_home" | "gave_up"
+      | "stopped" | "failed";
     running: boolean; goal: ZoneName | null; truth: ZoneClass | null; miss_rate: number;
     /** Where she lies (x, y), when she is home. */
     person?: [number, number] | null;
     path: [number, number][]; metres: number; steps: SearchStep[];
     /** Walks the student handed to A* + the a-to-b driver, and touches of walls or furniture, in this search. */
     fallbacks?: number; contacts?: number;
+    /** How she is: lying or standing (null: nobody home). */
+    pose?: "lying" | "standing" | null;
+    /** Who looks: the robot's person detector (camera + DINOv2), or the mock (a die roll). */
+    look_by?: "detector" | "mock";
+    /** Every time the detector confirmed someone: where, in which zone, how far, while walking or looking. */
+    sightings?: { x: number; y: number; zone: ZoneName; dist: number; while: string }[];
+    /** Sightings the close-up check showed to be nobody (look-alikes). */
+    false_alarms?: number;
+    /** Where the robot found her, and how far that is from where she really is (metres). */
+    found_at?: [number, number] | null; found_error?: number | null;
   };
+  /** The robot's person detector (app/spotter.py): the confirmed estimate, the last match, rejected spots. */
+  spotter?: SpotterInfo;
+  /** The robot's look-around: turning once on the spot (or watching) with the detector on. */
+  look?: { running: boolean; kind?: "look" | "watch"; turned_deg?: number; seen?: boolean; blocked?: boolean };
   robot: { x: number; y: number; yaw_deg?: number };
   /** Who walks now: "student", "tabpfn" (a-to-b), "planner", "rule", or "marker" (no robot). */
   driver: string;
@@ -360,7 +381,9 @@ export async function apartmentJournalText(): Promise<string | null> {
 }
 export const apartmentClock = (weekday: number | null, time: string | null) =>
   apartmentPost("clock", weekday === null && time === null ? {} : { weekday, time });
-export const apartmentSearch = (where: string) => apartmentPost("search", { where });
+/** Start a search; `pose`: how she is (lying, standing or random). */
+export const apartmentSearch = (where: string, pose: "lying" | "standing" | "random" = "random") =>
+  apartmentPost("search", { where, pose });
 export const apartmentStop = () => apartmentPost("stop");
 /** Ready for another run: the last search is forgotten, Margarete leaves the room, the robot returns to its dock. */
 export const apartmentClear = () => apartmentPost("clear");

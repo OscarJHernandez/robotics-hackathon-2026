@@ -204,8 +204,10 @@ export function HowItWorks({ onClose }: { onClose: () => void }) {
               <ol className="how-steps how-prose">
                 <li><strong>Belief.</strong> TabPFN gives a probability for each zone and for “out”.</li>
                 <li><strong>Walk.</strong> The robot goes to the viewing spot of the most likely zone.</li>
-                <li><strong>Look.</strong> A simulated sighting: it misses her {SEARCH.missRate}% of the time, even in the
-                  right zone, and never sees her where she is not.</li>
+                <li><strong>Look.</strong> The robot turns once on the spot. Every step (also while it walks) its camera
+                  picture is matched to her DINOv2 signature, lying or standing; the depth camera says how far. Anyone it
+                  spots gets a close-up check, which rules out look-alikes. The update assumes a look overlooks her 10% of
+                  the time (measured: 7%).</li>
                 <li><strong>Update.</strong> If she was not seen, Bayes’ rule lowers that zone and raises the others. Then
                   back to step 2. The search stops when she is found, when “out” reaches {SEARCH.stopOut}%, or after{" "}
                   {SEARCH.maxLooks} looks.</li>
