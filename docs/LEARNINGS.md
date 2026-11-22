@@ -43,6 +43,20 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): TabPFN API (tabpfn-client 0.10.1) costs, measured with the v29 export (31,586 rows
+  stacked to 63,172 x 117): `fit()` is free; with `fit_mode="fit_with_cache"` a `predict()` costs 10,000 credits and
+  takes 0.6 to 3.5 s; with the server default ("fit_preprocessors") every `predict()` re-runs the whole context:
+  13.4 s and about 11,400 credits. Use the cache (`ClientTabPFNPolicy` does) and put many robots in one call.
+- 2026-11-22 (Oscar's agent): A policy fitted in the plain arena should not look at the app's dressed scene (wood
+  floor, low walls, zones, decor, the person): `app/student.py` renders its camera in a second, plain MuJoCo model
+  of the same layout and pose (the "plain twin"), and casts the lidar in the real scene, which ignores geoms without
+  collisions. `tests/test_student_twin.py` proves the inputs equal `FlatEnv`'s; reuse the idea for any dressed view.
+- 2026-11-22 (Oscar's agent): After the DAgger v2 merge, `SimEnv.step` reads `best_dist`/`since_gain` that only
+  `SimEnv.reset` sets, so `homes/sim_bridge.FlatEnv` (which never calls reset) crashed in `just test-homes`;
+  `FlatEnv.load`/`set_goal` now set them. A subclass that skips `reset()` must set every field `step()` reads.
+- 2026-11-22 (Oscar's agent): Contact checks every 20 ms count a foot tapping the same wall many times per second;
+  `ContactCounter` counts a new touch only after 1 s without contact.
+
 - 2026-11-22 (Oscar's agent): Asked to "say the same thing" in one sentence, qwen3:8b on metacon returns the draft
   word for word; told "do not copy the draft" it rewords, but once said "I'm not in the bedroom" (the robot, not
   Margarete) and once turned "found her" into "didn't find her". So `app/narrate.py` keeps a template and checks every
@@ -291,6 +305,12 @@ in the same pull request as the work.
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Suggestions (open)
+
+- 2026-11-22 (Oscar's agent): The live student costs 10,000 TabPFN API credits per gait cycle (about a million per
+  search). If it is to run often, fit it locally on a machine that can (about 9 GB, 4 min on vendetta) and serve
+  predictions from there, or decide fewer times (every second cycle) and measure what that costs in goal rate.
+- 2026-11-22 (Oscar's agent): Run `just student-bench` (40 flats x home/scattered) on vendetta with the real student
+  before claiming numbers for the app; the flats are tighter than the training layouts (0.10 m furniture gaps).
 
 - 2026-11-22 (Oscar's agent): Try a denser simulated lidar (for example 360 rays at 1 degree) aimed at the table-leg
   crashes: a new round 0 (about 15 min) and one refit of v29.

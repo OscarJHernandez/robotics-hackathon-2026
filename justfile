@@ -122,6 +122,10 @@ search-demo *args:
 search-sim *args:
     cd homes && uv run --group ml python sim_bridge.py {{ args }}
 
+# The student in the flats, next to A* + a-to-b (TabPFN API: each call 10,000 credits): just student-bench --flats 40 --budget-calls 80
+student-bench *args:
+    uv run --group ml --group vision python -m nav.dagger.flatbench {{ args }}
+
 # Run the tests for homes/ (Knock data, arena flats, Bayesian search, does TabPFN's belief make sense)
 test-homes:
     cd homes && uv run --group ml python -m unittest test_homes.py test_tabpfn_belief.py -v

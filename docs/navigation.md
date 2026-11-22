@@ -218,6 +218,41 @@ Commands (all on branch `feat/dagger-v2-fixpass`): `python -m nav.dagger.experim
 `python -m nav.dagger.stage run|analyse`, `python -m nav.dagger.lidarmap add --name <set>`, variants in
 `nav/dagger/variants/*.yaml`, data and results in `data/nav/dagger/v2/` (STATUS.md, incidents.md, experiments/).
 
+## The student in the app (v29 through the TabPFN API)
+
+The web app's apartment search walks with the v29 student (`--driver student`, the default; [app.md](app.md)
+"Who walks"). How it gets there without the raw data and without a local 9 GB fit:
+
+1. **Export, once, where the rows are** (vendetta): `python -m nav.dagger.export --variant
+   nav/dagger/variants/v29-lidarplan.yaml --out <folder>` reads the context exactly as `experiment.build_student`
+   does (`load_rows`, `choose_context`, `Features.fit_transform`), fits nothing, and writes `features.parquet` (the
+   116 columns in fit order + `y_stride`, `y_turn`, float32, 22 MB for 31,586 rows), `pca.npz` (the band PCA:
+   mean, scale, comps, var_ratios), `columns.json`, `meta.json` (rows, variant, git sha) and 12 sample base rows
+   with their band arrays. Copy the folder to `data/nav/dagger/v2/student/v29/` (gitignored).
+   `export.load_export(folder)` gives back a `Features` with the saved columns and PCA, ready for `Features.live`;
+   `tests/test_student_driver.py` checks that the drive-time path gives the exported rows back.
+2. **The student through the client**: `make_student({..., "backend": "client"})` builds `ClientTabPFNPolicy`
+   (`nav/dagger/policy.py`): ONE `tabpfn_client.TabPFNRegressor` (v3.5, 4 estimators) fitted on the rows stacked
+   twice with an `output` column (0 = stride, 1 = turn), so each decision is one `predict()` of 2 rows per robot,
+   clipped to the command ranges. Still `fit()`/`predict()` only. `backend: local` (the default) is unchanged.
+   `fit_mode="fit_with_cache"` keeps the context on the server; without it every `predict()` re-runs all 63,172
+   stacked rows (13 s, 11,400 credits instead of 0.6 to 3.5 s and 10,000).
+3. **Credits**: every `predict()` costs 10,000 credits, `fit()` is free. `credits_left()` reads the account
+   (`get_api_usage`, unlimited = None); `CreditBudget(max_calls)` raises `OutOfCredits` before the call that would
+   pass it. Many robots in lock-step share one call, which is how the benchmark stays cheap.
+4. **The plain twin** (`app/student.py`): the student sees the plain training arena, kept in step with the app
+   (robot joints, furniture poses, red pillar at the goal), never the dressed apartment; the lidar is cast in the
+   app's scene. Tests: `tests/test_student_twin.py`.
+
+**Benchmark in the flats** (`just student-bench`, `nav/dagger/flatbench.py`): legs as the search walks them (dock,
+then the zones' viewing spots in a random order) in N random flats, each "home" and "scattered"
+(`flats.scatter`), in a plain `FlatEnv`. All legs step in lock-step with one API call per step (at most 80 steps,
+the trainer's stuck and collision rules), so the real run costs at most 80 calls (800,000 credits) whatever the
+number of legs; `--budget-calls` is required and the credits left are checked first. The baseline on the same legs
+is the app's A* route walked by the TabPFN a-to-b controller (local, no credits). Writes `bench.json` and `bench.md`
+(goal without contact, collisions, stuck, with 95% Wilson intervals). Dry run without TabPFN:
+`just student-bench --flats 1 --max-legs 2 --policy fake --no-baseline`. Not run with the real student yet.
+
 ## Where the data is
 
 Everything is in **`data/nav/` in the main checkout** (gitignored, never committed). Set `NAV_DATA_DIR`

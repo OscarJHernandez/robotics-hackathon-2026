@@ -84,17 +84,60 @@ drawn from her routine, or both, to see how the belief and the search change. Th
 **Reset** (in the status strip after a search) forgets the search, takes Margarete out of the room and puts the
 robot back on its dock; the flat and the journal stay. "New flat" starts over with another layout and resident.
 
-**Who walks.** A goto in the apartment is a route of straight legs around the furniture (`plan_route` in
-`app/robot.py`, the grid and A* of `nav/dagger/expert.py`); a driver walks each leg:
+**Shuffle obstacles** (beside "New flat" on the floor plan, and on the phone card) drops the loose pieces (stool,
+armchair, crate, plant) at random spots on the open floor, any heading (`scatter` in `homes/flats.py`): at least
+0.5 m from every other piece and wall (the training rule), 0.5 m from every viewing spot, the dock and the doorway,
+and every viewing spot still reachable from the dock. The zones, the resident and the journal stay; the robot goes
+back to its dock. Refused while a search runs; "New flat" puts everything back as built. The floor plan draws the
+loose pieces in a second (amber) tone, dashed once they have been moved. `POST /api/apartment/obstacles`.
+
+**Who walks.** First choice is the **TabPFN student** (`--driver student`, the default): the obstacle-avoiding
+student of `nav/dagger` (v29, "lidar-map plan"; see [navigation.md](navigation.md)), through the hosted TabPFN API.
+It walks straight to the end point with its own sensors: a 360 degree lidar (36 rays), the camera's horizon band
+(DINOv2 + the patch probe) and its own map of lidar hits with a planned bearing (`LidarPlanner`). It is not told
+where the furniture is. The A* route over the known furniture is still computed and drawn as a dashed line on the
+floor plan: what a map-knowing planner would do.
 
 | `--driver` | What it is |
 |---|---|
-| `tabpfn` (default) | The a-to-b controller built with `just controller` (`--controller default`): TabPFN picks stride and turn every gait cycle. It does not see obstacles; the route keeps it clear of them. Needs the `ml` packages and `data/nav/controllers/` |
+| `student` (default) | The v29 student (`app/student.py`), TabPFN 3.5 through the TabPFN API: `fit()` once on the exported 31,586 examples, one `predict()` per gait cycle. Needs `TABPFN_TOKEN` (environment or the gitignored `.env`) and the export in `data/nav/dagger/v2/student/v29/` |
+| `tabpfn` | The a-to-b controller built with `just controller` (`--controller default`): TabPFN picks stride and turn every gait cycle along a route of straight legs around the furniture (`plan_route`, the grid and A* of `nav/dagger/expert.py`). It does not see obstacles; the route keeps it clear of them. Needs the `ml` packages and `data/nav/controllers/` |
 | `planner` | The `nav/dagger` expert (path planner + pure pursuit) |
 | `rule` | The old steer-to-bearing rule |
 
-A driver that cannot be loaded falls back to the next one; the panel says which one walks. With TabPFN the physics
-waits about 0.25 s every gait cycle while it predicts, so a walk takes about a quarter longer than real time.
+A driver that cannot be loaded falls back to the next one; the panel says which one walks. With the a-to-b
+TabPFN controller the physics waits about 0.25 s every gait cycle while it predicts.
+
+Under the student, the first a-to-b driver that loads (tabpfn, planner, rule) walks **while the student loads**
+(about 20 s at server start: the export, the API `fit()`, DINOv2) and **takes over a walk** when the student gets
+stuck (the trainer's rule: not 0.2 m closer to the end point in 40 gait cycles) or the API fails: that leg is
+handed to A* + a-to-b, the log says "Fallback: ..." and metacon says it once. The search treats this as normal
+walking. The roles card shows "student loading…", a fallback, or why the student is off (`student` in
+`/api/apartment` and `/api/health`: `loading | ready | failed | no_credits`, with the reason).
+
+**Contacts.** Every control step checks the trainer's collision rule (any robot geom touching a `wall_` or `obs_`
+geom). The app does not end the walk on a touch; it counts it (`contacts` in the robot state, a red cross on the
+floor plan, a "Contact" log line). A foot tapping the same wall step after step counts once (1 s of no contact
+starts a new touch).
+
+**The plain twin: why the home look does not confuse the student.** The student was fitted in the plain training
+arena (grey checker floor, 4.5 m walls, the red pillar at the goal); the apartment has a wood floor, 0.7 m walls,
+zone patches, rugs, cushions, a door and Margarete, and the camera feeds 75 of the student's 116 inputs. So the
+student never looks at the apartment: `app/student.py` keeps a second MuJoCo model of the plain arena, and before
+each decision copies the robot's joint state and the eight furniture poses into it, puts the red pillar at the
+goal, and renders the camera picture and depth there. The lidar is cast in the real scene (rays skip geoms without
+collisions, so zones, decor and Margarete are invisible to it). `tests/test_student_twin.py` checks, for 20 flats
+and poses (half of them shuffled), that these inputs equal those of the plain `FlatEnv` (`homes/sim_bridge.py`) at
+the same layout and pose, that the lidar in the dressed scene equals the twin's, and that painting the zones,
+moving Margarete and moving the decor change none of them (while they do change the app's own camera picture).
+
+**TabPFN API credits.** Every `predict()` costs 10,000 credits (measured 2026-11-22; `fit()` is free) and the
+student makes one per gait cycle, so a 5 m walk is about 40 calls = 400,000 credits, and a whole search can use
+over a million. With `fit_mode="fit_with_cache"` (the default) a call takes 0.6 to 3.5 s; without the cache it
+re-runs the whole 63,000-row context every call (13 s, 11,400 credits). At start the app checks the account: under
+150,000 credits left the student is not started (`no_credits`), and its budget stops it before the account drops
+below that; `--student-calls N` caps the calls further. The a-to-b drivers run locally and cost nothing. The
+physics waits while the student decides (about 1 to 4 s per gait cycle), so a walk is slower than real time.
 
 `--scene floor` gives the old empty floor (the panel then moves a marker on the plan only). `--flat N` picks the
 layout and resident. The home look and Margarete are in `sim/apartment_decor.xml`, which only `sim/apartment.xml`

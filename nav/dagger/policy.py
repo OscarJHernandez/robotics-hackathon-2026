@@ -386,7 +386,11 @@ class LidarShield:
 # The hosted TabPFN API (tabpfn-client): the same fit()/predict(), run by Prior Labs. Used by the app's student.
 # ---------------------------------------------------------------------------------------------
 
-CREDITS_PER_PREDICT = 10_000  # measured 2026-11-22: every predict() costs a flat 10,000 credits, whatever the rows
+# Measured 2026-11-22 with the v29 export (31,586 rows stacked to 63,172 x 117): with fit_mode "fit_with_cache" fit()
+# is free (18 s) and a predict() costs 10,000 credits and takes about 0.6 s; with the server default
+# ("fit_preprocessors") every predict() re-runs the whole context: about 13.4 s and 11,400 credits.
+CREDITS_PER_PREDICT = 10_000
+CLIENT_FIT_MODE = "fit_with_cache"
 
 
 class OutOfCredits(RuntimeError):
@@ -465,12 +469,14 @@ class ClientTabPFNPolicy:
     fit(): the context rows stacked twice with an `output` column (0 = stride, 1 = turn) and the matching label.
     act_batch(rows): 2n rows (each row once with output 0 and once with output 1) in ONE predict() call, clipped to
     the command ranges. Still TabPFN's fit()/predict() only: no weights change (AGENTS.md).
-    `budget` (CreditBudget) is charged once per predict() call, before it is made.
+    `budget` (CreditBudget) is charged once per predict() call, before it is made. fit_mode "fit_with_cache" (default)
+    keeps a cache of the context on the server, so a predict() is fast; if the server has dropped it, the policy
+    calls fit() again (free) and retries once.
     """
     name = "tabpfn-client"
 
     def __init__(self, columns, categorical=(), n_estimators=4, model_version="v3.5", seed=0, budget=None,
-                 fit_mode=None, estimator=None):
+                 fit_mode=CLIENT_FIT_MODE, estimator=None):
         self.columns = list(columns)
         self.categorical_idx = [self.columns.index(c) for c in categorical if c in self.columns]
         self.n_estimators, self.model_version, self.seed, self.fit_mode = n_estimators, model_version, seed, fit_mode
@@ -502,21 +508,35 @@ class ClientTabPFNPolicy:
         X = np.asarray(context[self.columns], np.float32)
         y = np.concatenate([np.asarray(context[label], np.float32) for label in LABELS])
         start = time.perf_counter()
-        self.model = self._make()
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            self.model.fit(self.stack(X), y)
+        self._context = (self.stack(X), y)
+        self._fit()
         self.fit_seconds = time.perf_counter() - start
         self.context_rows = len(X)
         return self.fit_seconds
+
+    def _fit(self):
+        self.model = self._make()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.model.fit(*self._context)
+
+    def _predict(self, Z):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return np.asarray(self.model.predict(Z), float).reshape(-1)
 
     def act_batch(self, rows):
         X = _matrix(rows, self.columns)
         self.budget.spend(1)
         start = time.perf_counter()
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            pred = np.asarray(self.model.predict(self.stack(X)), float).reshape(-1)
+        try:
+            pred = self._predict(self.stack(X))
+        except Exception as error:  # the server dropped its cache of the context: fit() again (free), once
+            if type(error).__name__ not in ("RefitRequiredError", "FittedModelNotFoundError"):
+                raise
+            self._fit()
+            self.budget.spend(1)
+            pred = self._predict(self.stack(X))
         self.last_seconds = time.perf_counter() - start
         self.calls += 1
         n = len(X)
@@ -545,7 +565,7 @@ def make_student(student_cfg, columns, categorical, seed=0, budget=None):
     if kind == "tabpfn" and backend == "client":
         policy = ClientTabPFNPolicy(columns, categorical, student_cfg.get("n_estimators", 4),
                                     student_cfg.get("model_version", "v3.5"), seed, budget,
-                                    student_cfg.get("fit_mode"))
+                                    student_cfg.get("fit_mode", CLIENT_FIT_MODE))
     elif kind == "tabpfn":
         policy = TabPFNPolicy.from_config(student_cfg, columns, categorical, seed)
     elif kind == "gated":

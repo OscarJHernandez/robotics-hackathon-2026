@@ -573,6 +573,9 @@ def main():
                              "TABPFN_TOKEN and the v29 export, see docs/app.md), the TabPFN a-to-b controller "
                              "(needs the ml packages and a controller built with `just controller`), the "
                              "nav/dagger planner, or the steer-to-bearing rule")
+    parser.add_argument("--student-calls", type=int, default=None,
+                        help="at most this many TabPFN API calls for the student (one per gait cycle, 10,000 credits "
+                             "each); default: as many as leave 150,000 credits on the account")
     parser.add_argument("--controller", default="default", help="name of the TabPFN controller (data/nav/controllers)")
     parser.add_argument("--flat", type=int, default=0, help="seed of the apartment's layout and resident")
     parser.add_argument("--belief", default="tabpfn", choices=("tabpfn", "counting"),
@@ -591,7 +594,7 @@ def main():
     voice.watch()
     LINE.sweep()
     SCENE = args.scene
-    ROBOT = LiveRobot(args.scene, args.driver, args.controller)
+    ROBOT = LiveRobot(args.scene, args.driver, args.controller, student_calls=args.student_calls)
     ROBOT.wait_ready(240)  # the TabPFN controller's fit() takes a few seconds
     KNOCK = Knock(HUB, ROBOT, lambda text: voice.speak(text) if voice.available() else None)
     model = None

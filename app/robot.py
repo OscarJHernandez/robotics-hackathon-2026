@@ -359,11 +359,12 @@ class LiveRobot:
     Every control step counts touches of walls and furniture (`contacts`). state()["driver"] says who walks."""
 
     def __init__(self, scene="floor", driver="tabpfn", controller="default", student=None, ab=None, realtime=True,
-                 stuck_cycles=None):
+                 stuck_cycles=None, student_calls=None):
         """`student`: an app/student.py Student to use (tests pass a fake); with driver "student" and none given,
         one is made and loaded in the background. `ab`: the first a-to-b driver to try under the student (default
         the next in DRIVERS). `realtime` False runs the physics as fast as it goes (tests). `stuck_cycles`: the
-        stuck rule's cycles (default the trainer's 40)."""
+        stuck rule's cycles (default the trainer's 40). `student_calls`: at most this many TabPFN API calls (each
+        10,000 credits) for the student made here; None: as many as the credit floor allows."""
         self.scene = scene
         self._driver, self._controller = driver, controller
         self._ab_first = ab
@@ -371,7 +372,7 @@ class LiveRobot:
         self._stuck_cycles = stuck_cycles
         if scene == "apartment" and driver == "student" and student is None:
             from student import Student
-            student = Student(simple=not meshes_available()).load_async()
+            student = Student(simple=not meshes_available(), max_calls=student_calls).load_async()
         self._student = student if scene == "apartment" else None
         self._contacts = None
         self._fallbacks, self._fallback = 0, None
@@ -472,7 +473,8 @@ class LiveRobot:
                         print("[app] driver '{}' is not available ({}), trying the next".format(name, error), flush=True)
                 self._contacts = ContactCounter(sim.model)
                 print("[app] apartment scene, driver: {}{}".format(
-                    "student (loading), then " if self._student is not None else "", driver), flush=True)
+                    "student ({}), then ".format(self._student.status) if self._student is not None else "", driver),
+                    flush=True)
             else:
                 sim = JetHexaSim()
             sim.set_target(1.0, 0.0)

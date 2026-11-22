@@ -320,6 +320,25 @@ class LiveRobotStudentTest(unittest.TestCase):
         self.assertEqual(robot.state()["ab_driver"], "rule")
 
 
+class FlatBenchTest(unittest.TestCase):
+    def test_legs_follow_the_search_and_the_summary_has_intervals(self):
+        from nav.dagger.flatbench import make_legs, summarize
+        legs = make_legs(2)
+        self.assertEqual(len(legs), 2 * 2 * 5)  # flats x {home, scattered} x five zones
+        for a, b in zip(legs, legs[1:]):
+            if (a["flat_id"], a["condition"]) == (b["flat_id"], b["condition"]):
+                self.assertEqual(b["start"][:2], a["goal"])  # the next leg starts where this one ends
+                self.assertEqual(b["from"], a["to"])
+        self.assertEqual(legs[0]["from"], "dock")
+        self.assertEqual([l["to"] for l in legs[:5]], [l["to"] for l in legs[5:10]])  # same zone order, both conditions
+        self.assertTrue(legs[5]["flat"].get("scattered"))
+        out = [{"driver": "student", "condition": "home", "reason": r, "cycles": 10} for r in ("goal", "goal", "stuck")]
+        s = summarize(out)["student/home"]
+        self.assertEqual((s["legs"], s["goal"], s["stuck"]), (3, 2, 1))
+        self.assertLess(s["goal_ci"][0], 2 / 3)
+        self.assertGreater(s["goal_ci"][1], 2 / 3)
+
+
 @unittest.skipUnless(HAVE_PANDAS, "needs pandas")
 class ExportTest(unittest.TestCase):
     def test_the_drive_time_path_gives_the_exported_rows_back(self):

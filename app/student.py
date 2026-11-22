@@ -176,9 +176,11 @@ class Student:
     """
 
     def __init__(self, policy=None, features=None, featurizer=None, twin=None, simple=None, export=None,
-                 min_credits=MIN_CREDITS, log=print):
+                 min_credits=MIN_CREDITS, max_calls=None, log=print):
+        """`max_calls`: at most this many API calls in this process (on top of the MIN_CREDITS floor)."""
         self.policy, self.features, self.featurizer, self.twin = policy, features, featurizer, twin
         self.simple, self.export, self.min_credits, self._log = simple, export, min_credits, log
+        self.max_calls = max_calls
         self.status, self.reason = ("ready", "") if policy is not None and features is not None else ("off", "")
         self.planner = None
         self.credits_at_start = None
@@ -226,7 +228,10 @@ class Student:
         if self.features is None:
             self.features = features
         if self.policy is None:
-            budget = CreditBudget(None if left is None else max(0, (left - self.min_credits) // CREDITS_PER_PREDICT))
+            calls = None if left is None else max(0, (left - self.min_credits) // CREDITS_PER_PREDICT)
+            if self.max_calls is not None:
+                calls = self.max_calls if calls is None else min(calls, self.max_calls)
+            budget = CreditBudget(calls)
             config = load_config()
             student_cfg = dict(config["student"], kind="tabpfn", backend="client")
             policy = make_student(student_cfg, features.columns, features.categorical, seed=0, budget=budget)
