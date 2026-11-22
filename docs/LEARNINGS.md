@@ -43,6 +43,12 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): For a target the lidar cannot see (the pillar), use that as a check: a DINOv2 match
+  the lidar also sees at the depth camera's range is solid furniture. With the real student, v32 drove into such
+  look-alikes in 9 of 13 collisions; the check rejected 29 of 53 false matches and 0 of 1,452 true ones
+  (`target.lidar_sees_target`). A lidar-visible target (a person) needs another check.
+- 2026-11-22 (Oscar's agent): `experiment run` drives only 100 layouts unless `--closed-count 200` is given
+  (CLOSED_DEFAULT); v29's final test used 200. Finished episodes are skipped, so rerun with the count to add the rest.
 - 2026-11-22 (Oscar's agent): To match the target in the DINOv2 horizon band, centre the band columns on the mean
   background column and keep several prototypes. One plain mean of the target columns found the pillar in no held-out
   picture beyond 2 m (column recall 42%); centring plus 3 k-means prototypes reached 77% recall at 98% precision and

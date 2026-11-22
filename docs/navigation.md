@@ -254,6 +254,25 @@ given changes (variant `v32-target-search` = v29 plus a `target:` block).
 | sim, look-around at the true viewing point (40 layouts) | found in 92.5% at turn 0.15 (about 20 steps a turn); 75% at full turn rate 0.25 |
 | sim, whole search with a stand-in driver (pure pursuit on the plan, no TabPFN), 12 final layouts | 12 of 12 reached, 0 false positives, final goal error 1-6 mm |
 
+**With the real student (v29, TabPFN `fit()` on round 0, not refitted), held-out `final` layouts, alone, 600 steps:**
+
+| run | layouts | reached | collision | not found | median steps when reached |
+|---|---|---|---|---|---|
+| v29, true goal (reference) | 200 | 98.0% | 2.0% | - | 30 |
+| v32, search | 200 | 85.5% | 13.0% | 1.5% | 50 |
+| v29, true goal | 100-199 | 99 | 1 | - | 31 |
+| v32, search | 100-199 | 85 | 13 | 2 | 48 |
+| **v33, search + lidar check** | 100-199 | **88** | **7** | 5 | 53 |
+
+- Every reached episode was a real detection (none by walking onto the target by luck); detections at a median 2.5 m;
+  86 of v32's 200 found it on the way, before any look-around. No episode had a false positive that was rejected at
+  the spot: the look-alike episodes crashed on the way there.
+- v32's extra failures: in 9 of its first 13 collisions the confirmed goal was a look-alike 4-6 m from the pillar
+  (the student drove into the furniture), and 3 look-arounds started without the room-to-turn check.
+- v33 (`lidar_sees_target: false`, threshold 0.86, the spin fix) was tuned on layouts 0-99 and judged on 100-199:
+  collisions 13 -> 7, not found 2 -> 5 (the stricter threshold), 6 wins and 3 losses against v32 in pairs: better,
+  not yet significant. The gap to the true goal (99) is mostly look-alikes and misses, not the student.
+
 Commands: `just vision-signature full60`, `just target-check --set final --count 40` (the two sim checks, no
 TabPFN), `python -m nav.dagger.experiment run --variant nav/dagger/variants/v32-target-search.yaml --closed-set
 final --closed-max-steps 600 --closed-stuck-steps 0 --tag final` (the student with the search), then

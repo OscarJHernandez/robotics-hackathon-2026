@@ -289,7 +289,8 @@ def episode_summaries(folder):
 
 
 def pick_search_episodes(rows, summaries):
-    """One episode per kind of target search outcome, {kind: episode} (kinds with no episode are left out)."""
+    """One episode per kind of target search outcome, {kind: episode} (kinds with no episode are left out):
+    found_on_the_way, found_at_first_location, found_at_later_location, false_positive, not_found, collision."""
     kinds = {}
     for episode, s in sorted(summaries.items()):
         if "candidates" not in s:
@@ -302,7 +303,7 @@ def pick_search_episodes(rows, summaries):
         if s.get("false_positives"):
             kind = "false_positive"
         elif not found:
-            kind = "not_found"
+            kind = "not_found" if s["done_reason"] == "not_found" else s["done_reason"]
         elif first_look is None or s["found_step"] < first_look:
             kind = "found_on_the_way"
         elif s["visits"] and s["visits"][0] == truth and len(s["visits"]) == 1:
