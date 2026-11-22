@@ -16,6 +16,9 @@ in the same pull request as the work.
 
 ## Setup and environment
 
+- 2026-11-22 (Oscar's agent): A new git worktree has no `sim/meshes/` (gitignored), so everything renders the
+  stick-figure robot of `jethexa_simple.xml`. Run `just meshes` in the worktree before recording pictures or videos.
+  The README's pictures in `docs/readme/` are cut from one recorded app search (orbit and robot-eye frames).
 - 2026-11-21 (Oscar's agent): Oscar wants teammates to use uv for Python and `just` for commands, so they can
   start with `just setup`. Add packages with `uv add`, not `pip`, and add new commands to the `justfile`.
 - 2026-11-21 (Oscar's agent): MuJoCo 4 has wheels only for Python 3.10 to 3.13 and not for Intel Macs, so
