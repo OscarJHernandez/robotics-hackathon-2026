@@ -33,6 +33,30 @@ Knock, the robot checks on Margarete (app/knock.py, docs/knock-ui.md), one check
     POST /api/knock/stop    {}  stop (the robot stops too), or close the found card
     POST /api/knock/choice  {"choice": "call_112" | "call_neighbour" | "talk"}  simulated calls
     GET  /api/knock/audio/<id>.mp3  the call-out in the robot's voice, for every viewer
+
+The apartment (app/apartment.py): the flat's zones and obstacles, the journal, the belief and the search loop:
+    GET  /api/apartment                 everything the Apartment panel shows (polled): flat, habits, journal,
+                                        belief step by step, search steps, robot pose, log
+    POST /api/apartment/journal         {"zone": "kitchen", "time": "09:30"?, "days_ago": 0?}  add an entry
+    POST /api/apartment/journal/remove  {"id": 12}
+    POST /api/apartment/journal/import  {"text": "Mon 09:30 kitchen\\n...", "replace": true}  a pasted journal:
+                                        one record per line (day, time, zone); see apartment.parse_journal
+    GET  /api/apartment/journal.txt     the journal as text in that format (to copy, edit and paste back)
+    GET  /api/apartment/inputs.json     both inputs of the belief as one object: {"routines": {...}, "journal": [...]}
+    POST /api/apartment/random          {"what": "routines" | "journal" | "both"}  a new random example
+    POST /api/apartment/inputs          {"text": "<that JSON, edited>"}  routines replace her stated habits, a
+                                        journal replaces her journal; the belief follows at once
+    POST /api/apartment/clock           {"weekday": 0-6?, "time": "10:35"?}  the check-in time; {} = the real time
+    POST /api/apartment/search          {"where": "routine" | "random" | zone | "out", "miss_rate": 0.2?}  start, or 409
+                                        ("random": she is in a random zone, at a random spot in it)
+    POST /api/apartment/stop            {}
+    POST /api/apartment/clear           {}  ready for another run: no search, Margarete out, the robot on its dock
+    POST /api/apartment/reset           {"seed": 3?}  a new random flat and resident
+
+    --scene apartment (default): the robot lives in the furnished flat and the search walks it from zone to zone.
+    --scene floor: the robot alone on its floor, as before; the search then moves a marker on the plan only.
+    --driver tabpfn (default) | planner | rule: who walks each leg in the apartment (app/robot.py).
+    --belief tabpfn (default) | counting: who says where she probably is (homes/tabpfn_belief.py, homes/search.py).
 """
 
 import argparse
@@ -51,13 +75,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import llm  # noqa: E402
 import voice  # noqa: E402
 from call import Hub, Line  # noqa: E402
+from apartment import Apartment  # noqa: E402
 from knock import Knock  # noqa: E402
 from robot import HELP, VIEWS, LiveRobot  # noqa: E402
 
 WEB = Path(__file__).resolve().parent / "web" / "dist"
 # Requests per window (seconds), per visitor. Transcriptions are also capped per call (call.MAX_INTERIM).
 LIMITS = {"chat": (20, 600), "command": (60, 60), "call": (20, 600), "transcribe": (300, 600), "speak": (30, 600),
-          "knock": (60, 600)}
+          "knock": (60, 600), "apartment": (240, 60)}
 MAX_STREAMS = 40  # open picture streams across all visitors
 MAX_LISTENERS = 200  # open /api/live streams across all visitors
 MAX_BODY = 64 * 1024
@@ -69,6 +94,8 @@ KEY = ""
 HUB = Hub()
 LINE = Line(HUB)
 KNOCK = None  # Knock, made in main() once the robot runs
+APARTMENT = None  # Apartment, made in main()
+SCENE = "floor"
 HITS = defaultdict(deque)
 HITS_LOCK = threading.Lock()
 STREAMS = threading.BoundedSemaphore(MAX_STREAMS)
@@ -76,7 +103,11 @@ LISTENERS = threading.BoundedSemaphore(MAX_LISTENERS)
 CHATS = threading.BoundedSemaphore(2)  # metacon runs one model; do not queue up many answers
 POST_ROUTES = {"/api/command": "command", "/api/chat": "chat", "/api/call/start": "call", "/api/call/end": None,
                "/api/transcribe": "transcribe", "/api/speak": "speak", "/api/knock/call": "knock",
-               "/api/knock/find": "knock", "/api/knock/stop": None, "/api/knock/choice": "knock"}
+               "/api/knock/find": "knock", "/api/knock/stop": None, "/api/knock/choice": "knock",
+               "/api/apartment/journal": "apartment", "/api/apartment/journal/remove": "apartment",
+               "/api/apartment/journal/import": "apartment", "/api/apartment/inputs": "apartment", "/api/apartment/random": "apartment",
+               "/api/apartment/clock": "apartment", "/api/apartment/search": "apartment",
+               "/api/apartment/stop": None, "/api/apartment/reset": "apartment", "/api/apartment/clear": "apartment"}
 
 
 def sse(payload):
@@ -149,7 +180,23 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/api/health":
             self.send_json(200, {"ok": True, "model": llm.MODEL, "llm": bool(KEY), "commands": HELP,
-                                 "views": list(VIEWS), "voice": voice.available()})
+                                 "views": list(VIEWS), "voice": voice.available(), "scene": SCENE,
+                                 "apartment": APARTMENT is not None})
+        elif path == "/api/apartment/inputs.json" and APARTMENT is not None:
+            self.send_json(200, APARTMENT.inputs())
+        elif path == "/api/apartment/journal.txt" and APARTMENT is not None:
+            body = APARTMENT.journal_text().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif path == "/api/apartment":
+            if APARTMENT is None:
+                self.send_json(503, {"error": "the apartment is not running"})
+            else:
+                self.send_json(200, APARTMENT.state())
         elif path == "/api/live":
             self.live()
         elif path == "/api/views":
@@ -216,6 +263,8 @@ class Handler(BaseHTTPRequestHandler):
             self.speak(body)
         elif path.startswith("/api/knock/"):
             self.knock(path[11:], body)
+        elif path.startswith("/api/apartment/"):
+            self.apartment(path[15:], body)
         elif kind == "command":
             try:
                 self.send_json(200, {"ok": True, "command": ROBOT.command(str(body.get("text", "")))})
@@ -296,6 +345,41 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"ok": result})
         else:
             self.send_json(409, {"error": "a check-in is already running"})
+
+    def apartment(self, action, body):
+        if APARTMENT is None:
+            self.send_json(503, {"error": "the apartment is not running"})
+            return
+        try:
+            if action == "journal":
+                entry = APARTMENT.add_entry(str(body.get("zone", "")), body.get("time"), body.get("days_ago", 0))
+                self.send_json(200, {"ok": True, "entry": entry})
+            elif action == "journal/import":
+                self.send_json(200, dict(APARTMENT.import_journal(body.get("text", ""), bool(body.get("replace", True))),
+                                         ok=True))
+            elif action == "random":
+                self.send_json(200, {"ok": True, "inputs": APARTMENT.randomize(str(body.get("what", "both")))})
+            elif action == "inputs":
+                self.send_json(200, dict(APARTMENT.set_inputs(body.get("text", body)), ok=True))
+            elif action == "journal/remove":
+                self.send_json(200, {"ok": APARTMENT.remove_entry(body.get("id", -1))})
+            elif action == "clock":
+                self.send_json(200, {"ok": True, "clock": APARTMENT.set_clock(body.get("weekday"), body.get("time"))})
+            elif action == "search":
+                if APARTMENT.start(str(body.get("where", "routine")), body.get("miss_rate")):
+                    self.send_json(200, {"ok": True})
+                else:
+                    self.send_json(409, {"error": "a search is already running"})
+            elif action == "stop":
+                self.send_json(200, {"ok": APARTMENT.stop()})
+            elif action == "clear":
+                APARTMENT.clear()
+                self.send_json(200, {"ok": True})
+            else:  # reset
+                APARTMENT.reset(int(body.get("seed", 0)))
+                self.send_json(200, {"ok": True})
+        except (ValueError, TypeError) as error:
+            self.send_json(400, {"error": str(error)})
 
     def live(self):
         if not LISTENERS.acquire(blocking=False):
@@ -407,10 +491,21 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global ROBOT, KEY, KNOCK
+    global ROBOT, KEY, KNOCK, APARTMENT, SCENE
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--scene", default="apartment", choices=("apartment", "floor"),
+                        help="apartment: the furnished flat with zones (default); floor: the robot alone")
+    parser.add_argument("--driver", default="tabpfn", choices=("tabpfn", "planner", "rule"),
+                        help="who walks each leg in the apartment: the TabPFN a-to-b controller (needs the ml "
+                             "packages and a controller built with `just controller`), the nav/dagger planner, "
+                             "or the steer-to-bearing rule")
+    parser.add_argument("--controller", default="default", help="name of the TabPFN controller (data/nav/controllers)")
+    parser.add_argument("--flat", type=int, default=0, help="seed of the apartment's layout and resident")
+    parser.add_argument("--belief", default="tabpfn", choices=("tabpfn", "counting"),
+                        help="who gives the belief the search starts from: TabPFN (fit() on synthetic check-ins; "
+                             "3.5 with TABPFN_TOKEN or the repo's .env, else v2) or the counting Bayes model")
     args = parser.parse_args()
 
     KEY = llm.api_key()
@@ -421,9 +516,21 @@ def main():
               flush=True)
     voice.watch()
     LINE.sweep()
-    ROBOT = LiveRobot()
-    ROBOT.wait_ready()
+    SCENE = args.scene
+    ROBOT = LiveRobot(args.scene, args.driver, args.controller)
+    ROBOT.wait_ready(240)  # the TabPFN controller's fit() takes a few seconds
     KNOCK = Knock(HUB, ROBOT, lambda text: voice.speak(text) if voice.available() else None)
+    model = None
+    if args.belief == "tabpfn":
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "homes"))
+            import tabpfn_belief
+            model = tabpfn_belief.TabPFNBelief()
+            print("[app] belief: TabPFN {} with {} synthetic check-ins as examples".format(model.version, model.rows),
+                  flush=True)
+        except Exception as error:
+            print("[app] no TabPFN belief ({}), using the counting belief".format(error), flush=True)
+    APARTMENT = Apartment(seed=args.flat, robot=ROBOT if args.scene == "apartment" else None, model=model)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.daemon_threads = True
     print("JetHexa app on http://{}:{} (model {}, front end {})".format(

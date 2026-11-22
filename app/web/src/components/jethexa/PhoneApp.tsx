@@ -3,12 +3,13 @@
 // like a walkie-talkie. While a check-in runs the card takes the middle; when the robot finds her, the robot eye
 // fills the top and the talk bar gives way to the alert. Same state and hooks as the desktop page (App.tsx).
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Keyboard, Mic } from "lucide-react";
+import { ArrowUp, Keyboard, Mic, RotateCcw } from "lucide-react";
 import type { Conn } from "@/hooks/useRobotState";
 import type { LiveCall } from "@/hooks/useLiveCall";
 import type { Knock } from "@/hooks/useKnock";
 import { phaseText, type Phase } from "@/hooks/useVoiceCall";
-import type { RobotState, View } from "@/lib/api";
+import type { ApartmentState, RobotState, View } from "@/lib/api";
+import { ApartmentPhoneCard } from "./ApartmentPanel";
 import { HexMark } from "./Brand";
 import { KnockCard, KnockSteps, knockActive } from "./KnockCard";
 import { LiveCallCard } from "./LiveCallCard";
@@ -23,10 +24,14 @@ export interface VoiceProps {
   press: () => void; release: () => void; cancel: () => void;
 }
 
-export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend }: {
+export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, other, knock, speakerOn, onToggleSpeaker, onSend, onClear, apartment, onApartmentChanged, onError }: {
   conn: Conn; views: View[]; state: RobotState | null; lines: Line[]; busy: boolean; chatOff: boolean;
   voice: VoiceProps; other: LiveCall | null; knock: Knock; speakerOn: boolean; onToggleSpeaker: () => void;
   onSend: (text: string) => void;
+  /** Empties the conversation and what metacon remembers of it. */
+  onClear: () => void;
+  /** The apartment (zones, belief, search), when the server runs that scene: its card replaces the Knock card. */
+  apartment?: ApartmentState | null; onApartmentChanged?: () => void; onError?: (m: string) => void;
 }) {
   const live = conn === "live";
   const [view, setView] = useState<View>("chase");
@@ -43,11 +48,19 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
   // A check-in switches to the robot's own camera once; the person can still pick another view, except when found.
   useEffect(() => { if (checking && views.includes("eye")) setView("eye"); }, [checking, views]);
   const shown: View = found && views.includes("eye") ? "eye" : view;
-  const topRight = !live ? "demo" : check.state === "finding" && check.next ? `walking to ${check.next}` : statusText(state);
+  // While the apartment search runs, the camera is smaller so the floor plan fits under it.
+  const searching = !!apartment?.search.running;
+  const topRight = !live ? "demo" : searching && apartment?.search.goal ? `to the ${apartment.search.goal.replace("_", " ")}` : check.state === "finding" && check.next ? `walking to ${check.next}` : statusText(state);
 
+  const hasApartment = !!apartment;
+  // The card arrives a moment after the page (the first poll): show it from its top.
+  useEffect(() => { if (hasApartment) scroll.current?.scrollTo({ top: 0 }); }, [hasApartment]);
+  const talked = lines.some((l) => l.kind === "user") || voice.phase !== "idle";
   useEffect(() => {
+    // With the apartment card on top, stay at the top until there is a conversation to follow.
+    if (hasApartment && !talked) return;
     scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: "smooth" });
-  }, [lines, voice.interim, voice.phase, other, checking]);
+  }, [lines, voice.interim, voice.phase, other, checking, hasApartment, talked]); // not the apartment's polling
 
   const status = lineBusy ? "Someone else is on a call…"
     : voice.phase === "idle" && busy ? "metacon is answering…" : phaseText(voice.phase, cancelArmed);
@@ -57,7 +70,7 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
   return (
     <div className="phone-app">
       {/* The robot's view */}
-      <div className={`relative shrink-0 overflow-hidden rounded-b-[28px] shadow-[0_18px_40px_-16px_oklch(0_0_0/70%)] transition-[height] duration-300 ${checking ? "h-[36dvh]" : "h-[42dvh]"}`}>
+      <div className={`relative shrink-0 overflow-hidden rounded-b-[28px] shadow-[0_18px_40px_-16px_oklch(0_0_0/70%)] transition-[height] duration-300 ${apartment ? "h-[30dvh]" : checking ? "h-[36dvh]" : "h-[42dvh]"}`}>
         <div key={shown} className="absolute inset-0 crossfade"><Stream view={shown} live={live} /></div>
         <div className="stage-vignette" />
         <div className="absolute inset-x-0 top-0 flex items-center gap-2 px-4 pt-[max(12px,env(safe-area-inset-top))]">
@@ -90,7 +103,19 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
       /* The Margarete card, then the conversation */
       <div ref={scroll} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
         {other && !other.ended && <LiveCallCard call={other} className="sticky top-0 z-10" />}
-        <div className="pb-1.5"><KnockCard k={knock} /></div>
+        <div className="pb-1.5">
+          {apartment ? <ApartmentPhoneCard apartment={apartment} onError={onError ?? (() => {})} onChanged={onApartmentChanged ?? (() => {})} />
+            : <KnockCard k={knock} />}
+        </div>
+        {lines.length > 0 && (
+          <div className="flex items-center justify-between pt-0.5">
+            <span className="text-[11px] uppercase tracking-wider text-video/40">Conversation</span>
+            <button onClick={onClear} disabled={busy || voice.phase !== "idle"} aria-label="Clear the chat and start fresh"
+              className="flex h-7 items-center gap-1.5 rounded-full border border-video/15 bg-video/5 px-2.5 text-[12px] text-video/70 active:bg-video/15 disabled:opacity-40">
+              <RotateCcw className="h-3.5 w-3.5" />New chat
+            </button>
+          </div>
+        )}
         {lines.map((l) => <Bubble key={l.id} line={l} />)}
         {voice.phase !== "idle" && voice.phase !== "thinking" && voice.phase !== "speaking" && (
           <div className="flex justify-end">
@@ -99,7 +124,7 @@ export function PhoneApp({ conn, views, state, lines, busy, chatOff, voice, othe
             </div>
           </div>
         )}
-        {lines.length <= 1 && voice.phase === "idle" && (
+        {lines.filter((l) => l.kind === "user").length === 0 && voice.phase === "idle" && (
           <div className="flex flex-wrap justify-center gap-2 pt-2">
             {SUGGESTIONS.map((s) => (
               <button key={s} onClick={() => onSend(s)} disabled={busy}
