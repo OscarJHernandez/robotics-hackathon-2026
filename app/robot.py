@@ -7,6 +7,8 @@ and used on one thread, which is why rendering happens here too.
 
 Commands (the same words the chat understands): goto X Y, forward M, turn DEG, stop, reset, target (walk to the
 red pillar), random (moves the red end-point pillar to a random spot; a robot walking to the pillar follows it).
+
+Two scenes: "floor" (the robot alone) and "apartment" (the furnished room with zones; see LiveRobot).
 """
 
 import io
@@ -23,7 +25,8 @@ import mujoco
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "sim"))
 
-from jethexa_sim import JetHexaSim, tripod_targets  # noqa: E402
+from fetch_meshes import meshes_available  # noqa: E402
+from jethexa_sim import SIM_DIR, JetHexaSim, tripod_targets  # noqa: E402
 
 CONTROL_DT = 0.02  # seconds between new joint targets
 CYCLE = 1.0  # seconds per gait cycle; the steering command changes once per cycle
@@ -34,6 +37,21 @@ MAX_STEP = 0.13  # metres per cycle at full stride
 REACHED = 0.10  # metres: close enough to a goto point
 YAW_REACHED = 0.06  # radians: close enough to a turn target
 ARENA = 2.6  # metres: goto points are kept inside this square (the floor is 3 m each way)
+APARTMENT = 3.2  # the same in the apartment scene (walls at 3.54 m)
+APARTMENT_REACHED = 0.27  # metres: the planner stops 0.25 m from a goto point in the apartment
+WALL_HEIGHT = 0.7  # metres: the apartment's walls are cut down to this, so the outside views can look in
+# The home look of the apartment scene (sim/apartment_decor.xml). Colors per piece of furniture (arena body):
+FURNITURE_COLORS = {"obs_0": (0.62, 0.49, 0.36), "obs_1": (0.33, 0.41, 0.50), "obs_2": (0.76, 0.75, 0.72),
+                    "obs_3": (0.60, 0.48, 0.35), "obs_4": (0.52, 0.39, 0.27), "obs_5": (0.68, 0.54, 0.26),
+                    "obs_6": (0.64, 0.54, 0.40), "obs_7": (0.60, 0.38, 0.28)}
+WALL_COLOR = (0.80, 0.78, 0.74)
+# Decoration: (geom, piece of furniture it belongs to, forward and left offset on that piece in metres)
+DECOR = (("decor_duvet", "bed", 0.24, 0.0), ("decor_pillow", "bed", -0.62, 0.0),
+         ("decor_cushion_a", "couch", -0.38, 0.05), ("decor_cushion_b", "couch", 0.38, 0.05),
+         ("decor_seat", "armchair", 0.04, 0.0), ("decor_worktop", "cabinet", 0.0, 0.0),
+         ("decor_leaves_a", "plant", 0.0, 0.0), ("decor_leaves_b", "plant", 0.03, -0.02),
+         ("decor_rug_dining", "table", 0.0, 0.0), ("decor_rug_living", "couch", 0.0, 1.1))
+PARKED = (50.0, 50.0)  # where the pillar goes when nobody is home
 RANDOM_SPAN = 2.0  # metres: random end points lie in this square, so they stay well inside the floor
 RANDOM_MIN_DIST = 0.8  # metres: a random end point is at least this far from the robot
 FALLEN = 0.5  # body_upright() below this counts as a fall
@@ -51,8 +69,9 @@ def wrap(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
 
 
-def parse_command(text):
-    """Turn "goto 1 0.5" and friends into a tuple, or raise ValueError with a message for the user."""
+def parse_command(text, limit=ARENA):
+    """Turn "goto 1 0.5" and friends into a tuple, or raise ValueError with a message for the user.
+    goto points are kept inside the square of half-width `limit`."""
     words = text.replace(",", " ").split()
     if not words:
         raise ValueError("empty command")
@@ -64,8 +83,8 @@ def parse_command(text):
     if any(not math.isfinite(n) for n in numbers):
         raise ValueError("numbers must be finite")
     if name == "goto" and len(numbers) == 2:
-        return ("goto", max(-ARENA, min(ARENA, numbers[0])), max(-ARENA, min(ARENA, numbers[1])))
-    if name == "forward" and len(numbers) == 1 and 0 < numbers[0] <= 2 * ARENA:
+        return ("goto", max(-limit, min(limit, numbers[0])), max(-limit, min(limit, numbers[1])))
+    if name == "forward" and len(numbers) == 1 and 0 < numbers[0] <= 2 * limit:
         return ("forward", numbers[0])
     if name == "turn" and len(numbers) == 1 and abs(numbers[0]) <= 360:
         return ("turn", math.radians(numbers[0]))
@@ -92,8 +111,181 @@ def to_jpeg(rgb):
     return out.getvalue()
 
 
+def wood_floor(model):
+    """Paint wooden planks into the floor's texture (the robot file's grey checker). Looks only."""
+    import numpy as np
+
+    tex = model.tex("grid").id
+    w, h = int(model.tex_width[tex]), int(model.tex_height[tex])
+    start = int(model.tex_adr[tex])
+    rng = np.random.default_rng(7)
+    img = np.zeros((h, w, 3), dtype=np.float32)
+    planks, base = 8, np.array([0.74, 0.58, 0.42])
+    rows = h // planks
+    for k in range(planks):
+        offset = int(rng.integers(w))
+        for part in range(2):  # two boards per row, with the joint at a random place
+            shade = base * (0.90 + 0.16 * rng.random()) + (rng.random(3) - 0.5) * 0.02
+            cols = (np.arange(w) + offset) % w
+            mask = (cols < w // 2) if part == 0 else (cols >= w // 2)
+            img[k * rows:(k + 1) * rows, mask] = shade
+        grain = (rng.random((rows, 1)) - 0.5) * 0.035  # streaks along the board
+        img[k * rows:(k + 1) * rows] += grain[:, :, None]
+        img[k * rows:k * rows + 1] *= 0.72  # the seam between two rows
+        for joint in (offset % w, (offset + w // 2) % w):
+            img[k * rows:(k + 1) * rows, (w - joint) % w] *= 0.72
+    data = (np.clip(img, 0, 1) * 255).astype(np.uint8)
+    model.tex_data[start:start + w * h * 3] = data.reshape(-1)
+    mat = model.geom_matid[model.geom("floor").id]
+    model.mat_texrepeat[mat] = (6, 6)
+    model.mat_reflectance[mat] = 0.0
+
+
+def dress(model):
+    """The home's colors: furniture (keeping each part's own shading) and walls."""
+    for body, color in FURNITURE_COLORS.items():
+        geoms = [g for g in range(model.ngeom) if model.geom_bodyid[g] == model.body(body).id]
+        top = max(float(model.geom_rgba[g][:3].max()) for g in geoms)
+        for g in geoms:
+            shade = float(model.geom_rgba[g][:3].max()) / top
+            model.geom_rgba[g][:3] = [c * (0.82 + 0.18 * shade) for c in color]
+    for g in range(model.ngeom):
+        if model.geom(g).name.startswith("wall_"):
+            model.geom_rgba[g][:3] = WALL_COLOR
+            model.geom_size[g][2] = model.geom_pos[g][2] = WALL_HEIGHT / 2
+
+
+def furnish(model, flat):
+    """Put the decoration of sim/apartment_decor.xml on and beside the flat's furniture, and the door on its wall."""
+    pieces = {f["name"]: f for f in flat["furniture"]}
+
+    def put(name, x, y, yaw):
+        g = model.geom(name).id
+        model.geom_pos[g][:2] = (x, y)
+        model.geom_quat[g] = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
+
+    half = flat["width"] / 2
+    for name, piece, forward, left in DECOR:
+        f = pieces[piece]
+        yaw = math.radians(f["yaw_deg"])
+        x = f["x"] + forward * math.cos(yaw) - left * math.sin(yaw)
+        y = f["y"] + forward * math.sin(yaw) + left * math.cos(yaw)
+        if name.startswith("decor_rug"):  # a rug stays on the floor of the room
+            size = max(model.geom_size[model.geom(name).id][:2])
+            x, y = max(-half + size, min(half - size, x)), max(-half + size, min(half - size, y))
+        put(name, x, y, yaw)
+    door = flat["door"]
+    inward = {"xmin": (1.0, 0.0), "xmax": (-1.0, 0.0), "ymin": (0.0, 1.0), "ymax": (0.0, -1.0)}[door["wall"]]
+    along = 0.0 if door["wall"] in ("ymin", "ymax") else math.pi / 2
+    put("decor_door", door["x"] + 0.03 * inward[0], door["y"] + 0.03 * inward[1], along)
+    put("decor_knob", door["x"] + 0.08 * inward[0] + 0.3 * math.cos(along), door["y"] + 0.08 * inward[1] + 0.3 * math.sin(along), 0.0)
+    put("decor_mat", door["x"] + 0.36 * inward[0], door["y"] + 0.36 * inward[1], along)
+
+
+def footprints(model, data, below=0.25):
+    """Floor footprints of every wall and obstacle shape that reaches below `below` metres, in the form the
+    nav/dagger planner takes (as SimEnv.footprints() in nav/dagger/env.py)."""
+    out = []
+    for g in range(model.ngeom):
+        if not model.geom(g).name.startswith(("wall_", "obs_")):
+            continue
+        size, pos, kind = model.geom_size[g], data.geom_xpos[g], model.geom_type[g]
+        half_height = size[2] if kind == mujoco.mjtGeom.mjGEOM_BOX else size[1]
+        if pos[2] - half_height > below:
+            continue
+        if kind == mujoco.mjtGeom.mjGEOM_BOX:
+            xmat = data.geom_xmat[g].reshape(3, 3)
+            out.append({"kind": "box", "x": float(pos[0]), "y": float(pos[1]),
+                        "yaw": float(math.atan2(xmat[1, 0], xmat[0, 0])), "hx": float(size[0]), "hy": float(size[1])})
+        else:
+            out.append({"kind": "circle", "x": float(pos[0]), "y": float(pos[1]), "r": float(size[0])})
+    return out
+
+
+ROUTE_MARGIN = 0.42  # metres the route keeps the robot's centre away from furniture and walls
+WAYPOINT = 0.30  # metres: close enough to a point on the way to turn to the next one
+DRIVERS = ("tabpfn", "planner", "rule")
+
+
+def load_tabpfn(name):
+    """The TabPFN controller `name` built with `just controller` (nav/controller.py): TabPFN's fit() on recorded
+    examples, then `act([row])` gives (stride, turn) for the next gait cycle. Needs the ml packages."""
+    if str(REPO / "nav") not in sys.path:
+        sys.path.insert(0, str(REPO / "nav"))
+    import controller as nav_controller
+    try:
+        return nav_controller.load(name)
+    except SystemExit as error:  # no such controller
+        raise RuntimeError(str(error))
+
+
+def nav_row(pose, poses, prev, target):
+    """What a nav/ controller reads before a gait cycle (the columns of nav.common.Walker.observe() it uses):
+    the last command, how the body moved over the last cycles, and where the target is."""
+    from common import make_goal, relative, to_body, wrap as nav_wrap
+
+    row = {"prev_stride": prev[0], "prev_turn": prev[1]}
+    for n in (1, 3):
+        before = poses[max(0, len(poses) - n)] if poses else pose
+        row["fwd_%d" % n], row["left_%d" % n] = to_body(before, pose[0], pose[1])
+        row["dyaw_%d" % n] = nav_wrap(pose[2] - before[2])
+    dist, bearing = relative(pose, *target)
+    row["target_dist"], row["target_sin"], row["target_cos"] = dist, math.sin(bearing), math.cos(bearing)
+    row.update(make_goal(dist, bearing))
+    return row
+
+
+def plan_route(shapes, half, start, goal):
+    """Straight legs from `start` to `goal` that keep ROUTE_MARGIN away from the furniture: the points to walk
+    to, the last one being `goal`. The a-to-b controller walks each leg; it does not see obstacles itself.
+    Uses the grid and A* of nav/dagger/expert.py. [goal] when there is no way or no planner."""
+    try:
+        if str(REPO) not in sys.path:
+            sys.path.insert(0, str(REPO))
+        from nav.dagger.expert import Grid, astar
+        import numpy as np
+    except Exception:
+        return [goal]
+    grid = Grid(shapes, half, cell=0.05, inflate=ROUTE_MARGIN, goal=goal, goal_radius=0.3)
+    # The robot may stand inside the margin (the dock is near the wall): free the floor around it, not the shapes.
+    gx, gy = np.meshgrid(grid.xs, grid.xs, indexing="ij")
+    grid.blocked &= ~((np.hypot(gx - start[0], gy - start[1]) < 0.3) & (grid.clearance > 0.02))
+    path = astar(grid, start, goal)
+    if not path:
+        return [goal]
+
+    def clear(a, b):
+        steps = max(2, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 0.04))
+        for k in range(steps + 1):
+            t = k / steps
+            if grid.blocked[grid.index(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))]:
+                return False
+        return True
+
+    points, at, i = [], start, 0
+    path = path + [goal]
+    while i < len(path) - 1:  # from each point, go straight to the farthest point of the path that is in sight
+        j = len(path) - 1
+        while j > i + 1 and not clear(at, path[j]):
+            j -= 1
+        at, i = path[j], j
+        points.append((float(at[0]), float(at[1])))
+    return points
+
+
 class LiveRobot:
-    def __init__(self):
+    """scene "floor": the robot alone on its 6 m floor. scene "apartment": the 50 m² room with furniture and
+    zone patches (sim/apartment.xml); `load(flat)` arranges it and `paint(belief)` shades the zones.
+
+    In the apartment a goto is a route of straight legs around the furniture (plan_route), and `driver` walks
+    each leg: "tabpfn" is the a-to-b controller built with `just controller` (TabPFN picks stride and turn every
+    gait cycle), "planner" the nav/dagger expert, "rule" the steer-to-bearing rule. A driver that cannot be
+    loaded falls back to the next one; state()["driver"] says which one walks."""
+
+    def __init__(self, scene="floor", driver="tabpfn", controller="default"):
+        self.scene = scene
+        self._driver, self._controller = driver, controller
+        self.limit = APARTMENT if scene == "apartment" else ARENA
         self._commands = queue.Queue()
         self._lock = threading.Lock()
         self._frames = dict((view, b"") for view in VIEWS)
@@ -113,13 +305,18 @@ class LiveRobot:
 
     def command(self, text):
         """Queue a command; returns its normal form. Raises ValueError if it is not understood."""
-        parsed = parse_command(text)
+        parsed = parse_command(text, self.limit)
         if parsed[0] == "random":
             parsed = ("target",) + random_point(self.state())
         elif parsed[0] == "target":  # walk to wherever the pillar is now
             state = self.state()
             parsed = ("goto", state.get("target_x", 1.0), state.get("target_y", 0.0))
         self._commands.put(parsed)
+        if parsed[0] in ("goto", "forward", "turn"):
+            # Say so at once: the simulator thread may be busy (planning a route, TabPFN predicting) for a moment,
+            # and a caller that waits for "idle" must not take the old state for "already done".
+            with self._lock:
+                self._state["mode"] = "turn" if parsed[0] == "turn" else "goto"
         if parsed[0] == "target":
             return "random end point {:.2f} {:.2f}".format(parsed[1], parsed[2])
         return " ".join([parsed[0]] + ["{:.2f}".format(math.degrees(v) if parsed[0] == "turn" else v)
@@ -135,17 +332,71 @@ class LiveRobot:
         with self._lock:
             return dict(self._state)
 
+    def load(self, flat):
+        """Apartment scene: put the furniture and zone patches where `flat` (homes/flats.py) has them, and the
+        robot at the dock."""
+        self._commands.put(("layout", flat))
+
+    def paint(self, belief):
+        """Apartment scene: shade each zone patch by the belief {zone: probability} that she is there."""
+        self._commands.put(("zones", dict(belief)))
+
+    def person(self, x=None, y=None, yaw_deg=0.0):
+        """Apartment scene: lay Margarete (the figure in sim/apartment_decor.xml) on the floor with her middle at
+        (x, y), head towards `yaw_deg`; with no point, out of sight (nobody home)."""
+        if x is None:
+            x, y = PARKED[0], PARKED[1] + 2.0
+        self._commands.put(("person", float(x), float(y), math.radians(yaw_deg)))
+
     # ---- the simulator thread ----
 
     def _run(self):
+        home = (0.0, 0.0, 0.0)  # where reset puts the robot: x, y, yaw
+        expert, policy, driver, layout, shapes = None, None, "rule", 0, []
+        legs, poses, prev = [], [], (0.0, 0.0)  # the route's points still to reach; the body pose at each cycle start
+        reached = REACHED
         try:
-            sim = JetHexaSim()
+            if self.scene == "apartment":
+                sim = JetHexaSim(SIM_DIR / ("apartment.xml" if meshes_available() else "apartment_simple.xml"))
+                model = sim.model
+                half = math.sqrt(50.0) / 2
+                model.geom_size[model.geom("floor").id, :2] = half + 0.1  # the robot file's floor is 6 x 6 m
+                model.light_active[0] = 0  # the robot file's lamp; the room has its own even lights
+                model.mat_reflectance[model.geom_matid[model.geom("floor").id]] = 0.0
+                wood_floor(model)
+                dress(model)
+                person = int(model.body("person").mocapid[0])
+                zone_geoms = dict((model.geom(g).name[5:], g) for g in range(model.ngeom)
+                                  if model.geom(g).name.startswith("zone_"))
+                mujoco.mj_forward(model, sim.data)
+                shapes = footprints(model, sim.data)
+                reached = APARTMENT_REACHED
+                wanted = DRIVERS[DRIVERS.index(self._driver):] if self._driver in DRIVERS else DRIVERS
+                for name in wanted:
+                    try:
+                        if name == "tabpfn":
+                            policy = load_tabpfn(self._controller)
+                            reached = 0.15
+                        elif name == "planner":
+                            if str(REPO) not in sys.path:
+                                sys.path.insert(0, str(REPO))
+                            from nav.dagger.expert import Expert
+                            expert = Expert(goal_radius=0.25)
+                        driver = name
+                        break
+                    except Exception as error:
+                        print("[app] driver '{}' is not available ({}), trying the next".format(name, error), flush=True)
+                print("[app] apartment scene, driver: {}".format(driver), flush=True)
+            else:
+                sim = JetHexaSim()
             sim.set_target(1.0, 0.0)
             sim.model.vis.global_.offwidth, sim.model.vis.global_.offheight = VIEW_SIZE
             renderer = mujoco.Renderer(sim.model, height=VIEW_SIZE[1], width=VIEW_SIZE[0])
             cameras = {}
-            for view, (distance, azimuth, elevation) in (("chase", (0.9, 0, -22)), ("orbit", (1.2, 135, -28)),
-                                                          ("overhead", (6.2, 90, -89.9))):
+            apartment = self.scene == "apartment"
+            for view, (distance, azimuth, elevation) in (("chase", (0.9, 0, -22)),
+                                                          ("orbit", (2.6 if apartment else 1.2, 135, -34 if apartment else -28)),
+                                                          ("overhead", (9.6 if apartment else 6.2, 90, -89.9))):
                 cameras[view] = camera = mujoco.MjvCamera()
                 camera.distance, camera.azimuth, camera.elevation = distance, azimuth, elevation
                 camera.lookat[:] = (0.0, 0.0, 0.0) if view == "overhead" else sim.body_position()
@@ -171,14 +422,52 @@ class LiveRobot:
                     break
                 x, y, _ = sim.body_position()
                 yaw = sim.body_yaw()
-                if cmd[0] == "reset":
+                if cmd[0] == "layout":  # apartment: a new flat
+                    flat = cmd[1]
+                    model = sim.model
+                    key = model.key("stand").id
+                    mpos, mquat = model.key_mpos[key].reshape(-1, 3), model.key_mquat[key].reshape(-1, 4)
+                    for piece in flat["furniture"]:
+                        m = int(model.body(piece["body"]).mocapid[0])
+                        yaw_ = math.radians(piece["yaw_deg"])
+                        mpos[m] = (piece["x"], piece["y"], 0.0)
+                        mquat[m] = (math.cos(yaw_ / 2), 0.0, 0.0, math.sin(yaw_ / 2))
+                    for zone in flat["zones"]:
+                        g = zone_geoms[zone["name"]]
+                        model.geom_pos[g][:2] = (zone["x"], zone["y"])
+                        model.geom_size[g][:2] = (zone["size_x"] / 2 - 0.02, zone["size_y"] / 2 - 0.02)
+                    furnish(model, flat)
+                    dock = flat["dock"]
+                    home = (dock["x"], dock["y"], math.atan2(-dock["y"], -dock["x"]))  # at the dock, facing the room
+                    sim.reset()  # also puts the furniture where the keyframe now says
+                    sim.data.qpos[0], sim.data.qpos[1] = home[0], home[1]
+                    sim.data.qpos[3:7] = (math.cos(home[2] / 2), 0.0, 0.0, math.sin(home[2] / 2))
+                    sim.set_target(*PARKED)
+                    sim.data.mocap_pos[person] = (PARKED[0], PARKED[1] + 2.0, 0.0)
+                    shapes = footprints(model, sim.data)
+                    layout += 1
+                    mode, goal = "idle", None
+                elif cmd[0] == "zones":
+                    for name, g in zone_geoms.items():
+                        sim.model.geom_rgba[g][3] = 0.04 + 0.36 * max(0.0, min(1.0, cmd[1].get(name, 0.0)))
+                    continue
+                elif cmd[0] == "person":  # Margarete: where she lies, or out of sight
+                    sim.data.mocap_pos[person] = (cmd[1], cmd[2], 0.0)
+                    sim.data.mocap_quat[person] = (math.cos(cmd[3] / 2), 0.0, 0.0, math.sin(cmd[3] / 2))
+                    continue
+                elif cmd[0] == "reset":
                     sim.reset()
-                    sim.set_target(1.0, 0.0)
+                    sim.data.qpos[0], sim.data.qpos[1] = home[0], home[1]
+                    sim.data.qpos[3:7] = (math.cos(home[2] / 2), 0.0, 0.0, math.sin(home[2] / 2))
+                    mujoco.mj_forward(sim.model, sim.data)
+                    if self.scene != "apartment":
+                        sim.set_target(1.0, 0.0)
                     mode, goal = "idle", None
                 elif cmd[0] == "target":  # move the pillar; a walk to the pillar follows it
                     sim.set_target(cmd[1], cmd[2])
-                    if mode == "goto":
+                    if mode == "goto" and self.scene != "apartment":  # in the apartment the pillar is the person
                         goal = (cmd[1], cmd[2])
+                        legs = [goal]
                     continue  # keep the gait clock: no jump in the legs
                 elif cmd[0] == "stop":
                     mode, goal = "idle", None
@@ -187,29 +476,43 @@ class LiveRobot:
                 else:
                     if cmd[0] == "forward":
                         tx, ty = x + cmd[1] * math.cos(yaw), y + cmd[1] * math.sin(yaw)
-                        tx, ty = max(-ARENA, min(ARENA, tx)), max(-ARENA, min(ARENA, ty))
+                        tx, ty = max(-self.limit, min(self.limit, tx)), max(-self.limit, min(self.limit, ty))
                     else:
                         tx, ty = cmd[1], cmd[2]
                     # The pillar stays put: only `random` moves it. (Moving it to every goto end point made a
                     # misread "walk to the target", e.g. [[forward 1]], put the pillar right in front of the robot.)
                     mode, goal = "goto", (tx, ty)
+                    legs = plan_route(shapes, math.sqrt(50.0) / 2, (x, y), goal) if self.scene == "apartment" else [goal]
+                    poses, prev = [], (0.0, 0.0)
                 gait, cycle_at = PHASE0, -1.0
 
             x, y, _ = sim.body_position()
             yaw = sim.body_yaw()
             if sim.body_upright() < FALLEN:
                 mode, goal = "fallen", None
-            elif mode == "goto" and math.hypot(goal[0] - x, goal[1] - y) < REACHED:
-                mode, goal = "idle", None
+            elif mode == "goto" and math.hypot(goal[0] - x, goal[1] - y) < reached:
+                mode, goal, legs = "idle", None, []
+            elif mode == "goto" and len(legs) > 1 and math.hypot(legs[0][0] - x, legs[0][1] - y) < WAYPOINT:
+                legs = legs[1:]  # on to the next point of the route
             elif mode == "turn" and abs(wrap(goal - yaw)) < YAW_REACHED:
                 mode, goal = "idle", None
 
             if mode in ("goto", "turn"):
                 if gait - cycle_at >= CYCLE:  # new steering command once per gait cycle
                     cycle_at = gait
-                    if mode == "goto":
-                        dist = math.hypot(goal[0] - x, goal[1] - y)
-                        bearing = wrap(math.atan2(goal[1] - y, goal[0] - x) - yaw)
+                    leg = legs[0] if legs else goal
+                    if mode == "goto" and policy is not None:  # the TabPFN a-to-b controller walks this leg
+                        stride, turn = (float(v) for v in policy.act([nav_row((x, y, yaw), poses, prev, leg)])[0])
+                        poses.append((x, y, yaw))
+                        del poses[:-4]
+                        prev = (stride, turn)
+                        next_tick = time.monotonic()  # the physics waited while TabPFN predicted
+                    elif mode == "goto" and expert is not None:  # the nav/dagger planner
+                        stride, turn = expert.act({"key": (layout, goal), "footprints": shapes,
+                                                   "half": math.sqrt(50.0) / 2, "goal": goal, "pose": (x, y, yaw)})
+                    elif mode == "goto":
+                        dist = math.hypot(leg[0] - x, leg[1] - y)
+                        bearing = wrap(math.atan2(leg[1] - y, leg[0] - x) - yaw)
                         turn = max(-MAX_TURN, min(MAX_TURN, 0.5 * bearing))
                         stride = MAX_STRIDE * max(0.0, math.cos(bearing)) ** 2 * min(1.0, dist / (2 * MAX_STEP))
                     else:
@@ -223,6 +526,8 @@ class LiveRobot:
                 sim.set_targets(sim.stand)
             sim.step(CONTROL_DT)
             step += 1
+            self._route = [list(p) for p in legs] if mode == "goto" else []
+            self._driver_name = driver if self.scene == "apartment" else "rule"
             self._publish(sim, step, mode, goal)
 
             next_tick += CONTROL_DT
@@ -258,7 +563,7 @@ class LiveRobot:
                 renderer.update_scene(sim.data, camera=cameras[view])
                 frames[view] = to_jpeg(renderer.render())
         tx, ty = sim.target()
-        state = {"mode": mode, "x": round(x, 3), "y": round(y, 3), "height": round(z, 3),
+        state = {"mode": mode, "scene": self.scene, "x": round(x, 3), "y": round(y, 3), "height": round(z, 3),
                  "yaw_deg": round(yaw, 1), "target_x": round(tx, 3),
                  "target_y": round(ty, 3), "sim_time": round(sim.time, 2),
                  # where the pillar is seen from the robot: metres, and degrees (positive = to its left)
@@ -266,6 +571,11 @@ class LiveRobot:
                  "target_bearing_deg": round(math.degrees(wrap(math.atan2(ty - y, tx - x) - math.radians(yaw))))}
         if mode == "turn":
             state["turn_to_deg"] = round(math.degrees(goal), 1)
+        if self.scene == "apartment":
+            state["driver"] = getattr(self, "_driver_name", "rule")
+            state["route"] = getattr(self, "_route", [])
+            if mode == "goto":
+                state["goal_x"], state["goal_y"] = round(goal[0], 3), round(goal[1], 3)
         with self._lock:
             self._frames.update(frames)
             self._state = state

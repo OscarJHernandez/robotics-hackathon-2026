@@ -1,10 +1,12 @@
-import { Dices, Map } from "lucide-react";
+import { Dices, Home, Map } from "lucide-react";
 import type { View } from "@/lib/api";
 import { VIEW_LABEL } from "./Stream";
 
-export function ViewList({ views, active, onPick, mapOpen, onToggleMap, onRandom }: {
+export function ViewList({ views, active, onPick, mapOpen, onToggleMap, onRandom, apartment, onToggleApartment, scene }: {
   views: View[]; active: View; onPick: (v: View) => void; mapOpen: boolean; onToggleMap: () => void;
   onRandom: () => void;
+  /** Whether the Apartment panel is open; undefined when there is no apartment (no button then). */
+  apartment?: boolean | undefined; onToggleApartment?: (() => void) | undefined; scene?: string | undefined;
 }) {
   return (
     <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -23,12 +25,22 @@ export function ViewList({ views, active, onPick, mapOpen, onToggleMap, onRandom
         })}
       </ul>
       <div className="mt-1 flex items-center gap-2">
-        <button onClick={onRandom} title="Move the red pillar (the end point) to a random spot"
-          className="glass pixel flex h-9 items-center gap-2 rounded-full px-3.5 text-[10px] transition-colors duration-200 hover:bg-video/10">
-          <Dices className="h-4 w-4" />Random end point
-        </button>
-      <button onClick={onToggleMap} aria-label="Toggle mini map" aria-pressed={mapOpen}
-        className={`glass-btn h-9 w-9 max-sm:hidden ${mapOpen ? "glass-btn-on" : ""}`}><Map className="h-4 w-4" /></button>
+        {scene !== "apartment" && (
+          <button onClick={onRandom} title="Move the red pillar (the end point) to a random spot"
+            className="glass pixel flex h-9 items-center gap-2 rounded-full px-3.5 text-[10px] transition-colors duration-200 hover:bg-video/10">
+            <Dices className="h-4 w-4" />Random end point
+          </button>
+        )}
+        {apartment !== undefined && (
+          <button onClick={onToggleApartment} aria-pressed={apartment} title="The apartment: zones, journal, search and log"
+            className={`glass pixel flex h-9 items-center gap-2 rounded-full px-3.5 text-[10px] transition-colors duration-200 max-sm:hidden ${apartment ? "bg-video text-[var(--stage)]" : "hover:bg-video/10"}`}>
+            <Home className="h-4 w-4" />Apartment
+          </button>
+        )}
+      {scene !== "apartment" && (
+        <button onClick={onToggleMap} aria-label="Toggle mini map" aria-pressed={mapOpen}
+          className={`glass-btn h-9 w-9 max-sm:hidden ${mapOpen ? "glass-btn-on" : ""}`}><Map className="h-4 w-4" /></button>
+      )}
       </div>
     </div>
   );
