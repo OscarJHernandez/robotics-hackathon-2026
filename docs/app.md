@@ -162,7 +162,15 @@ over a million. With `fit_mode="fit_with_cache"` (the default) a call takes 0.6 
 re-runs the whole 63,000-row context every call (13 s, 11,400 credits). At start the app checks the account: under
 150,000 credits left the student is not started (`no_credits`), and its budget stops it before the account drops
 below that; `--student-calls N` caps the calls further. The a-to-b drivers run locally and cost nothing. The
-physics waits while the student decides (about 1 to 4 s per gait cycle), so a walk is slower than real time.
+physics waits while the student decides (0.6 to 4 s per gait cycle through the API), so a walk is slower than real
+time; the camera streams keep their rate meanwhile (the paused scene is rendered while the decision is made).
+
+**Local student (`--student-backend local`).** The same student with TabPFN's `fit()` and `predict()` run by the
+`tabpfn` package on the server instead of the API (`TabPFNPolicy`, one regressor for stride and one for turn; still no
+weight changes). On vendetta (M4 Pro, MPS) `fit()` takes about 4 min at start (the a-to-b driver walks meanwhile) and
+3 GB, then a `predict()` takes 0.18 s and costs no credits. Measured on vendetta 2026-11-22 with the same walks: the
+chase stream stays at 11 pictures per second while the student walks (2 to 3 before this change), and x3 reaches
+x1.5 to x1.7 (about x1 through the API). Use it on a machine with a GPU; on a laptop CPU the fit is too slow.
 
 `--scene floor` gives the old empty floor (the panel then moves a marker on the plan only). `--flat N` picks the
 layout and resident. The home look and Margarete are in `sim/apartment_decor.xml`, which only `sim/apartment.xml`
