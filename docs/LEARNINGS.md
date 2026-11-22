@@ -53,6 +53,11 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): Test the app's search live with the student (realtime, API) before calling it done:
+  `just search-bench` uses the A* walker and no realtime pauses, so it missed a race that broke every live search.
+  While the student decides, `LiveRobot` publishes the paused scene before it reads new commands; that state said
+  "idle" for a command still queued, so the search took a new `approach` or `look` for finished. `_publish` now
+  keeps `mode` and `approach` while the queue is not empty (`tests/test_person_search.py` `PendingCommandTest`).
 - 2026-11-22 (Oscar's agent): Range Margarete with the depth camera, not the lidar: her geoms have no collisions,
   so the lidar passes through her (that is what makes the look-alike check work). Walking up to her, recompute the
   destination every gait cycle from the detector's estimate (`approach` in `app/robot.py`); the student needs no
