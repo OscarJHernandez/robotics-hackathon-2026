@@ -5,7 +5,7 @@ averaged per patch column: 46 columns x 384) to a signature. The pillar's signat
 Margarete lives in the dressed flat (wood floor, zone patches, decor, furniture in its home colours), so her
 signature is made here, from the scene the app renders (`ApartmentScene`):
 
-  - random flats (homes/flats.py), half of them with the loose pieces scattered;
+  - random flats (homes/flats.py), at a random mess level: as built, clean, medium or messy (the clutter);
   - zone patches painted with random beliefs, as during a search;
   - her at a random spot of a random zone, lying or standing (the app's two poses), or nobody home (20%);
   - the robot at a free place: mostly looking at her from 0.5-4 m (yaw jitter 0.45 rad), else anywhere.
@@ -90,9 +90,11 @@ def main():
     for k in range(args.flats):
         flat_id = args.first_flat + k
         flat = F.random_flat(np.random.default_rng(flat_id), flat_id)
-        scattered = bool(rng.random() < 0.5)
+        level = ("home",) + tuple(F.LEVELS)
+        level = level[int(rng.integers(len(level)))]
+        scattered = level != "home"
         if scattered:
-            flat = F.scatter(flat, np.random.default_rng([flat_id, 1]))
+            flat = F.scatter(flat, np.random.default_rng([flat_id, 1]), level)
         scene.load(flat)
         half = scene.half
         pictures = []
@@ -128,7 +130,7 @@ def main():
             share = band_share(person_geoms[seg])
             pictures.append(rgb)
             shares.append(share)
-            meta.append({"flat": flat_id, "scattered": scattered, "zone": zone["name"],
+            meta.append({"flat": flat_id, "scattered": scattered, "level": level, "zone": zone["name"],
                          "pose": "none" if nobody else pose, "person": [px, py], "robot": [x, y, ryaw],
                          "dist": None if nobody else math.hypot(px - x, py - y), "aimed": aimed})
         for i in range(0, len(pictures), 8):
@@ -136,7 +138,7 @@ def main():
             bands.append(feats[:, BAND_ROWS[0]:BAND_ROWS[1]].mean(axis=1).astype(np.float16))
         seen = sum(1 for m, s in zip(meta[-len(pictures):], shares[-len(pictures):]) if s.max() > 0)
         print("flat {} ({}): {} pictures, she is in view in {} ({:.0f} s)".format(
-            flat_id, "scattered" if scattered else "home", len(pictures), seen, time.time() - started), flush=True)
+            flat_id, level, len(pictures), seen, time.time() - started), flush=True)
     band = np.concatenate(bands)
     share = np.stack(shares)
     assert len(band) == len(share) == len(meta)

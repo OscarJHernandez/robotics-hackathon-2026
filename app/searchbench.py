@@ -1,6 +1,6 @@
 """The whole search with the robot's own eyes, many times, without the web page: just search-bench [--runs 40]
 
-Each run: a random flat (half with the loose pieces shuffled), Margarete in a random zone and spot, lying or
+Each run: a random flat at a random mess level (as built, clean, medium or messy), Margarete in a random zone and spot, lying or
 standing (or nobody home), the robot on its dock. The app's search (app/apartment.py) runs exactly as in the
 browser: the most likely zone, walk there (the detector watches), look around, a close-up check of anything it
 saw, update the belief, next zone. The simulator runs as fast as it can (realtime off).
@@ -68,8 +68,9 @@ def main():
     for k in range(args.runs):
         seed = args.first_seed + k
         apartment.reset(seed)
-        if rng.random() < 0.5:
-            apartment.shuffle()
+        level = ("home", "clean", "medium", "messy")[int(rng.integers(4))]
+        if level != "home":
+            apartment.shuffle(level)
         time.sleep(0.5)
         out = rng.random() < args.out_share
         where = "out" if out else ZONES[int(rng.integers(len(ZONES)))]
@@ -89,7 +90,7 @@ def main():
         missed = sum(1 for s in steps if s["zone"] == where and not s["seen"])
         looked_hers = sum(1 for s in steps if s["zone"] == where)
         sightings = run.get("sightings", [])
-        result = {"seed": seed, "truth": where, "pose": run.get("pose"), "status": run["status"],
+        result = {"seed": seed, "level": level, "truth": where, "pose": run.get("pose"), "status": run["status"],
                   "found_zone": found_zone, "right_zone": found_zone == where, "looks": len(steps),
                   "metres": round(run.get("metres", 0.0), 2), "false_alarms": run.get("false_alarms", 0),
                   "found_error": run.get("found_error"), "missed_looks": missed, "looks_in_her_zone": looked_hers,

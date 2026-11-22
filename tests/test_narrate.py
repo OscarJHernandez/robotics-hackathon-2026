@@ -35,6 +35,8 @@ FACTS = {
     "stopped": {"name": "Margarete"},
     "failed": {"name": "Margarete", "reason": "the robot fell over"},
     "fallback": {"zone": "kitchen", "reason": "stuck"},
+    "spotted": {"zone": "bedroom", "metres": 2.4},
+    "false_alarm": {"zone": "bedroom", "name": "Margarete"},
 }
 
 EXPECTED = {
@@ -48,6 +50,8 @@ EXPECTED = {
     "stopped": "The search is stopped.",
     "failed": "I had to stop the search: the robot fell over.",
     "fallback": "Something is in my way, so I'm taking the mapped route to the kitchen instead.",
+    "spotted": "I think I see someone in the bedroom, about 2 metres away. I'm going closer to check.",
+    "false_alarm": "That wasn't Margarete, just something that looked like her. I'll keep looking.",
 }
 
 

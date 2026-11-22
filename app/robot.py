@@ -697,7 +697,7 @@ class LiveRobot:
                         except Exception as error:  # noqa: BLE001 - never let the detector stop the robot
                             spotter.status, spotter.reason = "failed", str(error)
                             print("[app] the person detector failed: {}".format(error), flush=True)
-                        next_tick = time.monotonic()  # the physics waited while DINOv2 looked
+                        next_tick = self._clock()  # the physics waited while DINOv2 looked
                     if mode in ("look", "watch"):
                         look = self._look
                         look["turned_deg"] += abs(math.degrees(wrap(yaw - look["last_yaw"])))

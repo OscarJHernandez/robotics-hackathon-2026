@@ -3,7 +3,7 @@
 Every gait cycle while the robot walks, looks around or watches, `Spotter.see(sim)` takes the robot's camera
 picture and depth of the dressed flat (what the "eye" view shows), runs DINOv2 on it, and matches the horizon
 band (patch rows 11-14, 46 columns) to Margarete's signature (`just person-data`, then
-`python vision/target_signature.py person-v1 --band --name margarete`): nav/dagger/target.py's `Detector`.
+`python vision/target_signature.py person-v2 --band --name margarete`): nav/dagger/target.py's `Detector`.
 A match is ranged with the depth picture and turned into a floor position; `Estimate` fuses matches over cycles
 and confirms her after `confirm` agreeing ones. Her truth (where the app put her) is never used here.
 
@@ -26,13 +26,17 @@ for p in (REPO, REPO / "vision"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-SIGNATURE = "person-v1/signature-margarete.npz"  # in data/vision
+SIGNATURE = "person-v2/signature-margarete.npz"  # in data/vision
 LIDAR = (36, 0.15, 8.0)  # rays, min and max range: the same scan as the student
 # Detector and estimate settings for her (nav/dagger/target.py keys). She is 1.6 m long lying down, so matches on
 # different parts of her body spread more than on the 6 cm pillar: a wider fuse radius and jump.
 PERSON = {"signature": SIGNATURE, "range_source": "depth", "lidar_sees_target": False, "offset": 0.10,
           "max_range": 4.0, "margin": 0.05, "window": 3, "min_hits": 1, "confirm": 2, "fuse_radius": 0.5,
           "max_jump": 1.0, "fuse_decay": 0.7, "stale_steps": 6}
+# The close-up check counts matches within this many metres of the spot it went to check. Lying, she is 1.6 m long:
+# the first sighting may be her feet or head, and up close the camera matches her middle (a live search at 0.5 m
+# called her a false alarm twice, 2026-11-22).
+CHECK_RADIUS = 1.0
 
 
 class Spotter:
@@ -52,7 +56,7 @@ class Spotter:
         self.last = None          # the last detection (dict) or None
         self.best = float("nan")  # best band similarity in the last picture
         self.seconds = 0.0
-        self.marked = None        # (cycle, hits) when mark() was called
+        self.marked = None        # the spot (x, y) mark() was called for
         self.watch_hits = 0       # detections near the estimate since mark()
 
     # ---- loading ----
@@ -70,7 +74,7 @@ class Spotter:
             path = Path(self.signature) if self.signature else data_dir() / self.cfg["signature"]
             if not path.is_file():
                 raise FileNotFoundError("no signature at {} (just person-data, then vision/target_signature.py "
-                                        "person-v1 --band --name margarete)".format(path))
+                                        "person-v2 --band --name margarete)".format(path))
             self.detector = Detector(load_signature(path), self.cfg)
             dino = load_dino(self.device)
             self._extract = lambda rgb: extract(dino, rgb[None])[0, BAND_ROWS[0]:BAND_ROWS[1]].mean(axis=0)
@@ -103,9 +107,8 @@ class Spotter:
         self.last = d
         self.cycles += 1
         if d is not None:
-            counted = self.estimate.add(d, self.cycles)
-            if counted and self.marked is not None and self.estimate.est is not None \
-                    and math.hypot(d["x"] - self.estimate.est[0], d["y"] - self.estimate.est[1]) <= self.cfg["fuse_radius"]:
+            self.estimate.add(d, self.cycles)
+            if self.marked is not None and math.hypot(d["x"] - self.marked[0], d["y"] - self.marked[1]) <= CHECK_RADIUS:
                 self.watch_hits += 1
         self.seconds = 0.8 * self.seconds + 0.2 * (time.monotonic() - started) if self.cycles > 1 else \
             time.monotonic() - started
@@ -124,8 +127,10 @@ class Spotter:
         self.marked, self.watch_hits = None, 0
 
     def mark(self):
-        """Count matches near the estimate from now on (the close-up check before calling her found)."""
-        self.marked, self.watch_hits = self.cycles, 0
+        """Count matches within CHECK_RADIUS of the current estimate from now on (the close-up check before
+        calling her found)."""
+        est = self.estimate.est
+        self.marked, self.watch_hits = (tuple(est) if est is not None else None), 0
 
     def state(self):
         est, d = self.estimate.est, self.last

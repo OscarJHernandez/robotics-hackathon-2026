@@ -43,6 +43,20 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): In the apartment scene the robot camera could not see anything closer than 1.1 m:
+  MuJoCo's near clipping plane is `vis.map.znear` x the model's extent, and the decor and clutter parked 40-50 m away
+  make the extent 112 m. Margarete, 0.6 m from the viewing pose, was invisible to the camera and its depth.
+  `ApartmentScene` now sets the near plane to 5 cm. Check `model.stat.extent` before trusting close-up pictures of a
+  model with parked bodies.
+- 2026-11-22 (Oscar's agent): Make a detector's signature in the scene it will run in. Margarete's from the dressed
+  flat (`just person-data`, 3,000 pictures at every mess level) found her in 97.7% of held-out pictures with no false
+  alarms; a signature made before the clutter existed would have met it only live. Lying and standing need their own
+  prototypes (3 each).
+- 2026-11-22 (Oscar's agent): A close-up check of a 1.6 m long person must accept matches anywhere on her body. With
+  0.5 m (the pillar's fuse radius) the first live search called her a false alarm twice: the first sighting was her
+  feet, up close the camera matched her middle. The check now counts matches within 1.0 m of the spotted point.
+- 2026-11-22 (Oscar's agent): The target detector's margin rule (the best place must beat everything else in view)
+  rejected a person filling the view up close. Compare only against columns outside the matched stretch.
 - 2026-11-22 (Oscar's agent): New obstacle bodies must never go into `sim/arena_furniture.xml` (or `arena.xml`,
   `arena_simple.xml`): `vision/scene.py` `Arena.randomize` places every `obs_` body, so one more body changes every
   recorded DAgger layout. The app's clutter lives in `sim/clutter.xml`, included only by the apartment files and the

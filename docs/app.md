@@ -43,7 +43,47 @@ Margarete as a figure lying where she really is. On a computer the **Apartment**
 
 **Find Margarete** runs the loop of `homes/search.py` (`Search`): the most likely zone → the robot walks to its
 viewing pose and turns to face it → a look → Bayes' update → the next zone, until she is found or `out` reaches
-95%. Finding her adds a journal entry. The look is still a mock (it misses her 20% of the time).
+95%. Finding her adds a journal entry. The look is the robot's own camera (below); with `--no-detector`, or while
+the detector loads, it is the old mock (a die roll that misses her 20% of the time), and the panel says which.
+
+### The robot's own eyes: finding her with DINOv2
+
+`app/spotter.py` (`Spotter`), on the simulator thread, once per gait cycle while the robot walks, looks around or
+watches:
+
+1. The robot camera's picture and depth of the dressed flat (what "Robot eye" shows), DINOv2 on the picture, and
+   the horizon strip: patch rows 11-14 averaged per patch column, 46 columns of 1.35 degrees.
+2. Each column is compared with **her signature** (cosine similarity, after centring on the average background
+   column): 3 typical looks lying and 3 standing. The best stretch must pass the threshold (0.65) and clearly beat
+   everything else in view. The matched columns give the direction, the nearest depth pixel in them the distance
+   (+0.10 m to her middle), the pose turns that into a floor point.
+3. Her geoms have no collisions, so the lidar does not see her: a match the lidar also sees at that range is
+   furniture and is dropped (`nav/dagger/target.py`, `lidar_sees_target: false`).
+4. Two matches within 0.5 m confirm someone there (`Estimate`). The search then walks to 0.8 m from that point,
+   faces it and watches 4 cycles: 2 matches within 1.0 m of it (she is 1.6 m long) and she is **found**, in the
+   zone the point is in; otherwise it was a **false alarm**, that spot is ignored from then on, and the search
+   goes on.
+
+At each zone the robot **looks around**: the new command `look` turns it once on the spot (turn 0.15, about 20
+cycles, the setting the arena test found best). It stops early when she is confirmed, and skips the turn when the
+lidar shows something within 0.33 m. She can be spotted while walking, during a look-around, or in a neighbouring
+zone; the search then ends in the zone where she was seen (`Search.report_found`). The Bayesian update assumes a
+look overlooks her 10% of the time (`DETECT_MISS_RATE`, measured with `just search-bench`). The robot never reads
+where the app put her; `search.person` and `found_error` are only for the panel and the bench.
+
+Her signature comes from the app's own scene: `just person-data` renders 3,000 pictures (100 random flats at every
+mess level, her lying or standing at zone spots, the robot 0.5-4 m away; a fifth with nobody home) with her pixels
+labelled by MuJoCo, then `python vision/target_signature.py person-v2 --band --name margarete`. On 20 flats it had
+never seen: found in 97.7% of the pictures that show her (lying 98.6%, standing 96.6%; 0-4 m: 98-100%, beyond 4 m:
+58%), false alarms in 0 of 213 pictures without her. Both live in `data/vision/person-v2/` (gitignored); without the
+signature the detector stays off and the look is the mock.
+
+**She can stand.** "She is" next to "She really is": lying on the floor, standing, or either at random
+(`POST /api/apartment/search {"pose"}`). Standing is the same figure turned upright (`ApartmentScene.person`).
+
+**The camera now sees close up.** MuJoCo puts the near clipping plane at 0.01 × the model's size, and the decor
+parked 40-50 m away made the apartment model 112 m big: nothing within 1.1 m of the robot camera was drawn (nor in
+its depth), so it was blind at the viewing pose, 0.6 m from her. `ApartmentScene` sets the near plane to 5 cm.
 
 **Who says where she is: TabPFN.** The belief the search starts from comes from TabPFN
 (`homes/tabpfn_belief.py`, `--belief tabpfn`, the default): `fit()` on 2,000 synthetic check-ins, then

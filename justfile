@@ -134,6 +134,15 @@ search-sim *args:
 student-bench *args:
     uv run --group ml --group vision python -m nav.dagger.flatbench {{ args }}
 
+# Pictures of Margarete (lying, standing) in the app's own flat, then her DINOv2 signature: just person-data
+person-data *args:
+    uv run --group app --group ml --group vision python app/person_data.py --name person-v2 {{ args }}
+    uv run --group vision python vision/target_signature.py person-v2 --band --name margarete
+
+# The app's whole search with the robot's own eyes, many times, no browser (A* walker: no credits): just search-bench --runs 40
+search-bench *args:
+    uv run --group app --group ml --group vision python app/searchbench.py {{ args }}
+
 # Run the tests for homes/ (Knock data, arena flats, Bayesian search, does TabPFN's belief make sense)
 test-homes:
     cd homes && uv run --group ml python -m unittest test_homes.py test_tabpfn_belief.py -v
