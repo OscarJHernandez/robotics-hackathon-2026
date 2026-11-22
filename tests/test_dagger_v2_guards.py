@@ -116,6 +116,155 @@ class TransferTest(unittest.TestCase):
             self.assertTrue(any(c[0] == "scp" for c in calls))
 
 
+class TransferSafetyTest(unittest.TestCase):
+    def setUp(self):
+        from unittest import mock
+        from nav.dagger import transfer
+        self.transfer, self.mock = transfer, mock
+        self.calls = []
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def fake_run(self, cmd, allow_fail=False):
+        self.calls.append(cmd)
+        return ""
+
+    def test_commands_are_lists_with_literal_remote(self):
+        path = self.dir / "f"
+        path.write_bytes(b"hello")
+        with self.mock.patch.object(self.transfer, "_run", side_effect=self.fake_run), \
+                self.mock.patch.object(self.transfer, "remote_info", return_value=(self.transfer.sha256(path), 5)):
+            self.transfer.push("metacon", path, "data/f")
+        scp = [c for c in self.calls if c[0] == "scp"][0]
+        self.assertIsInstance(scp, list)
+        self.assertEqual(scp[-1], "metacon:~/Projects/robotics-hackathon-2026/data/f.part")
+        self.assertTrue(all(isinstance(c, list) and c[0] in ("scp", "ssh") for c in self.calls))
+        self.assertEqual(self.transfer.remote_spec("h", "a/b"), "h:~/Projects/robotics-hackathon-2026/a/b")
+
+    def test_push_uses_part_then_mv_and_cleans_up_on_mismatch(self):
+        path = self.dir / "f"
+        path.write_bytes(b"hello")
+        good = (self.transfer.sha256(path), 5)
+        with self.mock.patch.object(self.transfer, "_run", side_effect=self.fake_run), \
+                self.mock.patch.object(self.transfer, "remote_info", return_value=good) as info:
+            self.transfer.push("metacon", path, "data/f")
+            info.assert_called_with("metacon", "data/f.part")
+        self.assertIn("mv -f", self.calls[-1][-1])
+        self.assertTrue(self.calls[-1][-1].rstrip().endswith('data/f"'))
+        self.calls.clear()
+        with self.mock.patch.object(self.transfer, "_run", side_effect=self.fake_run), \
+                self.mock.patch.object(self.transfer, "remote_info", return_value=("0" * 64, 5)):
+            with self.assertRaises(RuntimeError):
+                self.transfer.push("metacon", path, "data/f")
+        self.assertIn("rm -f", self.calls[-1][-1])
+        self.assertFalse(any("mv -f" in c[-1] for c in self.calls if c[0] == "ssh"))
+
+    def test_pull_verifies_part_then_replaces(self):
+        target = self.dir / "sub" / "out.bin"
+
+        def run(cmd, allow_fail=False):
+            if cmd[0] == "scp":
+                self.assertEqual(cmd[-1], str(target) + ".part")
+                self.assertEqual(cmd[-2], "victory:~/Projects/robotics-hackathon-2026/data/out.bin")
+                Path(cmd[-1]).write_bytes(b"hello")
+            return ""
+
+        import hashlib
+        good = (hashlib.sha256(b"hello").hexdigest(), 5)
+        with self.mock.patch.object(self.transfer, "_run", side_effect=run), \
+                self.mock.patch.object(self.transfer, "list_remote", return_value=[]), \
+                self.mock.patch.object(self.transfer, "remote_info", return_value=good):
+            self.transfer.pull("victory", "data/out.bin", target)
+        self.assertEqual(target.read_bytes(), b"hello")
+        self.assertFalse(Path(str(target) + ".part").exists())
+        target.unlink()
+        with self.mock.patch.object(self.transfer, "_run", side_effect=run), \
+                self.mock.patch.object(self.transfer, "list_remote", return_value=[]), \
+                self.mock.patch.object(self.transfer, "remote_info", return_value=("0" * 64, 5)):
+            with self.assertRaises(RuntimeError):
+                self.transfer.pull("victory", "data/out.bin", target)
+        self.assertFalse(target.exists())
+        self.assertFalse(Path(str(target) + ".part").exists())
+
+    def test_push_dir_skips_identical_and_copies_the_rest(self):
+        (self.dir / "a.parquet").write_bytes(b"aaa")
+        (self.dir / "b.parquet").write_bytes(b"bbbb")
+        (self.dir / "c.txt").write_bytes(b"x")
+        a = (self.transfer.sha256(self.dir / "a.parquet"), 3)
+
+        def info(host, rel):
+            if rel == "d/a.parquet":
+                return a
+            raise RuntimeError("missing")
+
+        pushed = []
+        with self.mock.patch.object(self.transfer, "remote_info", side_effect=info), \
+                self.mock.patch.object(self.transfer, "push", side_effect=lambda h, p, r: pushed.append(r)):
+            result = self.transfer.push_dir("h", self.dir, "d", patterns=("*.parquet",))
+        self.assertEqual(result, [("a.parquet", 3, "skipped"), ("b.parquet", 4, "copied")])
+        self.assertEqual(pushed, ["d/b.parquet"])
+
+    def test_pull_dir(self):
+        (self.dir / "a.bin").write_bytes(b"aaa")
+        a = (self.transfer.sha256(self.dir / "a.bin"), 3)
+        infos = {"d/a.bin": a, "d/b.bin": ("1" * 64, 9)}
+        pulled = []
+        with self.mock.patch.object(self.transfer, "list_remote", return_value=["a.bin", "b.bin", "sub/c.bin", "x.part"]), \
+                self.mock.patch.object(self.transfer, "remote_info", side_effect=lambda h, r: infos[r]), \
+                self.mock.patch.object(self.transfer, "pull", side_effect=lambda h, r, t: pulled.append(r)):
+            result = self.transfer.pull_dir("h", "d", self.dir)
+        self.assertEqual(result, [("a.bin", 3, "skipped"), ("b.bin", 9, "copied")])
+        self.assertEqual(pulled, ["d/b.bin"])
+
+
+class QueueRaceTest(unittest.TestCase):
+    def test_threads_exactly_one_wins(self):
+        import threading
+        from nav.dagger.joblock import Busy, JobLock
+        with tempfile.TemporaryDirectory() as tmp:
+            barrier, results = threading.Barrier(8), []
+
+            def work(i):
+                lock = JobLock("hosty", tmp, log=lambda *_: None)
+                barrier.wait()
+                try:
+                    lock.acquire("e{}".format(i))
+                    results.append("won")
+                except Busy:
+                    results.append("busy")
+
+            threads = [threading.Thread(target=work, args=(i,)) for i in range(8)]
+            [t.start() for t in threads]
+            [t.join() for t in threads]
+            self.assertEqual((results.count("won"), results.count("busy")), (1, 7))
+
+    def test_dead_pid_same_host_taken_over_other_host_never(self):
+        from nav.dagger.joblock import Busy, JobLock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hostz.lock"
+            dead = 2 ** 22 + 54321
+            path.write_text(json.dumps({"pid": dead, "host": "hostz", "experiment": "old", "started": "t"}))
+            lock = JobLock("hostz", tmp, log=lambda *_: None)
+            lock.acquire("new")
+            self.assertEqual(json.loads(path.read_text())["experiment"], "new")
+            lock.release()
+            self.assertFalse(path.exists())
+            path.write_text(json.dumps({"pid": dead, "host": "elsewhere", "experiment": "far", "started": "t"}))
+            with self.assertRaises(Busy):
+                JobLock("hostz", tmp, log=lambda *_: None).acquire("new")
+            self.assertEqual(json.loads(path.read_text())["experiment"], "far")
+
+    def test_release_only_removes_own_lock(self):
+        from nav.dagger.joblock import JobLock
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = JobLock("hostw", tmp, log=lambda *_: None)
+            lock.acquire("e")
+            (Path(tmp) / "hostw.lock").write_text(json.dumps({"pid": 1, "host": "hostw", "experiment": "other"}))
+            lock.release()
+            self.assertTrue((Path(tmp) / "hostw.lock").exists())
+
+
 class QueueTest(unittest.TestCase):
     def test_two_acquires_and_stale_takeover(self):
         from nav.dagger.joblock import Busy, JobLock

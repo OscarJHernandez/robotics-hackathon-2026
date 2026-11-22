@@ -1,7 +1,8 @@
 """One DAgger job at a time per machine: a lock file data/nav/dagger/queue/<host>.lock.
 
-The file holds the pid, the experiment id and the start time. A lock whose pid is no longer alive is stale
-and is taken over (with a log line).
+The file is created atomically (O_CREAT | O_EXCL) and holds the experiment id, pid, host and start time. A lock
+held by a dead pid on this same host is stale and is taken over (with a log line). A lock that names another host
+is never taken over: we cannot tell whether that pid is alive.
 """
 
 import json
@@ -48,26 +49,41 @@ class JobLock:
         except (OSError, ValueError):
             return None
 
-    def acquire(self, experiment_id):
-        body = json.dumps({"pid": os.getpid(), "experiment": experiment_id,
-                           "started": time.strftime("%Y-%m-%dT%H:%M:%S")})
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        for _ in range(3):
+    def _stale(self, info):
+        """True when the holder is on this host and its pid is dead (or the file stayed empty for a while)."""
+        if info is None:  # empty or half-written: the holder may be between create and write
             try:
-                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                return time.time() - self.path.stat().st_mtime > 10
+            except OSError:
+                return True
+        if info.get("host", self.host) != self.host:
+            return False  # another machine's lock: never taken over
+        return not pid_alive(info.get("pid"))
+
+    def acquire(self, experiment_id):
+        body = json.dumps({"pid": os.getpid(), "experiment": experiment_id, "host": self.host,
+                           "started": time.strftime("%Y-%m-%dT%H:%M:%S")}).encode()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        for attempt in range(2):
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
             except FileExistsError:
                 info = self.read()
-                if info is not None and pid_alive(info.get("pid")):
-                    raise Busy("{} is busy: experiment {} (pid {}, since {}); wait for it, or pass --no-lock".format(
-                        self.host, info.get("experiment"), info.get("pid"), info.get("started")))
-                self.log("queue: taking over stale lock {} (was {})".format(self.path, info))
-                try:
-                    self.path.unlink()
-                except FileNotFoundError:
-                    pass
-                continue
-            with os.fdopen(fd, "w") as f:
-                f.write(body)
+                if attempt == 0 and self._stale(info):
+                    self.log("queue: taking over stale lock {} (was {})".format(self.path, info))
+                    try:
+                        self.path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    continue
+                info = info or {}
+                raise Busy("{} is busy: experiment {} (pid {}, host {}, since {}); wait for it, or pass --no-lock".format(
+                    self.host, info.get("experiment"), info.get("pid"), info.get("host"), info.get("started")))
+            try:
+                os.write(fd, body)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
             self.held = True
             return self
         raise Busy("could not take the lock {}".format(self.path))
@@ -75,7 +91,7 @@ class JobLock:
     def release(self):
         if self.held:
             info = self.read()
-            if info is None or info.get("pid") == os.getpid():
+            if info is not None and info.get("pid") == os.getpid() and info.get("host", self.host) == self.host:
                 try:
                     self.path.unlink()
                 except FileNotFoundError:
