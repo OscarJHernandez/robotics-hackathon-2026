@@ -1,0 +1,9 @@
+id: v24-allrows-est8
+hypothesis: 8 estimators (more feature and row subsamples) sharpen the rare stop decisions of v15
+parent: v15-lidar-allrows
+change: n_estimators 8 instead of 4
+kill_criterion: goal rate and collisions on screen-100 not better than v15's (paired)
+student: {kind: tabpfn, n_estimators: 8}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0], max_rows: null, quotas: uniform, seed: 0}
+offline: [offline_expert]
