@@ -59,10 +59,18 @@ watches:
    (+0.10 m to her middle), the pose turns that into a floor point.
 3. Her geoms have no collisions, so the lidar does not see her: a match the lidar also sees at that range is
    furniture and is dropped (`nav/dagger/target.py`, `lidar_sees_target: false`).
-4. Two matches within 0.5 m confirm someone there (`Estimate`). The search then walks to 0.8 m from that point,
-   faces it and watches 4 cycles: 2 matches within 1.0 m of it (she is 1.6 m long) and she is **found**, in the
-   zone the point is in; otherwise it was a **false alarm**, that spot is ignored from then on, and the search
-   goes on.
+4. Two matches within 0.5 m confirm someone there (`Estimate`). The search then sends `approach`: the robot walks
+   up to her and **its destination follows the camera's range**. Every gait cycle the destination is recomputed
+   from the latest estimate: 0.6 m short of her on the side the robot comes from, moved round her to a spot 0.3 m
+   clear of walls and furniture when needed (`approach_point`). It is updated when it moves more than 0.15 m (A*
+   replans; the student just gets the new end point, its lidar map stays). During the approach older matches fade
+   faster (`fuse_decay` 0.4 instead of 0.7), so the closer, better-ranged matches win over a first range that
+   landed on the furniture behind her. At the destination it turns to face her. No match for 20 cycles: `lost`.
+5. The close-up check counts matches of 0.75 or more, from 1.5 m or closer, within 1.0 m of the current estimate
+   (she is 1.6 m long), on the way in. 2 of them and she is **found**, in the zone of the final estimate; too few by
+   the time it arrives, it stands and watches 4 more cycles. Still none, or lost on the way: a **false alarm**, that
+   spot is ignored from then on, and the search goes on. `search.robot_to_person` is the robot's true distance to
+   her at the end (panel and bench only).
 
 At each zone the robot **looks around**: the new command `look` turns it once on the spot (turn 0.15, about 20
 cycles, the setting the arena test found best). It stops early when she is confirmed, and skips the turn when the

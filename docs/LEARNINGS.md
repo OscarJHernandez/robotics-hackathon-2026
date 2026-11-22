@@ -53,6 +53,10 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): Range Margarete with the depth camera, not the lidar: her geoms have no collisions,
+  so the lidar passes through her (that is what makes the look-alike check work). Walking up to her, recompute the
+  destination every gait cycle from the detector's estimate (`approach` in `app/robot.py`); the student needs no
+  restart for a new end point, since its lidar planner plans from the goal it is given on every call.
 - 2026-11-22 (Oscar's agent): The app felt slow because each student decision blocked its one simulator thread:
   about 0.6 s of every decision is the TabPFN API round trip (the local inputs, DINOv2 included, take 48 ms; a 1280x720
   render plus JPEG 4 ms). The streams fell to 2 to 3 pictures per second and x3 ran at about x1. Render while waiting,

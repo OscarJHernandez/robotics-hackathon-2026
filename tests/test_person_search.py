@@ -129,7 +129,8 @@ class ScriptedDetector:
 class SpotterTest(unittest.TestCase):
     def test_see_confirm_mark_watch_and_reject(self):
         from spotter import Spotter
-        s = Spotter(detector=ScriptedDetector([det(2, 1), det(2.1, 1), None, det(2, 1.1), det(2.05, 1)]),
+        s = Spotter(detector=ScriptedDetector([det(2, 1), det(2.1, 1), None, det(2, 1.1, rng=0.9),
+                                               det(2.05, 1, rng=0.9)]),
                     extract=lambda rgb: np.zeros((46, 8)))
         self.assertTrue(s.ready)
         sim = FakeSim()
@@ -142,6 +143,9 @@ class SpotterTest(unittest.TestCase):
         s.mark()
         for _ in range(3):
             s.see(sim)
+        self.assertEqual(s.state()["watch_hits"], 2)
+        s.detector.script = [det(2.0, 1.0, rng=1.3)]  # strong, but from too far: not a close-up hit
+        s.see(sim)
         self.assertEqual(s.state()["watch_hits"], 2)
         s.reject()
         self.assertFalse(s.state()["confirmed"])
