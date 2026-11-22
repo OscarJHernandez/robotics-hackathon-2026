@@ -59,6 +59,21 @@ def robot_pose(sim):
     return (x, y, sim.body_yaw())
 
 
+
+def api_limit(error):
+    """(reason, retry_at epoch seconds) when the TabPFN API refused with a usage limit (HTTP 429), else None.
+    The student then pauses until the limit resets, instead of failing again on every walk."""
+    import datetime
+    import re
+    text = str(error)
+    if "429" not in text and "usage limit" not in text.lower():
+        return None
+    found = re.search(r"Resets at (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC", text)
+    if found:
+        when = datetime.datetime.strptime(found.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+        return "TabPFN API usage limit reached; the student is back after {} UTC".format(found.group(1)[:16]), when.timestamp()
+    return "TabPFN API usage limit reached; the student retries in an hour", time.time() + 3600
+
 class PlainTwin:
     """The plain training arena, kept in step with the app's scene (see the module doc)."""
 
@@ -249,6 +264,9 @@ class Student:
 
     @property
     def ready(self):
+        retry_at = getattr(self, "retry_at", None)
+        if self.status == "no_credits" and retry_at is not None and time.time() >= retry_at:
+            self.status, self.reason, self.retry_at = "ready", None, None  # the API's limit has reset
         return self.status == "ready"
 
     # ---- driving -------------------------------------------------------------------------------------
@@ -288,6 +306,11 @@ class Student:
             cmd = self.policy.act_batch(X)[0]
         except OutOfCredits as error:
             self.status, self.reason = "no_credits", str(error)
+            raise
+        except Exception as error:  # noqa: BLE001 - the caller falls back; an API limit also pauses the student
+            limit = api_limit(error)
+            if limit is not None:
+                self.status, self.reason, self.retry_at = "no_credits", limit[0], limit[1]
             raise
         self.last_seconds = time.perf_counter() - started
         self.seconds += self.last_seconds

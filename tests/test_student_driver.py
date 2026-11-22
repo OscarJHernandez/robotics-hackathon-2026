@@ -138,6 +138,34 @@ class StudentTest(unittest.TestCase):
             student.act(FakeSim(), (1.0, 0.0))
         self.assertEqual(student.status, "no_credits")
 
+    def test_an_api_usage_limit_pauses_the_student_until_it_resets(self):
+        class Limited(FakePolicy):
+            def act_batch(self, X):
+                raise RuntimeError("Fail to call predict: [HTTP 429] Daily usage limit reached. Your daily limit is "
+                                   "35000000 tokens. Resets at 2026-11-23 00:00:00 UTC.")
+
+        student = self.make(Limited((0.1, 0.0)))
+        student.start((1.0, 0.0))
+        with self.assertRaises(RuntimeError):
+            student.act(FakeSim(), (1.0, 0.0))
+        self.assertEqual(student.status, "no_credits")
+        self.assertIn("2026-11-23 00:00 UTC", student.info()["reason"])
+        student.retry_at = time.time() + 60
+        self.assertFalse(student.ready)  # not before the reset: no retry on every walk
+        student.retry_at = time.time() - 1
+        self.assertTrue(student.ready)  # after it: the student drives again
+
+    def test_other_api_errors_do_not_pause_the_student(self):
+        class Flaky(FakePolicy):
+            def act_batch(self, X):
+                raise RuntimeError("connection reset")
+
+        student = self.make(Flaky((0.1, 0.0)))
+        student.start((1.0, 0.0))
+        with self.assertRaises(RuntimeError):
+            student.act(FakeSim(), (1.0, 0.0))
+        self.assertTrue(student.ready)
+
 
 class CreditsTest(unittest.TestCase):
     def test_usage_is_read_from_the_dict_and_the_sentence(self):
