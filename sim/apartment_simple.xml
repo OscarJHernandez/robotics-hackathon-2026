@@ -1,0 +1,6 @@
+<!-- The same apartment around the simple-shape robot (used when the meshes are missing). -->
+<mujoco model="jethexa_apartment_simple">
+  <include file="jethexa_simple.xml"/>
+  <include file="arena_furniture.xml"/>
+  <include file="apartment_decor.xml"/>
+</mujoco>

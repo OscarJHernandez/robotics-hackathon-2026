@@ -8,6 +8,7 @@ import { Caption } from "@/components/jethexa/Caption";
 import { ViewList } from "@/components/jethexa/ViewList";
 import { CameraCards } from "@/components/jethexa/CameraCards";
 import { MiniMapCard } from "@/components/jethexa/MiniMap";
+import { ApartmentPanel } from "@/components/jethexa/ApartmentPanel";
 import { QuickActions } from "@/components/jethexa/QuickActions";
 import { ChatBar } from "@/components/jethexa/ChatBar";
 import { TerminalPanel, useMetacon } from "@/components/jethexa/Terminal";
@@ -19,6 +20,7 @@ import { useHealth, useRobotState } from "@/hooks/useRobotState";
 import { useIsPhone } from "@/hooks/useIsPhone";
 import { useLiveCall } from "@/hooks/useLiveCall";
 import { useKnock } from "@/hooks/useKnock";
+import { useApartment } from "@/hooks/useApartment";
 import { phaseText, useVoiceCall } from "@/hooks/useVoiceCall";
 import { sendCommand, VIEWS, type View } from "@/lib/api";
 
@@ -34,6 +36,13 @@ export function App() {
   const [termOpen, setTermOpen] = useState(false);
   const term = useMetacon(conn, health?.llm ?? false);
   const phone = useIsPhone();
+  // The apartment: zones, obstacles, journal, search and log, in a panel on the right (desktop).
+  // On a phone it is a card under the camera, with the whole panel as a full-screen sheet.
+  const hasApartment = live && !!health?.apartment;
+  const [aptOpen, setAptOpen] = useState(true);
+  const { apartment, refresh: refreshApartment } = useApartment(hasApartment && (aptOpen || phone));
+  const apt = hasApartment && !phone && aptOpen && apartment ? apartment : null;
+  useEffect(() => { if (health?.scene === "apartment") setMain("orbit"); }, [health?.scene]);
 
   // Voice: hold to talk, the reply spoken in the robot's voice, and everyone else's calls shown live.
   const [speakerOn, setSpeakerOn] = useState(() => { try { return localStorage.getItem("jethexa-speaker") !== "off"; } catch { return true; } });
@@ -89,7 +98,8 @@ export function App() {
   if (phone) {
     return (
       <>
-        <PhoneApp conn={conn} views={views} state={state} lines={term.lines} busy={term.busy} chatOff={term.chatOff}
+        <PhoneApp conn={conn} views={views} state={state} lines={term.lines} busy={term.busy} chatOff={term.chatOff} onClear={term.clear}
+          apartment={hasApartment ? apartment : null} onApartmentChanged={refreshApartment} onError={(m) => toast.error(m)}
           voice={voice} other={other} knock={knock} speakerOn={speakerOn} onToggleSpeaker={toggleSpeaker} onSend={(t) => void term.send(t)} />
         <Toaster position="top-center" />
       </>
@@ -115,17 +125,26 @@ export function App() {
       <div className="stage-vignette" />
       <div className="accent-line" />
 
-      <header className="absolute inset-x-0 top-0 flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-6">
+      <header className={`absolute left-0 top-0 flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-6 ${apt ? "right-[468px]" : "right-0"}`}>
         <Brand conn={conn} />
-        <div className="max-sm:hidden sm:absolute sm:left-1/2 sm:top-6 sm:w-[min(560px,calc(100vw-760px))] sm:min-w-[340px] sm:-translate-x-1/2 sm:text-center">
-          {other ? <LiveCallCard call={other} /> : <Caption onPick={say} />}
-        </div>
+        {(!apt || other) && (
+          <div className="max-sm:hidden sm:absolute sm:left-1/2 sm:top-6 sm:w-[min(560px,calc(100vw-760px))] sm:min-w-[340px] sm:-translate-x-1/2 sm:text-center">
+            {other ? <LiveCallCard call={other} /> : <Caption onPick={say} />}
+          </div>
+        )}
         <div className="flex flex-col items-end gap-3">
           <ViewList views={views} active={main} onPick={setMain} mapOpen={mapOpen} onToggleMap={() => setMapOpen((o) => !o)}
-            onRandom={() => run("random")} />
-          {mapOpen && <MiniMapCard s={state} onGoto={(x, y) => run(`goto ${x} ${y}`)} />}
+            onRandom={() => run("random")} apartment={hasApartment ? aptOpen : undefined} onToggleApartment={() => setAptOpen((o) => !o)}
+            scene={health?.scene} />
+          {mapOpen && !apt && <MiniMapCard s={state} onGoto={(x, y) => run(`goto ${x} ${y}`)} />}
         </div>
       </header>
+
+      {apt && (
+        <div className="absolute bottom-4 right-4 top-4 z-20 w-[min(452px,calc(100vw-32px))]">
+          <ApartmentPanel apartment={apt} onClose={() => setAptOpen(false)} onError={(m) => toast.error(m)} onChanged={refreshApartment} />
+        </div>
+      )}
 
       <div className="absolute bottom-24 left-3 sm:bottom-6 sm:left-6">
         <CameraCards
@@ -138,11 +157,15 @@ export function App() {
         />
       </div>
 
-      <div className="absolute bottom-24 right-3 sm:bottom-6 sm:right-6">
-        <QuickActions onRun={run} />
-      </div>
+      {!apt && (
+        <div className="absolute bottom-24 right-3 sm:bottom-6 sm:right-6">
+          <QuickActions onRun={run} />
+        </div>
+      )}
 
-      <div className="absolute inset-x-3 bottom-3 mx-auto flex max-w-[900px] flex-col gap-3 sm:bottom-6 md:max-w-[min(900px,calc(100vw-720px))] md:min-w-[520px]">
+      <div className={apt
+        ? "absolute bottom-6 left-[340px] right-[484px] flex min-w-[300px] flex-col gap-3"
+        : "absolute inset-x-3 bottom-3 mx-auto flex max-w-[900px] flex-col gap-3 sm:bottom-6 md:max-w-[min(900px,calc(100vw-720px))] md:min-w-[520px]"}>
         {listening && (
           <div className="glass rise-in self-center rounded-full px-4 py-2 text-sm">
             <span className="call-dot mr-2 inline-block align-middle" />

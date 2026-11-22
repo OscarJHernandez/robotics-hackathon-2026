@@ -79,7 +79,9 @@ command, add it there with a one-line comment above it (the comment is what `jus
 | `just snapshot [file.png]` | Save a picture of the robot after walking |
 | `just test` | Run the tests (`unittest`; the camera test skips without OpenGL) |
 | `just vision-data`, `just vision-features`, `just vision-probe` | Labeled arena pictures, DINOv2 patch features, train and test the patch classifier; guide: [docs/vision.md](docs/vision.md) |
+| `just dagger local --run NAME [--smoke]`, `just dagger-worker`, `just dagger-merge`, `just dagger-bench`, `just test-dagger` | DAgger for the TabPFN arena policy, on one or several machines; guide: [docs/navigation.md](docs/navigation.md) ("DAgger in the arena") |
 | `just app-build`, `just app [port]` | Build and run the web app (live sim + metacon chat) at http://127.0.0.1:8790; guide: [docs/app.md](docs/app.md) |
+| `just search-demo`, `just search-sim`, `just test-homes` | Where is she: the Bayesian search's results and pictures (`homes/data/search_examples/`), one search with the simulated robot walking to each zone, and the tests; guide: [homes/README.md](homes/README.md) |
 
 Lint: not set up yet.
 
@@ -93,12 +95,15 @@ If `just` is not installed, `uvx --from rust-just just <command>` runs it withou
 | `sim/jethexa_simple.xml` | The same robot with simple shapes; used automatically when the meshes are missing |
 | `sim/jethexa_sim.py` | `JetHexaSim`: load, set joint targets, step, read joints, body, IMU and foot contacts, move the target marker, render camera; demo tripod gait with steering |
 | `sim/arena.xml`, `sim/arena_simple.xml`, `sim/arena_furniture.xml` | The arena: a closed 50 m² square room with 8 movable obstacles, around the robot by `<include>` |
+| `sim/apartment.xml`, `sim/apartment_simple.xml`, `sim/apartment_decor.xml` | The arena dressed as a home for the web app: zone patches, decoration and the Margarete figure, all without collisions. Only the app loads them |
 | `sim/demo.py` | What `just sim`, `just view` and `just snapshot` run |
 | `sim/fetch_meshes.py` | Mesh download, pinned to one Hiwonder commit and checked by SHA-256 |
 | `nav/` | Walking from a to b with TabPFN: `common.py` (walker, geometry), `db.py` (DuckDB recorder), `collect.py`, `hindsight.py` (goal examples), `dynamics.py` (motion examples and planner), `policy.py` (`fit()`-only TabPFN policies), `controller.py` (build and test a controller), `evaluate.py`, `run.py` (demo video), `dashboard.py`, `live_dashboard.py`. Guide: [docs/navigation.md](docs/navigation.md) |
-| `app/` | The web app: `robot.py` (live sim thread), `llm.py` (metacon chat), `voice.py` (speech via Voice Control), `call.py` (voice calls shown live to every viewer), `knock.py` (Find and Call Margarete), `server.py` (API + page), `web/` (front end from Lovable; phone layout in `PhoneApp.tsx`). Guide: [docs/app.md](docs/app.md) |
+| `nav/dagger/` | DAgger in the arena: `env.py` (`SimEnv`), `expert.py` (planner + pure pursuit), `featurize.py` (patch classes and depths), `policy.py` (TabPFN 3.5 `fit()`-only student), `rollout.py` (lock-step robots), `worker.py`, `merge.py`, `loop.py`, `bench.py`, `timing.py` (logs, ETAs), `dagger.yaml`. Needs `TABPFN_TOKEN` (env or gitignored `.env`) |
+| `app/` | The web app: `robot.py` (live sim thread; scene `apartment` is the furnished flat, walked by the TabPFN a-to-b controller), `apartment.py` (flat, journal, belief and the search loop behind the Apartment panel), `llm.py` (metacon chat), `voice.py` (speech via Voice Control), `call.py` (voice calls shown live to every viewer), `knock.py` (Find and Call Margarete), `server.py` (API + page), `web/` (front end from Lovable; phone layout in `PhoneApp.tsx`). Guide: [docs/app.md](docs/app.md) |
 | `vision/` | Camera perception: `scene.py` (the arena: random layouts, robot poses, class per pixel), `dataset.py` (labeled pictures), `features.py` (frozen DINOv2 patch features, patch labels), `probe.py` (patch classifier, `blocked_grid` for avoidance). Guide: [docs/vision.md](docs/vision.md) |
 | `data/vision/` | Vision runs: pictures, labels, features, probes (gitignored, never commit) |
+| `homes/` | Knock's "where is she": `flats.py` (the arena as a flat with five named zones: bedroom, living room, dining area, kitchen, hallway), `residents.py` (routines, stated habits), `generate.py` (diary and check-in tables), `search.py` (Bayesian search: journal + habits + floor plan -> belief; `Search` is the loop: most likely zone, look, update, repeat), `tabpfn_belief.py` (the same belief from TabPFN: `fit()` on synthetic check-ins; the app's search starts from it), `search_demo.py` and `search_figure.py` (numbers and pictures), `sim_bridge.py` (the search drives the simulated robot through `nav/dagger`). Data in `homes/data/` is committed. Guide: [homes/README.md](homes/README.md) |
 | `data/nav/` | Recorded runs, the database `nav.duckdb`, model checkpoints (gitignored, never commit) |
 | `tests/` | Tests (`just test`; navigation tests: `just test-nav`) |
 | `docs/knock-*.md` | Knock, the team's concept: `knock-ui.md` (the Find and Call Margarete buttons for `app/`, mockup in `docs/knock-ui/`) and `knock-routines.md` (data for the zone model). Read `knock-ui.md` before building those buttons |

@@ -1,0 +1,49 @@
+{
+ "features": [
+  "hour",
+  "weekday",
+  "is_weekend",
+  "slot",
+  "min_since_heard",
+  "voice_bearing_deg",
+  "voice_loudness_db",
+  "voice_dist_m",
+  "hist_bedroom",
+  "hist_living_room",
+  "hist_dining_area",
+  "hist_kitchen",
+  "hist_hallway",
+  "hist_out",
+  "hist_n",
+  "lhz_bedroom",
+  "lhz_living_room",
+  "lhz_dining_area",
+  "lhz_kitchen",
+  "lhz_hallway",
+  "lhz_out",
+  "vzg_bedroom",
+  "vzg_living_room",
+  "vzg_dining_area",
+  "vzg_kitchen",
+  "vzg_hallway"
+ ],
+ "target": "zone",
+ "classes": [
+  "bedroom",
+  "living_room",
+  "dining_area",
+  "kitchen",
+  "hallway",
+  "out"
+ ],
+ "voice_features": [
+  "voice_bearing_deg",
+  "voice_loudness_db",
+  "voice_dist_m",
+  "vzg_bedroom",
+  "vzg_living_room",
+  "vzg_dining_area",
+  "vzg_kitchen",
+  "vzg_hallway"
+ ]
+}

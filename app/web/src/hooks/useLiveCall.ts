@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { liveUrl, stripMarkers, type LiveEvent } from "@/lib/api";
+import { openLive } from "@/lib/live";
 
 /** A voice call as every viewer sees it, built from the /api/live events. */
 export interface LiveCall {
@@ -22,7 +23,7 @@ export function useLiveCall(on: boolean): LiveCall | null {
 
   useEffect(() => {
     if (!on || typeof EventSource === "undefined") return;
-    const source = new EventSource(liveUrl());
+    const source = openLive();
     source.onmessage = (m) => {
       let e: LiveEvent;
       try { e = JSON.parse(m.data as string) as LiveEvent; } catch { return; }

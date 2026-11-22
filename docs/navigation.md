@@ -136,6 +136,47 @@ does not bring b closer, so the one-cycle planner never starts turning. The faci
 distance and be large (1.5, not `polar`'s fixed 0.08 m per radian), or turning toward b loses to the
 growing sideways offset and `hybrid` stalls the same way.
 
+## DAgger in the arena (`nav/dagger/`)
+
+The controllers above walk an empty floor. `nav/dagger/` drives the robot to the red target pillar in the
+50 m² arena with furniture (`vision/scene.py`), from the camera, and improves the student with DAgger:
+
+1. **Round 0**: the expert drives 1000 episodes, one per random layout (scene ids 0 to 999). Every step is a row.
+2. **Rounds 1 to 4**: TabPFN's `fit()` on every row so far, then 100 episodes where the executed command is
+   the expert's with probability beta (0.5, 0.25, 0, 0), else the student's. The label is always the
+   expert's command, so rows from states the student drove into teach it how to get back.
+3. **Held-out test**: the last student drives alone in 200 layouts it never saw (scene ids from 100000).
+
+| Piece | File | What it is |
+|---|---|---|
+| Environment | `env.py` | `SimEnv(scene_id, seed)`: `reset()`, `step((stride, turn))` = one 1 s gait cycle; ends on goal (0.25 m), collision (any robot contact with a wall or furniture), fall or 300 steps |
+| Expert | `expert.py` | Shortest path over the true furniture footprints (Dijkstra from the goal, so it labels any state), 0.32 m safety margin, pure pursuit 0.4 m ahead |
+| Features | `featurize.py` | Per patch of the 26 x 46 DINOv2 grid: class from the frozen DINOv2 + patch probe (`vision/probe.py`) and mean depth; nearest obstacle and free distance left, ahead, right; goal distance and bearing. 2,400 columns. The previous command is off by default (`use_prev_command`), because in expert data it almost equals the label |
+| Student | `policy.py` | Two `TabPFNRegressor`s (stride, turn), TabPFN 3.5, `fit()` once per round, one `predict()` per lock-step for all robots |
+| Rollout | `rollout.py` | 16 robots in lock-step per process |
+| Machines | `worker.py`, `merge.py`, `loop.py`, `bench.py` | A round's episodes split between machines; each runs several processes and writes Parquet parts, merged and checked on the laptop |
+
+Settings are in `nav/dagger/dagger.yaml`. TabPFN 3.5 needs an API key from https://ux.priorlabs.ai with
+the 3.5 licence accepted once: set `TABPFN_TOKEN`, or put `TABPFN_TOKEN=...` in the repo's `.env`
+(gitignored, never commit it). Inference stays on the machine; only the key is checked online.
+
+```bash
+just dagger local --run try1 --smoke          # every round on this machine, tiny: about 3 minutes
+just dagger local --run try1 --procs 4        # the full schedule on one machine
+just dagger-bench --procs 1,4,8 --seconds 60  # speed of this machine, and the projected time for round 0
+```
+
+On several machines: `just dagger plan --run R --round 0 --weights laptop=1,vendetta=2,...` writes one
+plan file per machine; each runs `just dagger-worker --run R --round 0 --plan <its file> --procs N`; copy
+`data/nav/dagger/R/round_0/` and `logs/` back, then `just dagger-merge --run R --round 0 --timings` and
+`just dagger context --run R --round 1` for the next round's `fit()`.
+
+Output in `data/nav/dagger/<run>/`: `round_<N>.parquet` (every row: features, the student's, expert's and
+executed commands, labels, pose, done reason), `round_<N>.json` (outcome rates), `rounds.json`,
+`timings.json`, and `logs/<host>-r<round>-p<process>.log` and `.jsonl`: start (machine, versions, config),
+a heartbeat every 30 s (episodes done, steps per second, elapsed, ETA, finish time, outcomes, time per
+phase) and one line per episode. Linux needs headless OpenGL: `MUJOCO_GL=egl` is set automatically.
+
 ## Where the data is
 
 Everything is in **`data/nav/` in the main checkout** (gitignored, never committed). Set `NAV_DATA_DIR`

@@ -43,6 +43,74 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): TabPFN ignored a strong journal when it only had the 13 raw journal-share columns
+  (ten dining-area afternoons lowered "dining area"), although the examples hold the pattern. Adding the counting
+  posterior as six features (`prior_*` in `homes/tabpfn_belief.py`) fixed it; `homes/test_tabpfn_belief.py` checks
+  that and nine other "does it make sense" behaviours. Fitting TabPFN again per resident with her own records as
+  examples was too slow to measure fully (30 residents did not finish in 10 minutes on the laptop).
+- 2026-11-22 (Oscar's agent): TabPFN's "where is she" belief went from 33% to 71% right (level with the counting
+  model) by changing what goes into `fit()`, not the model: the examples are now synthetic **check-ins** instead of
+  diary records, and the row has the same inputs as the counting belief (`homes/tabpfn_belief.py`). Diary records,
+  one per part of the day, never show the case "heard a few minutes ago in this part of the day", which is half of
+  all check-ins. Oscar: the search must use TabPFN; the app's default is now `--belief tabpfn`.
+- 2026-11-22 (Oscar's agent): The TabPFN API key lives in a worktree's gitignored `.env` (`TABPFN_TOKEN=...`), and
+  `nav/dagger/envfile.py` only looks in this worktree and the main checkout. A new worktree needs the file copied
+  in (or put it in the main checkout once); without it everything silently falls back to the v2 weights.
+- 2026-11-22 (Oscar's agent): The web app's page keeps long-lived connections open (picture streams, `/api/live`),
+  and a browser allows six per host. Two `EventSource`s plus three streams left one for all ordinary requests, and an
+  `<img>` stream is not released when the element is removed unless its `src` is emptied first, so adding a polled
+  endpoint made the page drop to demo mode. Now `/api/live` is shared (`app/web/src/lib/live.ts`) and `Stream.tsx`
+  empties `src` on removal. Count the connections before adding another stream or poll.
+- 2026-11-22 (Oscar's agent): Anything that waits for `LiveRobot` to be "idle" after a command must first see it
+  leave idle: the simulator thread can be busy for a moment (route planning, TabPFN predicting) and still publish
+  the old state. `Apartment._settle` in `app/apartment.py` does this; the first version ended every search at once.
+- 2026-11-22 (Oscar's agent): The app's home look and the Margarete figure live in `sim/apartment_decor.xml`, which
+  only `sim/apartment.xml` includes, so `arena.xml`, the vision labels and the DAgger scenes are unchanged. The
+  TabPFN a-to-b controller reads body motion and the target's direction, no camera, so the look cannot affect it.
+  The DINOv2 probe and the DAgger student were made on the plain arena: do not expect them to work on the dressed
+  scene's camera pictures without checking.
+- 2026-11-22 (Oscar's agent): A git worktree has no `sim/meshes/` (gitignored), so the app silently draws the
+  simple-shape robot. Copy them from the main checkout or run `just meshes` in the worktree.
+- 2026-11-22 (Oscar's agent): `homes/search.py` is a counting Bayesian search (population share + stated habits + her
+  journal + last heard) that checks zones from the most to the least likely: Oscar wants the order by probability,
+  not by distance. On 120 test residents it finds her after 1.54 zones against 3.30 for "nearest first" and 2.12 for
+  "last heard first", and before she is heard its belief is within 1 point of her true routine. It is the baseline a
+  TabPFN belief has to beat (the TabPFN smoke test still loses to "last heard": 0.33 against 0.60).
+- 2026-11-22 (Oscar's agent): In the search loop a zone the robot looked at must not go to 0: with a look that misses
+  her 20% of the time, ruling zones out finds her in 80% of searches, the Bayes update (`after_miss` with a miss rate)
+  in 99%, because it returns to a zone when the others are empty (25% of searches).
+- 2026-11-22 (Oscar's agent): The search can drive the simulated robot today: `homes/sim_bridge.py` subclasses
+  `nav.dagger.env.SimEnv` (`FlatEnv`), loads a flat with `arena.apply(flats.arena_layout(flat))`, and walks to each
+  `Search.goal()` with the DAgger `Expert`; 330 of 330 walks arrived. `SimEnv` has no method to change the goal
+  mid-episode, so `FlatEnv.set_goal` sets `goal`, `steps` and `done` itself, and it skips rendering unless `render=True`.
+- 2026-11-22 (Oscar's agent): Check plot text with code, not by eye: `search_figure.text_problems()` measures every text
+  box and found 18 overlaps in pictures that looked fine at a glance. Oscar had to point out the mushed words twice.
+- 2026-11-22 (Oscar's agent): Two traps when making "where is she" data look good: stated habits copied from her true
+  routine make the journal useless (it can only repeat the form), and one week of journal (3 records a day) adds only
+  1-2 points. `stated_habits()` now names a wrong zone in 30% of the parts of the day, and the demo uses 4 weeks.
+- 2026-11-21 (Oscar's agent): DAgger round 1 student (TabPFN 3.5 fitted on 32k expert rows) matched the expert
+  closely at beta 0.5 (100/100 goals, mean |d turn| 0.05) but collided in 3 of 3 held-out layouts when driving alone:
+  it keeps walking when the expert says stop and turn on the spot, a label only 6.6% of the rows have. Judge a
+  student with beta 0 runs, and consider a context balanced over the labels (`max_context_rows`).
+- 2026-11-21 (Oscar's agent): TabPFN 3.5 needs `TABPFN_TOKEN` plus a one-time licence acceptance on
+  ux.priorlabs.ai; the key alone gives "license ... has not been accepted". With 2,400 columns on an M4 Pro, `fit()`
+  took 89 s at 5k rows, 395 s at 20k and 696 s at 32k (two regressors); `predict()` for 16 robots took 1.2-1.6 s.
+- 2026-11-21 (Oscar's agent): The JetHexa's middle feet reach about 0.2 m sideways, so a planner margin of 0.22 m
+  made the expert touch furniture in 3 of 4 episodes; 0.32 m gave 12/12 and 998/1000 goals.
+- 2026-11-21 (Oscar's agent): victory and metacon had no OpenGL libraries, so MuJoCo could not render. After
+  `sudo apt-get install libegl1 libgl1 libgbm1 libegl-mesa0 mesa-libgallium libgl1-mesa-dri` and the `render`
+  group, `MUJOCO_GL=egl` renders on the Radeon iGPU at about 1 ms per picture. OSMesa did not work.
+- 2026-11-21 (Oscar's agent): On the CPU-only Linux boxes DINOv2 perception is 90-95% of a DAgger step; 8
+  processes give only twice the speed of 1 (about 15 robot-steps/s). vendetta (MPS) peaks at 4 processes, 44/s.
+- 2026-11-21 (Oscar's agent): A 32-process benchmark ran metacon out of memory; earlyoom then stopped Ollama and
+  the user's systemd services (Minerva, Sophy). `nav/dagger/guard.py` now caps processes to free memory and stops
+  workers under a reserve; a `pkill -f` pattern must not match its own ssh command (use `[r]obotics...`).
+- 2026-11-21 (Oscar's agent): `multiprocessing.Pool.map` waits forever if one worker is killed; use
+  `ProcessPoolExecutor` (raises `BrokenProcessPool`), as `nav/dagger/worker.py` does.
+- 2026-11-21 (Oscar's agent): Copies to the homelab machines sometimes did not arrive although rsync/scp
+  exited 0 (cause unknown). Check the file on the other side before starting a job that needs it.
+- 2026-11-21 (Nodir's agent): `homes/` has the synthetic Knock data: 8,500 flats (since 2026-11-22: the MuJoCo arena with five named zones, bedroom, living room, dining area, kitchen and hallway, built around the arena's furniture), a weekly routine table per resident, 3 diary records a day for 7 days (102,000 training rows, `homes/data/train.parquet`), test check-ins and a cold-start zone prior; see [homes/README.md](../homes/README.md). With only 3 records a day TabPFN learns little about one person (mostly the population prior plus the slot and where she was last heard), so judge it on held-out residents and keep the `out` rows in the context. In the smoke tests TabPFN does not beat "last heard" on check-ins with 3 records a day (0.43 against 0.53) or with 12 (0.48 against 0.67), so do not promise it does. Zones are names, not `z1`-`z6` as in [knock-routines.md](knock-routines.md); `app/knock.py` still uses its old six names (`bed`, `bathroom`, ...), switching it to `homes/flats.py` and `homes/search.py` is open.
+
 - 2026-11-21 (Oscar's agent): Frozen DINOv2 ViT-S/14 (`dinov2_vits14_reg`) patch features plus a linear probe
   label arena patches as floor, wall, obstacle or target at 98.8% on held-out layouts (one hidden layer of 256:
   99.3%), from 960 pictures; see [vision.md](vision.md). The probe trains with AdamW, which is fine: the
@@ -178,6 +246,17 @@ in the same pull request as the work.
   admins. Start every change on a branch; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Suggestions (open)
+
+- 2026-11-22 (Oscar's agent): Knock: switch `app/knock.py` and the phone UI to the five arena zones and use
+  `homes/search.Search` for `probs` and the next zone. In `homes/sim_bridge.py`, turn the robot to `heading_deg` at the
+  goal and replace the mock look with the vision probe's "target" class (the pillar already stands where she is). Add a bathroom to the arena (a piece or a
+  marked floor area in both arena XML files) so falls in the bathroom can be part of the story.
+
+- 2026-11-21 (Oscar's agent): DAgger: try a label-balanced context (`max_context_rows: 20000`) from round 2 on,
+  and run DINOv2 on the Radeon iGPUs (ROCm torch) to speed up the Linux workers.
+- 2026-11-21 (Oscar's agent): `vision/scene.py` places the target only 0.15 m from furniture; both expert
+  collisions in DAgger round 0 were targets in such gaps. Use about 0.35 m. The chase camera in
+  `nav/dagger/video.py` clips into walls near corners.
 
 - 2026-11-21 (Oscar's agent): Knock on the desktop page (mockup screens 1-4): the phone part is built, and
   `KnockCard.tsx` and `useKnock` are ready to reuse under `ViewList`. The zone poses in `app/knock.py` still wait
