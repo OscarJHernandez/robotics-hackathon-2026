@@ -2,7 +2,7 @@
 
 The web app (`app/`) runs on vendetta, Oscar's always-on Mac, and is published through its own Cloudflare tunnel
 `jethexa-vendetta`. It is separate from https://jethexa.alpharelay.dev, which the laptop serves with the
-`alpharelay-deploy` skill. Public, no login. Set up 2026-11-22 at `main` `66c94be` (PR 27); now at `76455c3` (PR 31).
+`alpharelay-deploy` skill. Public, no login. Set up 2026-11-22 at `main` `66c94be` (PR 27); now at `ce6b59f` (PR 33).
 The student uses the TabPFN API (the default backend, Oscar's choice): ready about 20 s after a start, then 0.6 to
 2 s and 10,000 credits per decision, from the same account as the laptop copy. `--student-backend local` (TabPFN on
 vendetta's GPU, 5 min to fit, then about 0.35 s per decision) exists but is only used if Oscar asks for it.
@@ -48,6 +48,11 @@ cloudflared tunnel --config ~/.cloudflared/jethexa-vendetta.yml delete jethexa-v
 
 Then delete the DNS record `jethexa-vendetta.alpharelay.dev` in the Cloudflare dashboard, and remove the worktree
 with `git worktree remove`.
+
+## launchd trap
+
+Keep `ProcessType` `Interactive` in the app's plist. Without it macOS throttles the agent's timers, and the camera
+streams drop to about 5 pictures a second (11 with it, measured 2026-11-22).
 
 ## cloudflared trap
 

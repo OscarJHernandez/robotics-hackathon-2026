@@ -57,6 +57,12 @@ in the same pull request as the work.
   about 0.6 s of every decision is the TabPFN API round trip (the local inputs, DINOv2 included, take 48 ms; a 1280x720
   render plus JPEG 4 ms). The streams fell to 2 to 3 pictures per second and x3 ran at about x1. Render while waiting,
   and use `--student-backend local` where there is a GPU (0.18 s per predict on vendetta). See docs/app.md.
+- 2026-11-22 (Oscar's agent): Run the app under launchd with `ProcessType` `Interactive`: without it macOS throttled
+  the agent's timers and the camera streams gave about 5 pictures/s, while the same code started from a shell gave
+  11.5 (measured on vendetta at x3 with three views). Test speed fixes on the launchd-run app, not only a shell copy.
+- 2026-11-22 (Oscar's agent): Run the whole suite (`just test`) before a PR, not a hand-picked list: #31 shadowed a
+  parameter in `LiveRobot._publish` and rendered every view on every step (x3 ran at x1.3 to x1.8);
+  `tests/test_robot_speed.py` caught it but was not in the list. Fixed in #33.
 - 2026-11-22 (Oscar's agent): Oscar decided the deployed apps use the TabPFN API for the student ("use the API, you
   have the key"), not `--student-backend local`, even though local is faster per decision and free. Don't switch a
   deployment to local to save time or credits without asking him.
