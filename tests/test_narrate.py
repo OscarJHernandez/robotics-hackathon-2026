@@ -34,6 +34,7 @@ FACTS = {
     "gave_up": {"name": "Margarete", "looks": 12, "metres": 30.0},
     "stopped": {"name": "Margarete"},
     "failed": {"name": "Margarete", "reason": "the robot fell over"},
+    "fallback": {"zone": "kitchen", "reason": "stuck"},
 }
 
 EXPECTED = {
@@ -46,6 +47,7 @@ EXPECTED = {
     "gave_up": "I've looked 12 times and haven't found Margarete, so I'm stopping here.",
     "stopped": "The search is stopped.",
     "failed": "I had to stop the search: the robot fell over.",
+    "fallback": "Something is in my way, so I'm taking the mapped route to the kitchen instead.",
 }
 
 

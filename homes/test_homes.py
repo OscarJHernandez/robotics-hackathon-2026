@@ -148,6 +148,61 @@ class FlatsTest(unittest.TestCase):
             arena.close()
 
 
+class ScatterTest(unittest.TestCase):
+    """scatter(): the loose pieces dropped at random on the open floor (the app's "Shuffle obstacles")."""
+
+    def test_zones_and_fixed_pieces_stay_and_every_clearance_holds(self):
+        for seed in range(200):
+            flat = make_flat(seed % 40)
+            out = F.scatter(flat, np.random.default_rng([seed, 5]))
+            self.assertEqual([z["name"] for z in out["zones"]], [z["name"] for z in flat["zones"]])
+            for a, b in zip(out["zones"], flat["zones"]):
+                for key in ("x", "y", "size_x", "size_y", "view_x", "view_y", "person_x", "person_y"):
+                    self.assertEqual(a[key], b[key])  # zones and their main spots stay
+            self.assertEqual((out["door"], out["dock"]), (flat["door"], flat["dock"]))
+            before = {p["name"]: p for p in flat["furniture"]}
+            pieces = {p["name"]: p for p in out["furniture"]}
+            for name, p in pieces.items():
+                if name in F.LOOSE:
+                    self.assertTrue(p["moved"])
+                else:
+                    self.assertEqual(p, before[name])  # bed, couch, cabinet, table: as built
+            corners = {name: F.piece_corners(p) for name, p in pieces.items()}
+            for name in F.LOOSE:
+                c = corners[name]
+                self.assertLessEqual(max(max(abs(x), abs(y)) for x, y in c), F.HALF - F.PASSAGE + 1e-6)
+                for other in pieces:
+                    if other != name:
+                        self.assertGreaterEqual(F._poly_dist(c, corners[other]), F.PASSAGE - 1e-6, (seed, name, other))
+                spots = [(s["view_x"], s["view_y"]) for z in out["zones"] for s in z["spots"]]
+                for x, y in spots + [(out["dock"]["x"], out["dock"]["y"])]:
+                    self.assertGreaterEqual(F._poly_point_dist(c, x, y), F.SPOT_GAP - 1e-6)
+                for z in out["zones"]:
+                    for s in z["spots"]:
+                        self.assertGreaterEqual(F._poly_point_dist(c, s["person_x"], s["person_y"]),
+                                                F.PERSON_SPOT_GAP - 1e-6)
+            self.assertTrue(all(F.reachable_spots(out).values()), seed)
+            living = F.zone(out, "living_room")
+            self.assertNotIn("armchair", [s["name"] for s in living["spots"]])  # its spot went with it
+            self.assertTrue(living["spots"])
+
+    def test_the_home_flats_spots_are_reachable_and_a_blocked_one_is_not(self):
+        flat = make_flat(2)
+        self.assertTrue(all(F.reachable_spots(flat).values()))
+        boxed = dict(flat, furniture=[dict(p) for p in flat["furniture"]])
+        z = flat["zones"][0]
+        crate = next(p for p in boxed["furniture"] if p["name"] == "crate")
+        crate.update(x=z["view_x"], y=z["view_y"])  # a crate on the bedroom's viewing spot
+        reach = F.reachable_spots(boxed)
+        self.assertFalse(reach["{}:{}".format(z["name"], z["spots"][0]["name"])])
+
+    def test_same_seed_same_scatter(self):
+        flat = make_flat(4)
+        self.assertEqual(F.scatter(flat, np.random.default_rng(1)), F.scatter(flat, np.random.default_rng(1)))
+        self.assertNotEqual(F.scatter(flat, np.random.default_rng(1)), F.scatter(flat, np.random.default_rng(2)))
+        self.assertNotIn("moved", flat["furniture"][3])  # the input flat is not changed
+
+
 class ResidentsTest(unittest.TestCase):
     def test_routine_tables_use_only_zones_of_the_flat(self):
         for i in range(100):

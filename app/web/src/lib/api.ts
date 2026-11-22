@@ -216,7 +216,18 @@ export interface ApartmentZone {
   name: ZoneName; label: string; x: number; y: number; size_x: number; size_y: number;
   view_x: number; view_y: number; person_x: number; person_y: number;
 }
-export interface ApartmentObstacle { name: string; zone: ZoneName; x: number; y: number; size_x: number; size_y: number }
+export interface ApartmentObstacle {
+  name: string; zone: ZoneName; x: number; y: number; size_x: number; size_y: number;
+  /** Heading, and the piece's own length (along it) and width, in metres: for drawing a turned piece. */
+  yaw_deg?: number; length?: number; width?: number;
+  /** loose: stool, armchair, crate or plant, which "Shuffle obstacles" moves; moved: it is not where the flat had it. */
+  loose?: boolean; moved?: boolean;
+}
+/** The obstacle-avoiding student (app/student.py): loading, ready, failed or no_credits, with the reason. */
+export interface StudentInfo {
+  status: "off" | "loading" | "ready" | "failed" | "no_credits"; reason?: string; decisions?: number;
+  seconds_per_decision?: number; calls_left?: number;
+}
 export interface JournalEntry {
   id: number; day: string; weekday: number; minute: number; time: string; slot: number | null;
   zone: ZoneClass; source: "robot" | "entered" | "search" | "pasted";
@@ -240,9 +251,21 @@ export interface ApartmentState {
     /** Where she lies (x, y), when she is home. */
     person?: [number, number] | null;
     path: [number, number][]; metres: number; steps: SearchStep[];
+    /** Walks the student handed to A* + the a-to-b driver, and touches of walls or furniture, in this search. */
+    fallbacks?: number; contacts?: number;
   };
   robot: { x: number; y: number; yaw_deg?: number };
+  /** Who walks now: "student", "tabpfn" (a-to-b), "planner", "rule", or "marker" (no robot). */
   driver: string;
+  /** home: the furniture as the flat was built; scattered: the loose pieces moved by "Shuffle obstacles". */
+  obstacles?: "home" | "scattered";
+  student?: StudentInfo;
+  /** The a-to-b driver under the student (it walks while the student loads and when it gets stuck). */
+  ab_driver?: string | null;
+  /** Where the robot touched a wall or furniture (x, y). */
+  contact_points?: [number, number][];
+  /** The A* route of the current walk; walked by the a-to-b driver (route_followed) or only shown for the student. */
+  route?: [number, number][]; route_followed?: boolean;
   /** Who gives the belief: TabPFN (fit() on synthetic check-ins) or the counting model. */
   model?: { name: "tabpfn" | "counting"; label: string; detail: string };
   log: LogLine[];
@@ -316,3 +339,5 @@ export const apartmentStop = () => apartmentPost("stop");
 /** Ready for another run: the last search is forgotten, Margarete leaves the room, the robot returns to its dock. */
 export const apartmentClear = () => apartmentPost("clear");
 export const apartmentReset = (seed: number) => apartmentPost("reset", { seed });
+/** The loose pieces (stool, armchair, crate, plant) to random spots on the open floor. Refused during a search. */
+export const apartmentShuffle = () => apartmentPost("obstacles");

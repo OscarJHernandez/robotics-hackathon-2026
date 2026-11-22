@@ -52,6 +52,8 @@ The apartment (app/apartment.py): the flat's zones and obstacles, the journal, t
     POST /api/apartment/stop            {}
     POST /api/apartment/clear           {}  ready for another run: no search, Margarete out, the robot on its dock
     POST /api/apartment/reset           {"seed": 3?}  a new random flat and resident
+    POST /api/apartment/obstacles       {}  shuffle: the loose pieces (stool, armchair, crate, plant) to random spots
+                                        on the open floor (homes/flats.py scatter); 400 while a search runs
 
 metacon narrates the search (app/narrate.py): each step is one short line on /api/live,
     {"type": "narration", "id", "kind", "text", "source": "metacon" | "template"}, then the same id again with
@@ -60,7 +62,9 @@ metacon narrates the search (app/narrate.py): each step is one short line on /ap
 
     --scene apartment (default): the robot lives in the furnished flat and the search walks it from zone to zone.
     --scene floor: the robot alone on its floor, as before; the search then moves a marker on the plan only.
-    --driver tabpfn (default) | planner | rule: who walks each leg in the apartment (app/robot.py).
+    --driver student (default) | tabpfn | planner | rule: who walks in the apartment (app/robot.py). The student
+      (app/student.py, the obstacle-avoiding TabPFN student through the TabPFN API) loads in the background; the
+      a-to-b driver (tabpfn, else planner, else rule) walks until then and takes over when it gets stuck.
     --belief tabpfn (default) | counting: who says where she probably is (homes/tabpfn_belief.py, homes/search.py).
     --no-narration: no narration lines (the search runs the same, the log keeps its own lines).
 """
@@ -89,7 +93,7 @@ from robot import HELP, VIEWS, LiveRobot  # noqa: E402
 WEB = Path(__file__).resolve().parent / "web" / "dist"
 # Requests per window (seconds), per visitor. Transcriptions are also capped per call (call.MAX_INTERIM).
 LIMITS = {"chat": (20, 600), "command": (60, 60), "call": (20, 600), "transcribe": (300, 600), "speak": (30, 600),
-          "knock": (60, 600), "apartment": (240, 60)}
+          "knock": (60, 600), "apartment": (240, 60), "obstacles": (20, 600)}
 MAX_STREAMS = 40  # open picture streams across all visitors
 MAX_LISTENERS = 200  # open /api/live streams across all visitors
 MAX_BODY = 64 * 1024
@@ -115,7 +119,8 @@ POST_ROUTES = {"/api/command": "command", "/api/chat": "chat", "/api/call/start"
                "/api/apartment/journal": "apartment", "/api/apartment/journal/remove": "apartment",
                "/api/apartment/journal/import": "apartment", "/api/apartment/inputs": "apartment", "/api/apartment/random": "apartment",
                "/api/apartment/clock": "apartment", "/api/apartment/search": "apartment",
-               "/api/apartment/stop": None, "/api/apartment/reset": "apartment", "/api/apartment/clear": "apartment"}
+               "/api/apartment/stop": None, "/api/apartment/reset": "apartment", "/api/apartment/clear": "apartment",
+               "/api/apartment/obstacles": "obstacles"}
 
 
 def sse(payload):
@@ -211,7 +216,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self.send_json(200, {"ok": True, "model": llm.MODEL, "llm": bool(KEY), "commands": HELP,
                                  "views": list(VIEWS), "voice": voice.available(), "scene": SCENE,
-                                 "apartment": APARTMENT is not None, "narration": NARRATOR is not None})
+                                 "apartment": APARTMENT is not None, "narration": NARRATOR is not None,
+                                 "driver": ROBOT.state().get("driver") if ROBOT is not None else None,
+                                 "student": (ROBOT.state().get("student", {"status": "off"}) if ROBOT is not None
+                                             else {"status": "off"})})
         elif path == "/api/apartment/inputs.json" and APARTMENT is not None:
             self.send_json(200, APARTMENT.inputs())
         elif path == "/api/apartment/journal.txt" and APARTMENT is not None:
@@ -405,6 +413,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(409, {"error": "a search is already running"})
             elif action == "stop":
                 self.send_json(200, {"ok": APARTMENT.stop()})
+            elif action == "obstacles":
+                self.send_json(200, {"ok": True, "obstacles": APARTMENT.shuffle()})
             elif action == "clear":
                 APARTMENT.clear()
                 self.send_json(200, {"ok": True})
@@ -558,10 +568,11 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--scene", default="apartment", choices=("apartment", "floor"),
                         help="apartment: the furnished flat with zones (default); floor: the robot alone")
-    parser.add_argument("--driver", default="tabpfn", choices=("tabpfn", "planner", "rule"),
-                        help="who walks each leg in the apartment: the TabPFN a-to-b controller (needs the ml "
-                             "packages and a controller built with `just controller`), the nav/dagger planner, "
-                             "or the steer-to-bearing rule")
+    parser.add_argument("--driver", default="student", choices=("student", "tabpfn", "planner", "rule"),
+                        help="who walks in the apartment: the obstacle-avoiding TabPFN student (TabPFN API, needs "
+                             "TABPFN_TOKEN and the v29 export, see docs/app.md), the TabPFN a-to-b controller "
+                             "(needs the ml packages and a controller built with `just controller`), the "
+                             "nav/dagger planner, or the steer-to-bearing rule")
     parser.add_argument("--controller", default="default", help="name of the TabPFN controller (data/nav/controllers)")
     parser.add_argument("--flat", type=int, default=0, help="seed of the apartment's layout and resident")
     parser.add_argument("--belief", default="tabpfn", choices=("tabpfn", "counting"),

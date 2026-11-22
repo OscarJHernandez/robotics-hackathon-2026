@@ -21,6 +21,7 @@ Kinds and their facts:
     gave_up      name, looks, metres
     stopped      name
     failed       name, reason
+    fallback     zone (where the robot is walking), reason: the student handed the walk to A* + the a-to-b driver
 
 If the worker falls behind, the oldest waiting "heading" lines are dropped; the others are never dropped, and while
 more lines wait it uses the template without asking metacon, to catch up.
@@ -34,7 +35,7 @@ from collections import OrderedDict, deque
 
 LABELS = {"bedroom": "bedroom", "living_room": "living room", "dining_area": "dining area", "kitchen": "kitchen",
           "hallway": "hallway"}
-KINDS = ("start", "heading", "miss", "found", "nobody_home", "gave_up", "stopped", "failed")
+KINDS = ("start", "heading", "miss", "found", "nobody_home", "gave_up", "stopped", "failed", "fallback")
 DROPPABLE = ("heading",)
 FINAL = ("found", "nobody_home", "gave_up", "failed")  # always spoken
 MAX_UNSPOKEN = 2
@@ -106,6 +107,9 @@ def template(kind, facts):
             looks, "" if looks == 1 else "s", name)
     if kind == "stopped":
         return "The search is stopped."
+    if kind == "fallback":
+        where = " to the {}".format(room(facts["zone"])) if facts.get("zone") in LABELS else ""
+        return "Something is in my way, so I'm taking the mapped route{} instead.".format(where)
     if kind == "failed":
         reason = str(facts.get("reason") or "something went wrong").rstrip(".")
         return "I had to stop the search: {}.".format(reason)

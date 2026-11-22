@@ -10,6 +10,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 import apartment  # noqa: E402
@@ -318,6 +320,74 @@ class ApartmentTest(unittest.TestCase):
         self.assertTrue(a.stop() or a.state()["search"]["status"] != "walking")
         finish(a)
         self.assertFalse(a.state()["search"]["running"])
+
+    def test_shuffle_moves_the_loose_pieces_and_is_refused_during_a_search(self):
+        robot = FakeRobot()
+        a = make(robot=robot)
+        s = a.state()
+        self.assertEqual(s["obstacles"], "home")
+        self.assertFalse(any(o["moved"] for o in s["flat"]["obstacles"]))
+        self.assertEqual(sum(o["loose"] for o in s["flat"]["obstacles"]), 4)
+        before = {o["name"]: (o["x"], o["y"]) for o in s["flat"]["obstacles"]}
+        self.assertEqual(a.shuffle(np.random.default_rng(3)), "scattered")
+        s = a.state()
+        self.assertEqual(s["obstacles"], "scattered")
+        self.assertEqual(len(robot.loaded), 2)  # the new arrangement went into the simulator
+        for o in s["flat"]["obstacles"]:
+            self.assertEqual(o["moved"], o["loose"])
+            if not o["loose"]:
+                self.assertEqual((o["x"], o["y"]), before[o["name"]])  # bed, couch, cabinet, table stay
+            self.assertIn("yaw_deg", o)
+        self.assertEqual([z["name"] for z in s["flat"]["zones"]], [z["name"] for z in a.home_flat["zones"]])
+        a.reset(1)
+        self.assertEqual(a.state()["obstacles"], "home")  # a new flat starts as built
+
+    def test_shuffle_is_refused_while_a_search_runs(self):
+        import threading
+        gate = threading.Event()
+        a = apartment.Apartment(seed=0, now=lambda: NOW, sleep=lambda s: gate.wait(5), walk=1.0, look=0.0)
+        self.assertTrue(a.start("kitchen"))
+        with self.assertRaises(ValueError):
+            a.shuffle()
+        self.assertEqual(a.state()["obstacles"], "home")
+        gate.set()
+        a.stop()
+        finish(a)
+        self.assertEqual(a.shuffle(np.random.default_rng(0)), "scattered")
+
+    def test_the_search_treats_a_fallback_as_normal_walking_and_says_so(self):
+        class FallbackRobot(FakeRobot):
+            """Reports that the student handed the first walk to A* + the a-to-b driver, and one touch."""
+
+            def __init__(self):
+                super().__init__()
+                self.gotos = 0
+
+            def command(self, text):
+                if text.startswith("goto"):
+                    self.gotos += 1
+                return super().command(text)
+
+            def state(self):
+                s = super().state()
+                s.update(fallbacks=1 if self.gotos else 0, contacts=1 if self.gotos else 0,
+                         fallback={"reason": "stuck: not 0.2 m closer in 40 cycles", "driver": "tabpfn"},
+                         student={"status": "ready"})
+                return s
+
+        events = []
+        robot = FallbackRobot()
+        a = make(robot=robot, on_event=lambda kind, facts: events.append((kind, facts)))
+        a.start("kitchen", miss_rate=0.0)
+        finish(a)
+        s = a.state()
+        self.assertEqual(s["search"]["status"], "found")  # the walk went on
+        self.assertEqual((s["search"]["fallbacks"], s["search"]["contacts"]), (1, 1))
+        kinds = [e["kind"] for e in s["log"]]
+        self.assertIn("fallback", kinds)
+        self.assertIn("contact", kinds)
+        self.assertEqual([k for k, _ in events].count("fallback"), 1)
+        self.assertEqual(s["student"], {"status": "ready"})
 
 
 if __name__ == "__main__":

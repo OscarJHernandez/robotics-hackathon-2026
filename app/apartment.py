@@ -224,6 +224,8 @@ class Apartment:
         with self._lock:
             self.seed = int(seed)
             self.flat = F.random_flat(np.random.default_rng([self.seed, 0]), self.seed)
+            self.home_flat = self.flat  # the flat as built; shuffle() moves its loose pieces
+            self.obstacles = "home"
             self.persona = R.sample_persona(np.random.default_rng([self.seed, 1]), 0, self.flat)
             self.habits = R.stated_habits(self.persona)
             self._habits_version = getattr(self, "_habits_version", 0) + 1
@@ -244,6 +246,27 @@ class Apartment:
                 self._robot.person()
             self._paint()
             self._say("New flat {} for {}: {} days of journal".format(self.seed, self.name, JOURNAL_DAYS), "info")
+
+    def shuffle(self, rng=None):
+        """The loose pieces (stool, armchair, crate, plant) dropped at random spots on the open floor
+        (homes/flats.py scatter), to watch the robot avoid furniture it was not told about. The zones, the
+        journal and the resident stay; the robot goes back to its dock. Refused while a search runs."""
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                raise ValueError("wait for the search to end before moving the furniture")
+            self.flat = F.scatter(self.home_flat, rng or np.random.default_rng())
+            self.obstacles = "scattered"
+            self.robot = dict(self.flat["dock"])
+            self.search = None
+            self.run = {"status": "idle", "goal": None, "truth": None, "miss_rate": S.MISS_RATE, "path": []}
+            if self._robot is not None:
+                self._robot.load(self.flat)
+                self._robot.person()
+            self._paint()
+            moved = [p for p in self.flat["furniture"] if p.get("moved")]
+            self._say("Obstacles shuffled: {} moved to random spots".format(
+                ", ".join(p["name"] for p in moved)), "info")
+            return self.obstacles
 
     def _draw(self, weekday, rng):
         """Her zone in each part of a day of this weekday, from her routine."""
@@ -497,6 +520,7 @@ class Apartment:
                 self._robot.person(*person) if person else self._robot.person()
                 self.robot = self._pose()
             self.run = {"status": "starting", "goal": None, "truth": truth, "miss_rate": miss, "walked": 0.0,
+                        "fallbacks": 0, "contacts": 0,
                         "person": list(person[:2]) if person else None,
                         "path": [[self.robot["x"], self.robot["y"]]]}
             self._paint(start)
@@ -651,6 +675,8 @@ class Apartment:
 
     def _drive(self, end, heading_deg):
         """The real walk: goto, wait until the robot stands near `end`, then turn to face the zone."""
+        state = self._robot.state()
+        self._seen = {"fallbacks": state.get("fallbacks", 0) or 0, "contacts": state.get("contacts", 0) or 0}
         self._command("goto {:.2f} {:.2f}".format(*end))
         self._settle(WALK_TIMEOUT * math.hypot(end[0] - self.robot["x"], end[1] - self.robot["y"]) + 60.0, near=end)
         if heading_deg is not None:
@@ -675,6 +701,7 @@ class Apartment:
                 tail = self.run["path"][-1]
                 if math.hypot(self.robot["x"] - tail[0], self.robot["y"] - tail[1]) > 0.15:
                     self.run["path"].append([self.robot["x"], self.robot["y"]])
+            self._watch(state)
             if state.get("mode") == "fallen":
                 raise _Failed("the robot fell over")
             # "idle" means done only once the robot was seen walking (the simulator may take a moment to pick the
@@ -688,6 +715,29 @@ class Apartment:
             if waited > timeout:
                 self._command("stop")
                 raise _Failed("the robot did not get there in time (something is in the way)")
+
+    def _watch(self, state):
+        """Log (and narrate) what the robot reports while it walks: the student handing a walk to A* + the
+        a-to-b driver (a normal part of walking, not a failure), and touches of walls and furniture."""
+        seen = getattr(self, "_seen", None)
+        if seen is None:
+            return
+        fallbacks, contacts = state.get("fallbacks", 0) or 0, state.get("contacts", 0) or 0
+        if fallbacks > seen["fallbacks"]:
+            seen["fallbacks"] = fallbacks
+            info = state.get("fallback") or {}
+            with self._lock:
+                self.run["fallbacks"] = self.run.get("fallbacks", 0) + 1
+                zone = self.run.get("goal")
+                self._say("Fallback: the student {}; the mapped route (A* + {}) walks the rest of the way".format(
+                    info.get("reason", "handed over"), info.get("driver", "a-to-b")), "fallback")
+            self._emit("fallback", zone=zone, reason=str(info.get("reason", "")))
+        if contacts > seen["contacts"]:
+            with self._lock:
+                self.run["contacts"] = self.run.get("contacts", 0) + contacts - seen["contacts"]
+                self._say("Contact: the robot touched a wall or a piece of furniture ({} this search)".format(
+                    self.run["contacts"]), "contact")
+            seen["contacts"] = contacts
 
     def _paint(self, belief=None):
         """Shade the zones on the simulator's floor by the belief."""
@@ -734,14 +784,20 @@ class Apartment:
                 belief = stages["last_heard"]
             last = self._last()
             flat = self.flat
+            robot_state = self._robot.state() if self._robot is not None else {}
             return {
                 "seed": self.seed, "name": self.name,
                 "flat": {"half": flat["width"] / 2, "door": flat["door"], "dock": flat["dock"],
                          "zones": [{k: z[k] for k in ("name", "label", "x", "y", "size_x", "size_y", "view_x", "view_y",
                                                     "person_x", "person_y")}
                                    for z in flat["zones"]],
-                         "obstacles": [{k: f[k] for k in ("name", "zone", "x", "y", "size_x", "size_y")}
+                         "obstacles": [dict({k: f[k] for k in ("name", "zone", "x", "y", "size_x", "size_y",
+                                                                      "yaw_deg")},
+                                            length=2 * F.PIECES[f["name"]]["half"][0],
+                                            width=2 * F.PIECES[f["name"]]["half"][1],
+                                            moved=bool(f.get("moved")), loose=f["name"] in F.LOOSE)
                                        for f in flat["furniture"]]},
+                "obstacles": self.obstacles,
                 "habits": {"usual": self.habits["usual"], "outings": [list(o) for o in self.habits["outings"]]},
                 "now": {"weekday": weekday, "minute": minute, "time": hhmm(minute), "day": day.isoformat(),
                         "slot": R.slot_of(minute), "real": self.clock is None},
@@ -752,11 +808,17 @@ class Apartment:
                 "search": {"status": self.run["status"], "running": running, "goal": self.run["goal"],
                            "truth": self.run["truth"], "person": self.run.get("person"),
                            "miss_rate": self.run["miss_rate"], "path": self.run["path"],
-                           "metres": self.run.get("walked", 0.0),
+                           "metres": self.run.get("walked", 0.0), "fallbacks": self.run.get("fallbacks", 0),
+                           "contacts": self.run.get("contacts", 0),
                            "steps": [{"zone": s["zone"], "p": s["p_before"], "seen": s["seen"], "metres": s["metres"]}
                                      for s in (search.steps if search else [])]},
                 "robot": dict(self._pose() if self._robot is not None else self.robot),
-                "driver": (self._robot.state().get("driver") if self._robot is not None else "marker"),
+                "driver": robot_state.get("driver", "marker"),
+                "student": robot_state.get("student", {"status": "off"}),
+                "ab_driver": robot_state.get("ab_driver"),
+                "contact_points": robot_state.get("contact_points", []),
+                "route": robot_state.get("route", []) if robot_state.get("mode") == "goto" else [],
+                "route_followed": robot_state.get("route_followed", True),
                 "model": self.model_info(),
                 "log": list(self.log),
             }
