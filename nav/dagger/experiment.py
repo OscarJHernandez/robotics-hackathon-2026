@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 VARIANT_KEYS = {"id", "hypothesis", "parent", "change", "kill_criterion", "student", "features", "context",
-                "offline", "closed", "perception"}
+                "offline", "closed", "perception", "target"}
 CONTEXT_KEYS = {"sources", "max_rows", "quotas", "seed"}
 CLOSED_DEFAULT = {"set": "screen", "first": 0, "count": 100, "max_steps": 150, "stuck_steps": 40}
 
@@ -37,7 +37,23 @@ def load_variant(path):
         raise SystemExit("unknown student kind {!r}".format(variant["student"].get("kind")))
     if variant["student"].get("shield") is not None:
         raise SystemExit("the safety filter is switched off in v2 (see docs/navigation.md)")
+    if "target" in variant:
+        from .target import target_config
+        target_config(variant["target"])  # unknown keys fail here, before any fit
     return variant
+
+
+def target_search(variant, vision_dir):
+    """The per-episode TargetSearch factory of a variant with a `target:` block, or None (the true goal)."""
+    if "target" not in (variant or {}):
+        return None
+    from .target import Detector, load_signature, make_search, target_config
+    cfg = target_config(variant["target"])
+    path = Path(vision_dir) / cfg["signature"]
+    if not path.is_file():
+        raise SystemExit("no target signature at {}: run just vision-signature".format(path))
+    detector = Detector(load_signature(path), cfg)
+    return lambda env, episode: make_search(cfg, detector, env, episode["scene_id"], episode["seed"])
 
 
 def done_episodes(folder):
@@ -217,10 +233,11 @@ def run_part(job):
 
         rng = np.random.default_rng([config["seed"], job["proc"], job["rng_salt"]])
         started = time.time()
+        search = target_search(variant, vision_dir()) if job["kind"] == "run" else None
         counts, steps = run_v2(envs, featurizer, expert, job["plan"], rng, columns, round_=job["round"],
                                policy=student, features=features, beta=job["beta"], perturb=job.get("perturb"),
                                store_band=job["store_band"], log=log, timer=timer, on_chunk=write,
-                               heartbeat_every=job["heartbeat"])
+                               heartbeat_every=job["heartbeat"], search=search)
         seconds = time.time() - started
         for env in envs:
             env.close()
