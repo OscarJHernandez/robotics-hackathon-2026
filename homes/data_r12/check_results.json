@@ -1,0 +1,126 @@
+{
+ "residents": 10,
+ "context_rows": 1000,
+ "results": {
+  "checkin_own_days_0": {
+   "tabpfn": {
+    "top1": 0.485,
+    "log_loss": 1.369
+   },
+   "cold_start": {
+    "top1": 0.412,
+    "log_loss": 1.504
+   },
+   "last_heard": {
+    "top1": 0.662,
+    "log_loss": null
+   },
+   "usual_place": {
+    "top1": 0.412,
+    "log_loss": null
+   },
+   "fit_seconds_mean": 4.4,
+   "features": 11
+  },
+  "help_own_days_0": {
+   "tabpfn": {
+    "top1": 0.45,
+    "log_loss": 1.156
+   },
+   "cold_start": {
+    "top1": 0.53,
+    "log_loss": 1.139
+   },
+   "last_heard": {
+    "top1": 0.36,
+    "log_loss": null
+   },
+   "usual_place": {
+    "top1": 0.53,
+    "log_loss": null
+   },
+   "fit_seconds_mean": 5.2,
+   "features": 19
+  },
+  "checkin_own_days_1": {
+   "tabpfn": {
+    "top1": 0.475,
+    "log_loss": 1.375
+   },
+   "cold_start": {
+    "top1": 0.412,
+    "log_loss": 1.504
+   },
+   "last_heard": {
+    "top1": 0.662,
+    "log_loss": null
+   },
+   "usual_place": {
+    "top1": 0.39,
+    "log_loss": null
+   },
+   "fit_seconds_mean": 7.5,
+   "features": 19
+  },
+  "help_own_days_1": {
+   "tabpfn": {
+    "top1": 0.52,
+    "log_loss": 1.107
+   },
+   "cold_start": {
+    "top1": 0.53,
+    "log_loss": 1.139
+   },
+   "last_heard": {
+    "top1": 0.36,
+    "log_loss": null
+   },
+   "usual_place": {
+    "top1": 0.35,
+    "log_loss": null
+   },
+   "fit_seconds_mean": 9.0,
+   "features": 27
+  },
+  "checkin_own_days_3": {
+   "tabpfn": {
+    "top1": 0.472,
+    "log_loss": 1.4
+   },
+   "cold_start": {
+    "top1": 0.412,
+    "log_loss": 1.504
+   },
+   "last_heard": {
+    "top1": 0.662,
+    "log_loss": null
+   },
+   "usual_place": {
+    "top1": 0.34,
+    "log_loss": null
+   },
+   "fit_seconds_mean": 6.9,
+   "features": 19
+  },
+  "help_own_days_3": {
+   "tabpfn": {
+    "top1": 0.55,
+    "log_loss": 1.044
+   },
+   "cold_start": {
+    "top1": 0.53,
+    "log_loss": 1.139
+   },
+   "last_heard": {
+    "top1": 0.36,
+    "log_loss": null
+   },
+   "usual_place": {
+    "top1": 0.23,
+    "log_loss": null
+   },
+   "fit_seconds_mean": 7.4,
+   "features": 27
+  }
+ }
+}

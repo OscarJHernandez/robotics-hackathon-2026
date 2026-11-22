@@ -1,0 +1,219 @@
+{
+ "all": {
+  "check_ins": 4800,
+  "at_home": 4101,
+  "random": {
+   "metres": 11.4,
+   "zones_checked": 2.98
+  },
+  "nearest": {
+   "metres": 7.23,
+   "zones_checked": 3.3
+  },
+  "last": {
+   "metres": 7.42,
+   "zones_checked": 2.12
+  },
+  "population": {
+   "metres": 8.74,
+   "zones_checked": 2.13,
+   "belief_top1": 0.383,
+   "log_loss": 1.513
+  },
+  "habits": {
+   "metres": 8.54,
+   "zones_checked": 2.09,
+   "belief_top1": 0.507,
+   "log_loss": 1.343
+  },
+  "journal": {
+   "metres": 7.81,
+   "zones_checked": 1.87,
+   "belief_top1": 0.541,
+   "log_loss": 1.213
+  },
+  "full": {
+   "metres": 6.55,
+   "zones_checked": 1.54,
+   "belief_top1": 0.72,
+   "log_loss": 0.766
+  },
+  "tabpfn": {
+   "metres": 6.65,
+   "zones_checked": 1.58,
+   "belief_top1": 0.724,
+   "log_loss": 0.792
+  },
+  "oracle": {
+   "metres": 7.56,
+   "zones_checked": 1.78,
+   "belief_top1": 0.569,
+   "log_loss": 1.097
+  },
+  "shortest": {
+   "metres": 5.63,
+   "zones_checked": 2.13
+  }
+ },
+ "not_heard_yet": {
+  "check_ins": 2465,
+  "at_home": 2087,
+  "random": {
+   "metres": 11.42,
+   "zones_checked": 2.99
+  },
+  "nearest": {
+   "metres": 7.26,
+   "zones_checked": 3.31
+  },
+  "last": {
+   "metres": 9.59,
+   "zones_checked": 2.97
+  },
+  "population": {
+   "metres": 9.1,
+   "zones_checked": 2.23,
+   "belief_top1": 0.367,
+   "log_loss": 1.553
+  },
+  "habits": {
+   "metres": 8.97,
+   "zones_checked": 2.22,
+   "belief_top1": 0.486,
+   "log_loss": 1.39
+  },
+  "journal": {
+   "metres": 8.11,
+   "zones_checked": 1.94,
+   "belief_top1": 0.532,
+   "log_loss": 1.233
+  },
+  "full": {
+   "metres": 8.11,
+   "zones_checked": 1.94,
+   "belief_top1": 0.532,
+   "log_loss": 1.233
+  },
+  "tabpfn": {
+   "metres": 8.16,
+   "zones_checked": 1.97,
+   "belief_top1": 0.542,
+   "log_loss": 1.249
+  },
+  "oracle": {
+   "metres": 7.91,
+   "zones_checked": 1.86,
+   "belief_top1": 0.541,
+   "log_loss": 1.129
+  },
+  "shortest": {
+   "metres": 6.4,
+   "zones_checked": 2.82
+  }
+ },
+ "heard_recently": {
+  "check_ins": 2335,
+  "at_home": 2014,
+  "random": {
+   "metres": 11.39,
+   "zones_checked": 2.97
+  },
+  "nearest": {
+   "metres": 7.21,
+   "zones_checked": 3.3
+  },
+  "last": {
+   "metres": 5.17,
+   "zones_checked": 1.24
+  },
+  "population": {
+   "metres": 8.36,
+   "zones_checked": 2.02,
+   "belief_top1": 0.4,
+   "log_loss": 1.47
+  },
+  "habits": {
+   "metres": 8.1,
+   "zones_checked": 1.95,
+   "belief_top1": 0.53,
+   "log_loss": 1.293
+  },
+  "journal": {
+   "metres": 7.51,
+   "zones_checked": 1.81,
+   "belief_top1": 0.551,
+   "log_loss": 1.191
+  },
+  "full": {
+   "metres": 4.93,
+   "zones_checked": 1.13,
+   "belief_top1": 0.918,
+   "log_loss": 0.272
+  },
+  "tabpfn": {
+   "metres": 5.08,
+   "zones_checked": 1.17,
+   "belief_top1": 0.916,
+   "log_loss": 0.311
+  },
+  "oracle": {
+   "metres": 7.19,
+   "zones_checked": 1.69,
+   "belief_top1": 0.597,
+   "log_loss": 1.063
+  },
+  "shortest": {
+   "metres": 4.84,
+   "zones_checked": 1.41
+  }
+ },
+ "out": {
+  "share_out": 0.146,
+  "caught": 0.95,
+  "right_when_said": 0.9
+ },
+ "residents": 120,
+ "loop": {
+  "miss_rate": 0.2,
+  "at_home": 4101,
+  "bayes": {
+   "found": 0.989,
+   "looks": 2.22,
+   "metres": 8.46
+  },
+  "tabpfn": {
+   "found": 0.985,
+   "looks": 2.23,
+   "metres": 8.49
+  },
+  "certain": {
+   "found": 0.799,
+   "looks": 1.55,
+   "metres": 6.61
+  },
+  "nearest": {
+   "found": 0.975,
+   "looks": 4.23,
+   "metres": 10.08
+  },
+  "last": {
+   "found": 0.984,
+   "looks": 3.15,
+   "metres": 10.54
+  },
+  "came_back": 0.254,
+  "out": {
+   "check_ins": 699,
+   "ended_nobody_home": 0.491,
+   "looks": 3.61
+  }
+ },
+ "residents_generated": 600,
+ "days": 30,
+ "seed": 0,
+ "weights": {
+  "population": 8.0,
+  "habit": 2.0,
+  "outing": 32.0
+ }
+}

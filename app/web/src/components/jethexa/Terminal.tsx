@@ -27,7 +27,8 @@ export function useMetacon(conn: Conn, llm: boolean) {
   const chatOff = live && !llm;
 
   const push = useCallback((l: NoId<Line>) => setLines((p) => [...p, { ...l, id: uid++ } as Line]), []);
-  const clear = useCallback(() => setLines([]), []);
+  /** Start fresh: empties the conversation on screen and what metacon remembers of it. */
+  const clear = useCallback(() => { hist.current = []; setLines([]); }, []);
   /** A line from the robot itself (arrived, fell, ...). */
   const note = useCallback((text: string, tone: "ok" | "warn" = "ok") => push({ kind: "event", text, tone }), [push]);
 
@@ -45,7 +46,7 @@ export function useMetacon(conn: Conn, llm: boolean) {
     const text = raw0.trim(); hIdx.current = -1;
     if (!text || busy) return "";
     if (!call) inputs.current.push(text);
-    if (text === "/clear") { setLines([]); return ""; }
+    if (text === "/clear") { clear(); return ""; }
     push(call ? { kind: "user", text, voice: true } : { kind: "user", text });
     if (text === "/help") { push({ kind: "info", text: HELP }); return ""; }
     if (text.startsWith("/") && !call) {
