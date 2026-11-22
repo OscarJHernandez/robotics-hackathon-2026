@@ -74,6 +74,9 @@ VERDICT = {
 
 def _load(exp_id):
     d = experiment_dir(exp_id)
+    if not (d / "rows.parquet").exists() or not (d / "episodes.json").exists():
+        from .merge import merge_dir
+        merge_dir(d, plan=None, log=lambda *a: None)  # strict checks: duplicates, gaps, rows vs episode summaries
     rows = pd.read_parquet(d / "rows.parquet")
     episodes = json.loads((d / "episodes.json").read_text())
     jobs = [json.loads(p.read_text()) for p in sorted(d.glob("job-*.json"))]
