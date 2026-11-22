@@ -8,7 +8,7 @@ her with its own camera, and walks up to her.
 Everything runs in the [MuJoCo](https://mujoco.readthedocs.io/) simulator. You do not need the real robot or a
 GPU; a laptop is enough.
 
-![Knock: the robot has found Margarete and stands next to her](docs/readme/knock-hero.jpg)
+![Knock: the robot has found Margarete lying on the floor and stands next to her](docs/readme/knock-hero.jpg)
 
 ## What it does
 
@@ -27,12 +27,12 @@ A search runs in four steps, and repeats until she is found or the robot is sure
 
 The web app shows all of it live: the robot's camera, the floor plan with the belief, and a spoken commentary.
 
-One search, recorded from the app (2x speed). The TabPFN model is walking; the small picture is the robot's own camera.
+Recorded from the app (2x speed). The TabPFN model is walking; the small picture is the robot's own camera.
 
 | Walk | Look | Walk up to her |
 |---|---|---|
 | ![The robot walks around furniture to the next zone](docs/readme/knock-walk.gif) | ![The robot turns once on the spot, looking](docs/readme/knock-look.gif) | ![The robot spots Margarete and walks up to her](docs/readme/knock-approach.gif) |
-| Around the furniture to the most likely zone | A full turn on the spot. Nobody here, so on to the next zone | She is spotted on the way to the third zone; the robot stops beside her |
+| Around the furniture to the most likely zone | A full turn on the spot. Nobody here, so on to the next zone | She is lying on the floor; the robot spots her and stops beside her |
 
 ## What we achieved
 
