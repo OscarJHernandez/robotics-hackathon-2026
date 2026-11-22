@@ -45,7 +45,10 @@ def _write(folder, vid, **fields):
     import yaml
 
     from .journal import read_result, write_result
-    variant = yaml.safe_load((VARIANTS / (vid + ".yaml")).read_text())
+    path = VARIANTS / (vid + ".yaml")
+    if not path.exists():  # a tagged run such as v15-lidar-allrows-confirm uses its variant's file
+        path = VARIANTS / (vid.rsplit("-", 1)[0] + ".yaml")
+    variant = yaml.safe_load(path.read_text())
     try:
         current = read_result(folder)
     except (FileNotFoundError, OSError, ValueError):
@@ -67,17 +70,18 @@ def _closed(folder, plan):
     return rows, episodes, info
 
 
-def analyse(ids, reference, closed_count):
+def analyse(ids, reference, closed_count, closed_set="screen"):
     import pandas as pd
 
     from .evaluate import compare, episode_table, offline_report, summarize
     from .journal import leaderboard, write_failures
     from .merge import MergeError
-    plan = set_plan("screen", 0, closed_count)
+    plan = set_plan(closed_set, 0, closed_count)
     keep = {e["episode"] for e in plan}
-    screen_eps = json.loads((dataset_dir("screen") / "episodes.json").read_text())
+    expert_set = closed_set if (dataset_dir(closed_set) / "episodes.json").exists() else "screen"
+    screen_eps = json.loads((dataset_dir(expert_set) / "episodes.json").read_text())
     expert = [e for e in screen_eps if e["episode"] in keep]
-    expert_rows = pd.read_parquet(dataset_dir("screen") / "rows.parquet")
+    expert_rows = pd.read_parquet(dataset_dir(expert_set) / "rows.parquet")
     expert_table = episode_table(expert_rows[expert_rows["episode"].isin(keep)], expert)
     anchor = summarize(expert_table)
     anchors = {"expert_goal_rate": anchor["goal"]["rate"], "expert_stuck": anchor["stuck"]["count"],
@@ -139,11 +143,12 @@ def main():
     parser.add_argument("--closed-count", type=int, default=100)
     parser.add_argument("--n-envs", type=int, default=32)
     parser.add_argument("--reference", default="v03-reference")
+    parser.add_argument("--closed-set", default="screen", choices=["screen", "confirm", "final"])
     args = parser.parse_args()
     if args.command == "run":
         run_queue(args.ids, args.closed_count, args.n_envs)
     else:
-        analyse(args.ids, args.reference, args.closed_count)
+        analyse(args.ids, args.reference, args.closed_count, args.closed_set)
 
 
 if __name__ == "__main__":

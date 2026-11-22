@@ -283,6 +283,9 @@ def main():
     r.add_argument("--closed-first", type=int, default=None)
     r.add_argument("--closed-count", type=int, default=None)
     r.add_argument("--no-closed", action="store_true")
+    r.add_argument("--closed-set", default=None, choices=["screen", "confirm", "final"],
+                   help="held-out layouts to drive on (default: the variant's, normally screen)")
+    r.add_argument("--tag", default=None, help="results folder <id>-<tag> (e.g. confirm), so sets never mix")
     for p in (c, d, r):
         p.add_argument("--procs", type=int, default=1)
         p.add_argument("--n-envs", type=int, default=None)
@@ -314,10 +317,13 @@ def main():
                       variant=variant, store_band=config["features"]["perception"] == "probe", offline=False)
     else:
         variant = load_variant(args.variant)
-        label, folder = variant["id"], experiment_dir(variant["id"])
+        exp_id = variant["id"] + ("-" + args.tag if args.tag else "")
+        label, folder = exp_id, experiment_dir(exp_id)
         (folder / "variant.yaml").write_text(Path(args.variant).read_text())
         closed = dict(CLOSED_DEFAULT)
         closed.update(variant.get("closed") or {})
+        if args.closed_set:
+            closed["set"] = args.closed_set
         if args.closed_first is not None:
             closed["first"] = args.closed_first
         if args.closed_count is not None:
