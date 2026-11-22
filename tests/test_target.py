@@ -110,17 +110,17 @@ class DetectorTest(unittest.TestCase):
     def test_lidar_gap_falls_back_to_depth(self):
         """The nearest beam passes beside the target and returns the wall: lidar disagrees with depth."""
         lidar = np.full(36, 6.0, np.float32)
-        _, auto = T.Detector(signature(), cfg(range_source="auto")).detect(band([23]), depth([23], z=2.0), lidar,
+        _, auto = T.Detector(signature(), cfg(range_source="auto", lidar_sees_target=True)).detect(band([23]), depth([23], z=2.0), lidar,
                                                                           (0, 0, 0))
         self.assertEqual(auto["source"], "depth")
-        _, only = T.Detector(signature(), cfg(range_source="lidar")).detect(band([23]), depth([23], z=2.0), lidar,
+        _, only = T.Detector(signature(), cfg(range_source="lidar", lidar_sees_target=True)).detect(band([23]), depth([23], z=2.0), lidar,
                                                                            (0, 0, 0))
         self.assertIsNone(only, "lidar-only ranging refuses a range the depth camera does not confirm")
 
     def test_lidar_used_when_it_agrees(self):
         lidar = np.full(36, 6.0, np.float32)
         lidar[0] = lidar[1] = lidar[35] = 2.0 + T.CAM_X - T.LIDAR_X
-        _, det = T.Detector(signature(), cfg(range_source="auto")).detect(band([23]), depth([23], z=2.0), lidar,
+        _, det = T.Detector(signature(), cfg(range_source="auto", lidar_sees_target=True)).detect(band([23]), depth([23], z=2.0), lidar,
                                                                          (0, 0, 0))
         self.assertEqual(det["source"], "lidar")
 
@@ -128,10 +128,22 @@ class DetectorTest(unittest.TestCase):
         """Furniture in the same 10 degree beam is nearer than the target: depth wins."""
         lidar = np.full(36, 6.0, np.float32)
         lidar[0] = lidar[1] = lidar[35] = 0.9
-        _, det = T.Detector(signature(), cfg(range_source="auto")).detect(band([23]), depth([23], z=2.0), lidar,
+        _, det = T.Detector(signature(), cfg(range_source="auto", lidar_sees_target=True)).detect(band([23]), depth([23], z=2.0), lidar,
                                                                          (0, 0, 0))
         self.assertEqual(det["source"], "depth")
         self.assertGreater(det["range"], 1.9)
+
+
+@unittest.skipUnless(HAVE, "needs numpy and pandas")
+class LookAlikeTest(unittest.TestCase):
+    def test_lidar_transparent_target_rejects_what_the_lidar_sees(self):
+        """The pillar is invisible to the lidar: a match the lidar also sees at that range is solid furniture."""
+        solid = np.full(36, 6.0, np.float32)
+        solid[0] = solid[1] = solid[35] = 2.0 + T.CAM_X - T.LIDAR_X
+        _, det = T.Detector(signature(), cfg()).detect(band([23]), depth([23], z=2.0), solid, (0, 0, 0))
+        self.assertIsNone(det)
+        _, det = T.Detector(signature(), cfg()).detect(band([23]), depth([23], z=2.0), np.full(36, 6.0), (0, 0, 0))
+        self.assertIsNotNone(det, "the lidar sees only the wall behind: the pillar")
 
 
 class StubDetector:
@@ -276,8 +288,7 @@ class SearchTest(unittest.TestCase):
         tight = np.full(36, 2.0, np.float32)
         tight[9] = 0.2  # something close on the left
         tight[27] = 4.0  # open to the right
-        s.update(None, None, tight, (0.8, 0.0, 0.0))
-        s.update(None, None, tight, (0.8, 0.0, 0.0))
+        s.update(None, None, tight, (0.8, 0.0, 0.0))  # arrives: no turn on the very first step either
         self.assertEqual(s.phase, "reposition")
         self.assertIsNone(s.command, "the student walks to the open space")
         self.assertLess(s.goal[1], -0.5, "towards the open side (right = -y)")

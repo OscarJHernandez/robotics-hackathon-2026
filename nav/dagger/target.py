@@ -46,6 +46,10 @@ DEFAULT_TARGET = {
     "range_tol": 0.25,        # metres: lidar range accepted only this close to the depth camera's
     "lidar_window_deg": 5.0,
     "offset": 0.03,           # metres from the nearest visible point to the target's centre (pillar radius)
+    # false: the lidar passes through the target (the pillar), so a match the lidar ALSO sees at the depth camera's
+    # range is something solid, a look-alike: rejected. On v32's first 100 final layouts this removed 29 of 53
+    # false matches and 0 of 1,452 true ones. true (a person): no such check.
+    "lidar_sees_target": False,
     "depth_cap": 8.0, "max_range": 4.0,
     "confirm": 2, "fuse_radius": 0.35, "max_jump": 0.75, "fuse_decay": 0.7, "stale_steps": 6,
     "candidates": 4, "min_gap": 1.0, "view_dist": [0.8, 1.5], "clearance": 0.35, "wall": 0.45,
@@ -191,6 +195,12 @@ class Detector:
             r = cam + offset
             point_depth = (CAM_X + r * math.cos(bearing), r * math.sin(bearing))
         point, source = point_depth, "depth"
+        if not self.cfg["lidar_sees_target"] and point_depth is not None and lidar is not None:
+            lb = math.atan2(point_depth[1], point_depth[0] - LIDAR_X)
+            lr = self.lidar_range(lidar, lb)
+            if lr is not None and abs(lr + offset - math.hypot(point_depth[0] - LIDAR_X, point_depth[1])) \
+                    < self.cfg["range_tol"]:
+                return best_sim, None  # the lidar sees something solid there: not the target
         if self.cfg["range_source"] in ("lidar", "auto"):
             ref = point_depth or (CAM_X + math.cos(bearing), math.sin(bearing))
             lb = math.atan2(ref[1], ref[0] - LIDAR_X)
@@ -423,6 +433,21 @@ class TargetSearch:
             self._next_location(pose)
         if self.confirmed and not was_confirmed and self.phase in ("walking", "reposition"):
             self.phase = "to_target"
+        # arrivals first, so a look-around that starts this step goes through the room-to-turn check below
+        if self.phase == "reposition":
+            self.repos_left -= 1
+            if self.repos_left < 0:
+                self.phase, self.spin_yaw = "looking", pose[2]
+        elif self.phase == "walking" and self.current is not None:
+            loc = self.locations[self.current]
+            if _dist(pose, (loc["x"], loc["y"])) < cfg["arrive_radius"]:
+                self._start_look("location", pose)
+        elif self.phase == "to_target" and self.est is not None:
+            gap = _dist(pose, self.est)
+            self.near = self.near + 1 if gap < cfg["near_radius"] else 0
+            if gap < cfg["estimate_radius"] or self.near >= cfg["near_steps"]:
+                self.near = 0
+                self._start_look("estimate", pose)
         if self.phase == "looking":
             if self.confirmed and (self.look_at == "location" or self.fresh >= cfg["confirm"]):
                 self.phase = "to_target"
@@ -443,23 +468,6 @@ class TargetSearch:
                         self.repos_left, self.phase = cfg["reposition_steps"], "reposition"
                 else:
                     self.command = (0.0, cfg["spin_turn"])
-        elif self.phase == "reposition":
-            self.repos_left -= 1
-            if self.repos_left < 0:
-                self.phase, self.spin_yaw = "looking", pose[2]
-                self.command = (0.0, cfg["spin_turn"])
-        if self.phase == "walking" and self.current is not None:
-            loc = self.locations[self.current]
-            if _dist(pose, (loc["x"], loc["y"])) < cfg["arrive_radius"]:
-                self._start_look("location", pose)
-                self.command = (0.0, cfg["spin_turn"])
-        elif self.phase == "to_target" and self.est is not None:
-            gap = _dist(pose, self.est)
-            self.near = self.near + 1 if gap < cfg["near_radius"] else 0
-            if gap < cfg["estimate_radius"] or self.near >= cfg["near_steps"]:
-                self.near = 0
-                self._start_look("estimate", pose)
-                self.command = (0.0, cfg["spin_turn"])
         if self.phase == "not_found":
             self.command = (0.0, 0.0)
         self.goal = self._goal(pose)
