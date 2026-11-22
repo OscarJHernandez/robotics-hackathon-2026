@@ -56,6 +56,13 @@ class JetHexaSim:
         self._floor = self.model.geom("floor").id
         self._feet = dict((self.model.geom("foot_" + leg).id, leg) for leg in LEGS)
         self._target = int(self.model.body("target").mocapid[0])
+        self._lidar = self.model.geom("lidar_geom").id
+        self._body = self.model.body("body").id
+        m = self.model
+        # Geoms a lidar ray passes through: those without collisions (the target pillar, the lidar itself)
+        # and every geom of the robot's own body tree (legs included).
+        self._lidar_skip = ((m.geom_contype == 0) & (m.geom_conaffinity == 0)) | (
+            m.body_rootid[m.geom_bodyid] == m.body_rootid[self._body])
         self.reset()
         self.stand = dict((name, float(self.data.ctrl[i])) for name, i in self._ctrl.items())
 
@@ -136,6 +143,44 @@ class JetHexaSim:
                 mujoco.mj_contactForce(self.model, self.data, i, wrench)
                 forces[leg] += float(wrench[0])
         return forces
+
+    def lidar(self, rays=36, min_range=0.15, max_range=8.0):
+        """Ranges in metres of a 360 degree lidar at the lidar's position: float32 array (rays,).
+
+        Ray 0 points straight ahead (the body's +x), ray i is turned i * 360/rays degrees to the LEFT
+        (counter-clockwise seen from above). The scan plane is the body's own horizontal plane (it tilts with the
+        body). No hit within max_range gives max_range; hits closer than min_range are reported as min_range.
+
+        The origin is the geom `lidar_geom`. All rays are cast with `mujoco.mj_multiRay` from the body's
+        `bodyexclude`; MuJoCo excludes only that one body, not the legs, and it does hit geoms without collisions.
+        So a ray that hits a geom of the robot's own tree or a geom with contype and conaffinity 0 (the target
+        pillar) is cast again from just behind that hit, until it hits something real or runs out of range.
+        """
+        m, d = self.model, self.data
+        angles = np.arange(rays) * (2.0 * math.pi / rays)
+        xmat = d.body(self._body).xmat.reshape(3, 3)
+        vec = np.outer(np.cos(angles), xmat[:, 0]) + np.outer(np.sin(angles), xmat[:, 1])
+        origin = d.geom_xpos[self._lidar].copy()
+        geomid = np.empty(rays, dtype=np.int32)
+        dist = np.empty(rays, dtype=np.float64)
+        mujoco.mj_multiRay(m, d, origin, vec.ravel(), None, True, self._body, geomid, dist, None, rays, max_range)
+        out = np.where(geomid >= 0, dist, max_range)
+        for i in np.nonzero((geomid >= 0) & self._lidar_skip[geomid])[0]:
+            travelled, gid = float(dist[i]), np.zeros(1, dtype=np.int32)
+            while True:
+                travelled += 1e-4
+                if travelled >= max_range:
+                    out[i] = max_range
+                    break
+                t = mujoco.mj_ray(m, d, origin + vec[i] * travelled, vec[i], None, 1, self._body, gid)
+                if gid[0] < 0:
+                    out[i] = max_range
+                    break
+                travelled += t
+                if not self._lidar_skip[gid[0]]:
+                    out[i] = travelled
+                    break
+        return np.clip(out, min_range, max_range).astype(np.float32)
 
     def target(self):
         """The target marker's (x, y) in metres."""

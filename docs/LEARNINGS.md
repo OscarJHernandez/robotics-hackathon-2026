@@ -61,6 +61,31 @@ in the same pull request as the work.
   navigation.md, and the "stop and turn" share is 6.6% in LEARNINGS but 6.5% in `dagger-report.md`. The page uses
   the exact per-run table (`promotion.md`). Every number it shows is in `app/web/src/content/howItWorks.ts` with its
   source.
+- 2026-11-22 (Oscar's agent): 8 of v29's 9 final-test collisions are into the table's legs (cylinders 5 cm across):
+  the simulated lidar's 36 rays are 10 degrees apart, 17 cm at 1 m, so a leg falls between rays until it is close and is
+  missing from the robot's lidar map. Thin obstacles need a denser lidar; see [dagger-report.md](dagger-report.md).
+- 2026-11-22 (Oscar's agent): Adding every row to v29's context (81k, mostly student-driven DAgger rows) made it
+  worse (97% -> 92% on screening). A large mix of student-driven rows dilutes the clean expert context.
+- 2026-11-22 (Oscar's agent): DAgger v2 in the arena: the best student (98% goals, 2% collisions on 200 fresh layouts,
+  two start seeds) is TabPFN 3.5 on all round 0 rows with a 360 degree lidar and the robot's own plan on its lidar map
+  (`nav/dagger/lidarmap.py`). The camera-only students plateaued at 58-70%; see docs/navigation.md "DAgger v2".
+- 2026-11-22 (Oscar's agent): A privileged ceiling experiment (the expert's look-ahead bearing as input) found the
+  real gap in one run: 100% vs a 95% plateau, so the student lacked path information, not obstacle sensing or model
+  capacity. Run a ceiling before tuning features or outputs.
+- 2026-11-22 (Oscar's agent): For TabPFN students more real rows helped (8k -> 31k: 89% -> 95%), while re-weighting
+  the same rows (balanced or lidar-distance quotas), gating, history and 8 estimators did not; beyond 31k rows (52k,
+  61k, incl. DAgger rounds) nothing more. Compact inputs (114 columns) make 31k-row fits take about 4 min on an M4 Pro.
+- 2026-11-22 (Oscar's agent): Hand-written lidar safety stops made it worse (stuck, spinning): the JetHexa touches
+  furniture while turning on the spot, so a reflex at contact distance is too late.
+- 2026-11-22 (Oscar's agent): In zsh `$h:Projects` applies the `:P` modifier, so `scp file $h:Projects/...` wrote to a
+  local folder `vendettarojects/` with exit code 0. Quote as `"${h}:..."`; `nav/dagger/transfer.py` uses argument lists.
+- 2026-11-22 (Oscar's agent): Split DAgger work by machine: a 31k-row TabPFN fit takes about 4 min on vendetta (M4 Pro,
+  MPS) and 20 min on metacon (CPU), so fits and variant tests go to vendetta and simulation-heavy jobs (data, DAgger
+  rounds) to metacon with 8 processes. The v2 search used 8.2 machine-hours in 5 h; see docs/dagger/compute.md.
+- 2026-11-22 (Oscar's agent): TabPFN 3.5 on metacon's CPU is fine for compact inputs: 8k x 114 fit in 142 s, predict
+  for 32 rows 0.2 s (faster than MPS for small batches). DINOv2 on CPU (about 115 ms per picture) is then the bottleneck.
+- 2026-11-22 (Oscar's agent): The offline "stop recall at stride < 0.02" metric is unstable for plain regressors (two
+  identical students: 0% vs 55%); judge with closed-loop runs, paired on the same layouts.
 
 - 2026-11-22 (Oscar's agent): TabPFN ignored a strong journal when it only had the 13 raw journal-share columns
   (ten dining-area afternoons lowered "dining area"), although the examples hold the pattern. Adding the counting
@@ -267,6 +292,12 @@ in the same pull request as the work.
 
 ## Suggestions (open)
 
+- 2026-11-22 (Oscar's agent): Try a denser simulated lidar (for example 360 rays at 1 degree) aimed at the table-leg
+  crashes: a new round 0 (about 15 min) and one refit of v29.
+- 2026-11-22 (Oscar's agent): Check the simulated lidar against the real JetHexa lidar (rays, range, noise) and
+  test `lidarmap.py` with real odometry drift before trusting the 98% on the robot.
+- 2026-11-22 (Oscar's agent): The `stage analyse` printout says "expert on screen" also for the confirmation and final
+  sets; rename it to the set's name.
 - 2026-11-22 (Oscar's agent): Knock: switch `app/knock.py` and the phone UI to the five arena zones and use
   `homes/search.Search` for `probs` and the next zone. In `homes/sim_bridge.py`, turn the robot to `heading_deg` at the
   goal and replace the mock look with the vision probe's "target" class (the pillar already stands where she is). Add a bathroom to the arena (a piece or a

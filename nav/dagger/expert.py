@@ -190,6 +190,7 @@ class Expert:
         self.gain, self.stop_turning, self.goal_radius = gain, stop_turning, goal_radius
         self._cache = {}
         self.nopath = False
+        self.look_bearing = 0.0  # bearing (rad, + = left) of the pursuit point in the last act(); privileged
 
     @classmethod
     def from_config(cls, expert_cfg, goal_radius):
@@ -220,6 +221,7 @@ class Expert:
             cell = nearest_reachable(cost, cell, int(round(0.6 / grid.cell)))
             if cell is None:
                 self.nopath = True
+                self.look_bearing = 0.0
                 return self.NO_PATH_COMMAND
         self.nopath = False
         if goal_dist <= self.lookahead:
@@ -227,4 +229,5 @@ class Expert:
         else:
             path = downhill_path(grid, cost, cell, self.lookahead)
             point = goal if cost[path[-1]] == 0 else grid.centre(*path[-1])
+        self.look_bearing = float(relative(pose, *point)[1])
         return pursuit_command(pose, point, goal_dist, self.gain, self.stop_turning, self.goal_radius)

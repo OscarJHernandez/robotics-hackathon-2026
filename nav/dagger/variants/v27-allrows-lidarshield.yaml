@@ -1,0 +1,9 @@
+id: v27-allrows-lidarshield
+hypothesis: SAFETY LAYER (reported separately, not the student's score) - stopping and turning away when any front-half lidar ray is under 0.27 m removes the tight-spot crashes of v15
+parent: v15-lidar-allrows
+change: v15 student + lidar shield (0.27 m, +-90 degrees)
+kill_criterion: collisions not below v15's, or stuck episodes above 3%
+student: {kind: tabpfn, lidar_shield: {min_range: 0.27, fov_deg: 90}}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0], max_rows: null, quotas: uniform, seed: 0}
+offline: [offline_expert]

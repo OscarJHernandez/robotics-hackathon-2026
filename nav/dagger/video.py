@@ -125,23 +125,25 @@ class Filmer:
         return np.concatenate([top, bottom], axis=0)
 
 
-def film(run, round_, episode, config, probe, dino, out):
-    table = pd.read_parquet(run_dir(run) / "round_{}.parquet".format(round_number(round_)))
+def film(run, round_, episode, config, probe, dino, out, table=None, label=None):
+    if table is None:
+        table = pd.read_parquet(run_dir(run) / "round_{}.parquet".format(round_number(round_)))
     rows = table[table["episode"] == episode].sort_values("step").reset_index(drop=True)
     if rows.empty:
         raise SystemExit("episode {} is not in round {}".format(episode, round_))
     env_cfg = config["env"]
     expert = Expert.from_config(config["expert"], env_cfg["goal_radius"])
     env = SimEnv(simple=env_cfg["simple"], goal_radius=env_cfg["goal_radius"], max_steps=env_cfg["max_steps"],
-                 min_start_dist=env_cfg["min_start_dist"], expert=expert)
+                 min_start_dist=env_cfg["min_start_dist"], expert=expert,
+                 target_clearance=env_cfg.get("target_clearance"), target_wall=env_cfg.get("target_wall"))
     env.reset(int(rows["scene_id"][0]), int(rows["seed"][0]))
     filmer = Filmer(env, probe, dino)
     footprints, goal = env.footprints(), env.goal
     outcome = rows["done_reason"].iloc[-1]
     share = rows["used_expert"].mean()
-    driver = ("expert driving" if share == 1 else "student alone (no expert help)" if share == 0
+    driver = ("EXPERT driving" if share == 1 else "STUDENT drives alone" if share == 0
               else "mixed: expert {:.0%} of steps".format(share))
-    title = "round {} ep. {}: scene {}, {}".format(round_, episode, int(rows["scene_id"][0]), driver)
+    title = "{} ep. {}: {}".format(label or "round {}".format(round_), episode, driver)
     ffmpeg = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
                                "-s", "{}x{}".format(2 * W, 2 * H), "-r", str(FPS), "-i", "-", "-c:v", "libx264",
                                "-pix_fmt", "yuv420p", "-crf", "23", str(out)], stdin=subprocess.PIPE)
@@ -174,19 +176,28 @@ def film(run, round_, episode, config, probe, dino, out):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--run", required=True)
+    parser.add_argument("--run", default="dagger1")
     parser.add_argument("--round", default="0")
     parser.add_argument("--episodes", type=int, nargs="+", required=True)
     parser.add_argument("--config", default=None)
+    parser.add_argument("--experiment", default=None, help="v2: film episodes of data/nav/dagger/v2/experiments/<id>")
     args = parser.parse_args()
     config = load_config(args.config)
     probe = load_probe(vision_dir() / config["features"]["probe"])
     dino = load_dino()
-    folder = run_dir(args.run) / "videos"
+    table = None
+    if args.experiment:
+        from .config import experiment_dir
+        folder = experiment_dir(args.experiment) / "videos"
+        table = pd.read_parquet(experiment_dir(args.experiment) / "rows.parquet")
+    else:
+        folder = run_dir(args.run) / "videos"
     folder.mkdir(exist_ok=True)
     for episode in args.episodes:
-        out = folder / "round{}-episode{}.mp4".format(round_number(args.round), episode)
-        print(film(args.run, args.round, episode, config, probe, dino, out), flush=True)
+        name = "episode{}.mp4".format(episode) if args.experiment else "round{}-episode{}.mp4".format(
+            round_number(args.round), episode)
+        label = "{} test".format(args.experiment.rsplit("-", 1)[-1]) if args.experiment else None
+        print(film(args.run, args.round, episode, config, probe, dino, folder / name, table, label), flush=True)
 
 
 if __name__ == "__main__":

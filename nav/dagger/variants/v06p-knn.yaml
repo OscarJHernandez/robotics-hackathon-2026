@@ -1,0 +1,9 @@
+id: v06p-knn
+hypothesis: TabPFN earns its place on the perturbation rows too
+parent: v04-perturb
+change: kNN (k=10) instead of TabPFN
+kill_criterion: none (baseline)
+student: {kind: knn, k: 10}
+features: {patches: true, pool: 2, pool_rule: majority, summary: "3"}
+context: {sources: [round0, perturb], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert, offline_perturb]

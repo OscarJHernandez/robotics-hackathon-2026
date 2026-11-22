@@ -1,0 +1,9 @@
+id: v03-reference
+hypothesis: krishna's settings (pool 2, 8k uniform rows) rebuilt on v2 data reproduce the dagger1 failure
+parent: null
+change: reference
+kill_criterion: none (reference)
+student: {kind: tabpfn}
+features: {patches: true, pool: 2, pool_rule: majority, summary: "3"}
+context: {sources: [round0], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert]

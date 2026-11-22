@@ -1,0 +1,9 @@
+id: v17-lidar-balanced
+hypothesis: stop-and-turn and near-obstacle rows are rare; a context balanced over mode x free space helps
+parent: v11-lidar
+change: context quotas mode_x_free (8k rows)
+kill_criterion: goal rate on screen-100 not above v11-lidar's (paired)
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0], max_rows: 8000, quotas: mode_x_free, seed: 0}
+offline: [offline_expert]

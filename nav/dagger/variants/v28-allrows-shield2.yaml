@@ -1,0 +1,9 @@
+id: v28-allrows-shield2
+hypothesis: SAFETY LAYER (reported separately) - deciding a step earlier (front cone +-45 deg under 0.42 m, which the expert enters in 0.08% of rows; sides under 0.27 m) and turning toward the freer side removes the tight-spot crashes
+parent: v27-allrows-lidarshield
+change: front cone threshold 0.42 m, turn toward the freer side
+kill_criterion: collisions not below v15's, or stuck episodes above 3%
+student: {kind: tabpfn, lidar_shield: {min_range: 0.27, fov_deg: 100, front_range: 0.42, front_deg: 45, turn: freer}}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0], max_rows: null, quotas: uniform, seed: 0}
+offline: [offline_expert]

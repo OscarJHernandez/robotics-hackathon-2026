@@ -1,0 +1,9 @@
+id: v01-rule
+hypothesis: heading alone (stop and turn when the goal is over 0.8 rad off) already gets far
+parent: null
+change: no model
+kill_criterion: none (baseline)
+student: {kind: rule, threshold: 0.8}
+features: {patches: false, summary: "3"}
+context: {sources: [round0], max_rows: 1000, quotas: uniform, seed: 0}
+offline: [offline_expert]

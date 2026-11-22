@@ -1,0 +1,9 @@
+id: v02-summary
+hypothesis: the 2,400 patch columns drown the 3 goal columns; goal + 5 summary columns do better driving alone
+parent: v03-reference
+change: no patch columns
+kill_criterion: goal rate on screen-100 not above the reference's
+student: {kind: tabpfn}
+features: {patches: false, summary: "3"}
+context: {sources: [round0], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert]

@@ -1,0 +1,9 @@
+id: v15-lidar-allrows
+hypothesis: with ~100 columns the fit is cheap, so all round 0 rows (about 31k) instead of 8k make the student better
+parent: v11-lidar
+change: context = every round 0 row
+kill_criterion: goal rate on screen-100 not above v11-lidar's (paired)
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0], max_rows: null, quotas: uniform, seed: 0}
+offline: [offline_expert]

@@ -177,6 +177,47 @@ executed commands, labels, pose, done reason), `round_<N>.json` (outcome rates),
 a heartbeat every 30 s (episodes done, steps per second, elapsed, ETA, finish time, outcomes, time per
 phase) and one line per episode. Linux needs headless OpenGL: `MUJOCO_GL=egl` is set automatically.
 
+## DAgger v2 in the arena: the best model (2026-11-22)
+
+The full record (every variant, what worked and why, why the search stopped, GIFs of the student driving alone) is
+[dagger-report.md](dagger-report.md).
+
+A research loop (vendetta and metacon, coordinated by Claude) tested 26 student variants after dagger1, each driving alone
+(beta 0) on held-out arena layouts, compared in pairs on the same layouts. Result:
+
+**Best model, `v29-lidarplan`**: TabPFN 3.5 (`fit()`/`predict()` only, 4 estimators) on all 31,586 round 0 expert rows,
+116 input columns:
+
+- goal distance and bearing (3);
+- the **simulated 360 degree lidar**: 36 rays, 10 degree steps (`JetHexaSim.lidar`; figures are assumptions);
+- the camera's horizon band: nearest depth and 4 DINOv2 PCA components in each of 15 sectors;
+- **the robot's own plan**: lidar hits accumulated over the episode become an occupancy map, a shortest path to the
+  goal is planned on it (the expert's planner, on what the lidar has seen), and the bearing of the point 0.4 m along
+  that path is the feature (`nav/dagger/lidarmap.py`). Only the lidar, the odometry pose and the goal are used.
+
+| robust check (student alone, 300 steps) | goal (95% CI) | collisions |
+|---|---|---|
+| 200 fresh layouts, start seed 99 | 98.0% (95.0-99.2) | 2.0% |
+| same layouts, start seed 98 | 97.5% (94.3-98.9) | 2.5% |
+| the expert (anchor) | 99.5% / 100% | 0.5% / 0% |
+
+How the directions compared (200 screening layouts unless noted):
+
+| step | goal | collisions | what it showed |
+|---|---|---|---|
+| camera patch grid (606 columns, the dagger1 setup) | 64% | 36% | the dagger1 failure: walks on where the expert stops and turns |
+| compact camera inputs (summary, horizon scan, horizon DINO PCA) | 63-70% (100) | 30-36% | fewer columns beat the grid, but the camera cannot see beside the robot |
+| **+ 360 degree lidar** | 90% | 9% | the big step: most crashes were into furniture beside the robot |
+| + all 31k rows instead of 8k | 94% | 6% | more real rows help; reshuffling, balancing, memory, gating, 8 estimators did not |
+| DAgger rounds 1-4, heading perturbations | 89-96% (100) | 4-10% | no gain on top of all rows |
+| PRIVILEGED ceiling: the expert's look-ahead bearing | 100% (100) | 0% | the missing piece is where the path goes, not sensing |
+| **+ the robot's own plan on its lidar map** | **98%** | **2%** | most of the ceiling, without privileged information |
+| v31: v29 with every row collected (81k, incl. DAgger rounds) | 92% (100) | 7% | more mixed data made it worse |
+
+Commands (all on branch `feat/dagger-v2-fixpass`): `python -m nav.dagger.experiment collect|dagger|run`,
+`python -m nav.dagger.stage run|analyse`, `python -m nav.dagger.lidarmap add --name <set>`, variants in
+`nav/dagger/variants/*.yaml`, data and results in `data/nav/dagger/v2/` (STATUS.md, incidents.md, experiments/).
+
 ## Where the data is
 
 Everything is in **`data/nav/` in the main checkout** (gitignored, never committed). Set `NAV_DATA_DIR`

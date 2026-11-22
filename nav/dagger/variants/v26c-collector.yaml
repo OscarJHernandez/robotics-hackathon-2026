@@ -1,0 +1,9 @@
+id: v26c-collector
+hypothesis: collector for DAgger round 4 (beta 0) - 12k rows, every student-driven row kept, now with round 3
+parent: v22c-collector
+change: plus dagger_r3 rows
+kill_criterion: none (data collector)
+student: {kind: tabpfn}
+features: {patches: false, summary: none, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0, perturb, dagger_r1, dagger_r2, dagger_r3], max_rows: 12000, quotas: mode_x_lidar, seed: 0}
+offline: [offline_expert]
