@@ -9,6 +9,7 @@
     <string>__HOME__/Projects/robotics-hackathon-2026/.claude/worktrees/deploy-jethexa-vendetta/.venv/bin/python</string>
     <string>app/server.py</string>
     <string>--port</string><string>8795</string>
+    <string>--student-backend</string><string>local</string>
   </array>
   <key>WorkingDirectory</key><string>__HOME__/Projects/robotics-hackathon-2026/.claude/worktrees/deploy-jethexa-vendetta</string>
   <key>EnvironmentVariables</key>
