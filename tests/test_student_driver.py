@@ -166,6 +166,39 @@ class StudentTest(unittest.TestCase):
             student.act(FakeSim(), (1.0, 0.0))
         self.assertTrue(student.ready)
 
+    def test_wait_is_called_while_a_slow_predict_runs_and_errors_come_through(self):
+        class Slow(FakePolicy):
+            def act_batch(self, X):
+                time.sleep(0.2)
+                return super().act_batch(X)
+
+        student = self.make(Slow((0.1, 0.05)))
+        student.start((1.0, 0.0))
+        waits = []
+        cmd = student.act(FakeSim(), (1.0, 0.0), wait=lambda: (waits.append(1), time.sleep(0.02)))
+        self.assertEqual(cmd, (0.1, 0.05))
+        self.assertGreater(len(waits), 3)  # the caller kept working while the policy decided
+        self.assertEqual(student.info()["decisions"], 1)
+
+        class Broken(FakePolicy):
+            def act_batch(self, X):
+                time.sleep(0.05)
+                raise RuntimeError("connection reset")
+
+        student = self.make(Broken())
+        student.start((1.0, 0.0))
+        with self.assertRaisesRegex(RuntimeError, "connection reset"):
+            student.act(FakeSim(), (1.0, 0.0), wait=lambda: time.sleep(0.01))
+
+    def test_the_backend_is_checked_and_reported(self):
+        from student import Student
+        with self.assertRaises(ValueError):
+            Student(backend="cloud")
+        self.assertEqual(self.make().info()["backend"], "client")
+        student = Student(policy=FakePolicy(), features=FakeFeatures(), featurizer=FakeFeaturizer(), twin=FakeTwin(),
+                          backend="local")
+        self.assertEqual(student.info()["backend"], "local")
+
 
 class CreditsTest(unittest.TestCase):
     def test_usage_is_read_from_the_dict_and_the_sentence(self):
@@ -275,8 +308,10 @@ class LiveStudent:
     def start(self, goal):
         self.starts.append(tuple(goal))
 
-    def act(self, sim, goal):
+    def act(self, sim, goal, wait=None):
         self.acts += 1
+        if wait is not None:
+            wait()
         return self.command
 
     def info(self):
@@ -346,6 +381,30 @@ class LiveRobotStudentTest(unittest.TestCase):
         self.assertEqual(s["student"]["status"], "failed")
         self.assertEqual(student.acts, 0)
         self.assertEqual(robot.state()["ab_driver"], "rule")
+
+    def test_pictures_keep_coming_while_a_slow_student_decides(self):
+        class SlowStudent(LiveStudent):
+            def act(self, sim, goal, wait=None):
+                self.acts += 1
+                end = time.monotonic() + 0.6
+                while time.monotonic() < end:  # like the TabPFN API: 0.6 s per decision
+                    wait()
+                return self.command
+
+        from robot import LiveRobot
+        student = SlowStudent((0.0, 0.0))
+        robot = LiveRobot("apartment", "student", student=student, ab="rule", realtime=True)
+        self.assertTrue(robot.wait_ready(120))
+        robot.frame("chase")  # someone watches the chase view
+        robot.command("forward 1")
+        self.wait(robot, lambda s: student.acts >= 1)
+        sim_before, renders_before = robot.state()["sim_time"], robot.renders["chase"]
+        time.sleep(0.5)  # mostly inside the next 0.6 s decisions
+        robot.frame("chase")
+        rendered = robot.renders["chase"] - renders_before
+        self.assertGreaterEqual(rendered, 4)  # about 12 per second, not 0
+        self.assertLess(robot.state()["sim_time"] - sim_before, 0.5)  # the physics waited for the decisions
+        robot.command("stop")
 
 
 class FlatBenchTest(unittest.TestCase):

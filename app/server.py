@@ -70,6 +70,8 @@ metacon narrates the search (app/narrate.py): each step is one short line on /ap
     --driver student (default) | tabpfn | planner | rule: who walks in the apartment (app/robot.py). The student
       (app/student.py, the obstacle-avoiding TabPFN student through the TabPFN API) loads in the background; the
       a-to-b driver (tabpfn, else planner, else rule) walks until then and takes over when it gets stuck.
+    --student-backend client (default) | local: the student's TabPFN through the hosted API (0.6 s and 10,000
+      credits per decision), or fit() on this machine (about 4 min at start, then 0.2 s per decision on vendetta, free).
     --belief tabpfn (default) | counting: who says where she probably is (homes/tabpfn_belief.py, homes/search.py).
     --no-narration: no narration lines (the search runs the same, the log keeps its own lines).
 """
@@ -588,6 +590,10 @@ def main():
     parser.add_argument("--student-calls", type=int, default=None,
                         help="at most this many TabPFN API calls for the student (one per gait cycle, 10,000 credits "
                              "each); default: as many as leave 150,000 credits on the account")
+    parser.add_argument("--student-backend", default="client", choices=("client", "local"),
+                        help="the student's TabPFN: the hosted API (about 0.6 s and 10,000 credits per decision) or "
+                             "fit() on this machine (about 4 min at start on vendetta, then about 0.2 s per decision "
+                             "and no credits; needs the tabpfn package's 3.5 weights)")
     parser.add_argument("--controller", default="default", help="name of the TabPFN controller (data/nav/controllers)")
     parser.add_argument("--flat", type=int, default=0, help="seed of the apartment's layout and resident")
     parser.add_argument("--belief", default="tabpfn", choices=("tabpfn", "counting"),
@@ -606,7 +612,8 @@ def main():
     voice.watch()
     LINE.sweep()
     SCENE = args.scene
-    ROBOT = LiveRobot(args.scene, args.driver, args.controller, student_calls=args.student_calls)
+    ROBOT = LiveRobot(args.scene, args.driver, args.controller, student_calls=args.student_calls,
+                      student_backend=args.student_backend)
     ROBOT.wait_ready(240)  # the TabPFN controller's fit() takes a few seconds
     KNOCK = Knock(HUB, ROBOT, lambda text: voice.speak(text) if voice.available() else None)
     model = None
