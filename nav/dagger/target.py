@@ -57,6 +57,10 @@ DEFAULT_TARGET = {
     # the lidar look-alike check's tolerance (metres); None: range_tol. Someone standing 0.3 m in front of furniture
     # has the furniture right behind her on the lidar: 0.25 m called her furniture.
     "lookalike_tol": None,
+    # None: the margin rule compares the match with columns more than 2 cells beside it (the pillar). A number
+    # (metres): only with places farther than that to the side at the match's range: up close, standing, her two
+    # legs are two matches, and each made the other fail the margin.
+    "margin_width": None,
     "depth_cap": 8.0, "max_range": 4.0,
     "confirm": 2, "fuse_radius": 0.35, "max_jump": 0.75, "fuse_decay": 0.7, "stale_steps": 6,
     "candidates": 4, "min_gap": 1.0, "view_dist": [0.8, 1.5], "clearance": 0.35, "wall": 0.45,
@@ -145,11 +149,13 @@ class Detector:
             c1 += 1
         # margin: the matched stretch must beat every place outside it (and 2 cells either side of it). Only
         # outside: a person close by fills most of the view, and then the whole view is one match.
-        cells = sim[:COLS // 2 * 2].reshape(-1, 2).max(axis=1)
-        idx = np.arange(len(cells))
-        far = (idx < c0 // 2 - 2) | (idx > c1 // 2 + 2)
-        if far.any() and sim[best] - cells[far].max() < self.cfg["margin"]:
-            return sim, None
+        # With `margin_width` (a person) the margin is checked in detect() once the range is known.
+        if self.cfg.get("margin_width") is None:
+            cells = sim[:COLS // 2 * 2].reshape(-1, 2).max(axis=1)
+            idx = np.arange(len(cells))
+            far = (idx < c0 // 2 - 2) | (idx > c1 // 2 + 2)
+            if far.any() and sim[best] - cells[far].max() < self.cfg["margin"]:
+                return sim, None
         return sim, (c0, c1, best)
 
     def bearing(self, sim, c0, c1):
@@ -223,6 +229,11 @@ class Detector:
             cam, top = self.object_range(depth, c0, c1, bearing)
             if cam is None or top < self.cfg["min_height"]:
                 return best_sim, None  # nothing there, or too low to be her (a thing on the floor)
+            width = self.cfg.get("margin_width")
+            if width is not None:  # the margin, against places more than `width` metres to the side at this range
+                far = np.abs(self.bearings - bearing) > math.atan2(width, max(cam, 0.3))
+                if far.any() and sim[best] - sim[far].max() < self.cfg["margin"]:
+                    return best_sim, None
         else:
             cam = self.depth_range(depth, c0, c1, bearing) if depth is not None else None
         offset = self.cfg["offset"]

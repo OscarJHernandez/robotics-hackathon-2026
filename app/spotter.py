@@ -34,7 +34,7 @@ LIDAR = (36, 0.15, 8.0)  # rays, min and max range: the same scan as the student
 # (seed 7110 of the bench) and is lower than that. lookalike_tol: standing 0.3 m in front of furniture, the lidar sees
 # the furniture just behind her; at 0.25 m tolerance that made her "furniture" (seed 7103).
 PERSON = {"signature": SIGNATURE, "range_source": "depth", "lidar_sees_target": False, "offset": 0.10,
-          "min_height": 0.2, "lookalike_tol": 0.12,
+          "min_height": 0.2, "lookalike_tol": 0.12, "margin_width": 0.8,
           "max_range": 4.0, "margin": 0.05, "window": 3, "min_hits": 1, "confirm": 2, "fuse_radius": 0.5,
           "max_jump": 1.0, "fuse_decay": 0.7, "stale_steps": 6}
 # The close-up check counts matches within this many metres of the spot it went to check. Lying, she is 1.6 m long:
