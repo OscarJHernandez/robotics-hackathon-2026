@@ -345,6 +345,10 @@ in the same pull request as the work.
 
 ## Process
 
+- 2026-11-22 (Oscar's agent): After PR #27 was squash-merged, PR #28 (stacked on it) showed 15 conflicting files
+  against `main` though `main`'s tree equalled #27's head: the squash drops the shared history. Oscar wants such
+  work moved to a new branch off `main`, without merging: `git restore --source=<old branch> --staged --worktree
+  -- .`, add back anything `main` has that the old branch lacked, check `git diff --cached origin/main`, commit.
 - 2026-11-21 (Oscar's agent): Oscar decided: no TabPFN fine-tuning in this repo. Use only the built-in
   `fit()` and `predict()` for all experiments (rule in [AGENTS.md](../AGENTS.md)). Reason: the `fit()`-only
   controller already walks a→b on 20 of 20 test tasks, and four fine-tuning rounds (30 min) gave one small
