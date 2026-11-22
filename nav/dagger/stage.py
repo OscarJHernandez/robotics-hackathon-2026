@@ -61,12 +61,21 @@ def _write(folder, vid, **fields):
 
 
 def _closed(folder, plan):
+    """Merge every episode the folder has (strict checks), then keep the planned ones; all of them must be there."""
     import pandas as pd
 
-    from .merge import merge_dir
-    info = merge_dir(folder, plan=plan, log=lambda *a: None)
+    from .merge import MergeError, merge_dir
+    info = merge_dir(folder, plan=None, log=lambda *a: None)
     rows = pd.read_parquet(folder / "rows.parquet")
     episodes = json.loads((folder / "episodes.json").read_text())
+    wanted = {e["episode"] for e in plan}
+    have = {e["episode"] for e in episodes}
+    missing = sorted(wanted - have)
+    if missing:
+        raise MergeError("{} planned episodes missing, e.g. {}".format(len(missing), missing[:5]))
+    rows = rows[rows["episode"].isin(wanted)].reset_index(drop=True)
+    episodes = [e for e in episodes if e["episode"] in wanted]
+    info = dict(info, used_episodes=len(episodes), extra_episodes=len(have - wanted))
     return rows, episodes, info
 
 
