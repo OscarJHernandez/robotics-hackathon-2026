@@ -51,7 +51,9 @@ export function statusText(a: ApartmentState): { text: string; tone: "idle" | "b
   switch (s.status) {
     case "starting": return { text: "Starting the search", tone: "busy" };
     case "walking": return { text: `Walking to the ${goal}`, tone: "busy" };
-    case "looking": return { text: `Looking in the ${goal}`, tone: "busy" };
+    case "looking": return { text: `Looking around in the ${goal}`, tone: "busy" };
+    case "approaching": return { text: "Spotted someone: going closer", tone: "busy" };
+    case "checking": return { text: "Checking: is it her?", tone: "busy" };
     case "found": return { text: `Found in the ${ZONE_LABEL[s.steps[s.steps.length - 1]!.zone].toLowerCase()}`, tone: "good" };
     case "nobody_home": return { text: "Nobody home", tone: "warn" };
     case "gave_up": return { text: "Not found", tone: "warn" };
@@ -67,6 +69,7 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
   const [stage, setStage] = useState<Stage | "live">("live");
   const [showHer, setShowHer] = useState(false);
   const [where, setWhere] = useState("routine");
+  const [pose, setPose] = useState<"random" | "lying" | "standing">("random");
   const status = statusText(a);
   const belief: Belief = stage === "live" ? a.belief : a.stages[stage];
   const run = async (p: Promise<{ ok: boolean; error?: string }>) => {
@@ -126,7 +129,7 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
                 <Square className="h-4 w-4" />Stop the search
               </button>
             ) : (
-              <button onClick={() => { unlockAudio(); void run(apartmentSearch(where)); }} className="knock-btn knock-primary h-11 min-w-[170px] flex-1 gap-2 whitespace-nowrap">
+              <button onClick={() => { unlockAudio(); void run(apartmentSearch(where, pose)); }} className="knock-btn knock-primary h-11 min-w-[170px] flex-1 gap-2 whitespace-nowrap">
                 <Search className="h-4 w-4" />Find {a.name}
               </button>
             )}
@@ -137,6 +140,15 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
                 <option value="routine">where her routine says</option>
                 <option value="random">somewhere random</option>
                 {ZONE_CLASSES.map((z) => <option key={z} value={z}>{z === "out" ? "out of the flat" : `in the ${ZONE_LABEL[z].toLowerCase()}`}</option>)}
+              </select>
+            </label>
+            <label className="flex min-w-[120px] flex-col gap-0.5 text-[10px] uppercase tracking-wider text-video/45">
+              She is
+              <select aria-label="Is she lying on the floor or standing" className="apt-input w-full" value={pose} disabled={a.search.running}
+                onChange={(e) => setPose(e.target.value as "random" | "lying" | "standing")}>
+                <option value="random">lying or standing</option>
+                <option value="lying">lying on the floor</option>
+                <option value="standing">standing</option>
               </select>
             </label>
           </div>
@@ -232,11 +244,14 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
 function Pipeline({ a }: { a: ApartmentState }) {
   const tabpfn = a.model?.name === "tabpfn";
   const s = a.search.status;
-  const active = s === "starting" ? 0 : s === "walking" ? 1 : s === "looking" ? 2 : -1;
+  const active = s === "starting" ? 0 : s === "walking" ? 1 : ["looking", "approaching", "checking"].includes(s) ? 2 : -1;
+  const detector = a.search.look_by === "detector" || (a.search.look_by == null && a.spotter?.status === "ready");
   const steps = [
     { label: "Belief", by: tabpfn ? a.model!.label : "Counting", hint: `Where she probably is, from her routines and journal${tabpfn ? `: ${a.model!.label}, ${a.model!.detail}` : ""}` },
     { label: "Walk", by: driverText(a).short, hint: `The robot walks to the most likely zone: ${driverText(a).detail}` },
-    { label: "Look", by: "mock", hint: "A look at the zone; it misses her 20% of the time" },
+    detector
+      ? { label: "Look", by: "DINOv2 eyes", hint: `The robot turns once on the spot; its camera picture is matched to ${a.name}'s DINOv2 signature every step (also while it walks), the depth camera says how far, and a close-up check rules out look-alikes` }
+      : { label: "Look", by: "mock", hint: `A simulated look at the zone; it misses her ${Math.round(100 * a.search.miss_rate)}% of the time` },
     { label: "Update", by: "Bayes", hint: "Nobody seen: that zone gets less likely, the others more; then the next most likely zone" },
   ];
   return (
@@ -433,6 +448,31 @@ export function Plan({ a, belief, showHer }: { a: ApartmentState; belief: Belief
           </g>
         );
       })}
+      {/* What the robot's eyes found: spots ruled out, the live match (a ray from the robot), the estimate */}
+      {(a.spotter?.rejected ?? []).map(([x, y], i) => (
+        <g key={`rej-${i}`} transform={`translate(${x} ${-y})`}>
+          <path d="M-0.14 -0.14 L0.14 0.14 M-0.14 0.14 L0.14 -0.14" stroke="oklch(0.8 0.15 80)" strokeWidth={0.05} />
+          <title>A look-alike: nobody there on a closer look</title>
+        </g>
+      ))}
+      {a.search.running && a.spotter?.match && (
+        <line x1={a.robot.x} y1={-a.robot.y} x2={a.spotter.match.x} y2={-a.spotter.match.y}
+          stroke="oklch(0.72 0.2 330)" strokeWidth={0.04} strokeDasharray="0.08 0.06">
+          <title>{`Camera match ${a.spotter.match.sim.toFixed(2)}, ${a.spotter.match.range.toFixed(1)} m away`}</title>
+        </line>
+      )}
+      {(() => {
+        const est = a.search.found_at ?? (a.search.running && a.spotter?.confirmed && a.spotter.x != null
+          ? [a.spotter.x, a.spotter.y!] as [number, number] : null);
+        if (!est) return null;
+        return (
+          <g transform={`translate(${est[0]} ${-est[1]})`}>
+            <circle r={0.26} fill="none" stroke="oklch(0.72 0.2 330)" strokeWidth={0.05} />
+            <circle r={0.07} fill="oklch(0.72 0.2 330)" />
+            <title>{a.search.found_at ? `Found her here${a.search.found_error != null ? ` (${a.search.found_error.toFixed(2)} m from where she really is)` : ""}` : "Someone seen here: the robot goes to check"}</title>
+          </g>
+        );
+      })()}
       {/* Margarete, when shown */}
       {showHer && truth && (
         <g transform={`translate(${a.search.person?.[0] ?? truth.person_x} ${-(a.search.person?.[1] ?? truth.person_y)})`}>
@@ -462,6 +502,7 @@ function Legend() {
       <span className={item}><span className="text-[11px] font-bold leading-none text-[oklch(0.66_0.21_25)]">×</span>touch</span>
       <span className={item}><span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-video text-[8px] font-bold">1</span>look</span>
       <span className={item}><span className="h-[3px] w-3.5 rounded-full bg-term-amber" />door</span>
+      <span className={item}><span className="h-2.5 w-2.5 rounded-full border-2 border-[oklch(0.72_0.2_330)]" />seen by the robot</span>
       <span className="ml-auto">darker zone = more likely</span>
     </div>
   );
@@ -485,8 +526,9 @@ export function Looks({ a }: { a: ApartmentState }) {
       {s.running && s.goal && (
         <li className="apt-look apt-look-next">
           <span className="apt-look-n">{s.steps.length + 1}</span>
-          {s.status === "looking" ? <ScanEye className="h-3.5 w-3.5" /> : <Footprints className="h-3.5 w-3.5" />}
-          {s.status === "looking" ? "Looking in the" : "Walking to the"} {ZONE_LABEL[s.goal].toLowerCase()}
+          {s.status === "walking" ? <Footprints className="h-3.5 w-3.5" /> : <ScanEye className="h-3.5 w-3.5" />}
+          {s.status === "approaching" ? "Spotted someone: going closer" : s.status === "checking" ? "Checking: is it her?"
+            : <>{s.status === "looking" ? "Looking around in the" : "Walking to the"} {ZONE_LABEL[s.goal].toLowerCase()}</>}
         </li>
       )}
     </ol>
@@ -660,6 +702,7 @@ const LOG_TONE: Record<string, string> = {
   seen: "text-term-green", found: "text-term-green font-semibold", out: "text-term-amber font-semibold",
   journal: "text-video/55", info: "text-video/45", metacon: "text-video/85",
   fallback: "text-term-amber", contact: "text-term-red",
+  look: "text-video/70", spotted: "text-[oklch(0.78_0.17_330)] font-semibold", false_alarm: "text-term-amber",
 };
 
 function Log({ a }: { a: ApartmentState }) {
