@@ -947,7 +947,7 @@ class LiveRobot:
         with self._lock:
             watched = [view for view, at in self._wanted.items() if now - at < WATCHED]
         frames = {}
-        for view, every in VIEWS.items():
+        for view in VIEWS:  # (not `for view, every in ...`: that overwrote the `every` argument, rendering every step)
             if view == "overhead":
                 continue
             camera = cameras.get(view)
