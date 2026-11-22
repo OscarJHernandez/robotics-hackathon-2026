@@ -812,10 +812,10 @@ class LiveRobot:
         """While the physics waits for a decision: render every watched view of the paused scene, so the streams keep
         their rate (the outside cameras keep easing towards the robot). Student.decide() calls it once per picture
         interval and stops waiting as soon as the decision is made."""
-        self._publish(sim, step, mode, goal, every=True)
+        self._publish(sim, step, mode, goal, all_views=True)
 
-    def _publish(self, sim, step, mode, goal, every=False):
-        """Render the watched views that are due at this step (all of them with `every`) and publish the state."""
+    def _publish(self, sim, step, mode, goal, all_views=False):
+        """Render the watched views that are due at this step (all of them with `all_views`) and publish the state."""
         renderer, cameras = self._views
         x, y, z = sim.body_position()
         yaw = math.degrees(sim.body_yaw())
@@ -823,7 +823,7 @@ class LiveRobot:
         with self._lock:
             watched = [view for view, at in self._wanted.items() if now - at < WATCHED]
         frames = {}
-        for view, every in VIEWS.items():
+        for view in VIEWS:
             if view == "overhead":
                 continue
             camera = cameras.get(view)
@@ -834,7 +834,7 @@ class LiveRobot:
                     camera.azimuth += 0.08 * (((yaw - camera.azimuth) + 180.0) % 360.0 - 180.0)  # behind it
         speed = self._speed
         for view in watched:
-            if not every and step % (VIEWS[view] * speed):  # the same pictures per wall second at any speed
+            if not all_views and step % (VIEWS[view] * speed):  # the same pictures per wall second at any speed
                 continue
             self.renders[view] += 1
             if view == "eye":
