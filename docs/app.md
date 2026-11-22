@@ -71,6 +71,32 @@ zone; the search then ends in the zone where she was seen (`Search.report_found`
 look overlooks her 10% of the time (`DETECT_MISS_RATE`, measured with `just search-bench`). The robot never reads
 where the app put her; `search.person` and `found_error` are only for the panel and the bench.
 
+**How well it works** (`just search-bench`, run on vendetta in 6 processes: 60 whole searches, new flats at every
+mess level, A* walker, about 16 s each):
+
+| | result |
+|---|---|
+| found, in the zone she is in | 53 of 57 (93%, 95% CI 83-97%); 32 of them seen while walking, before any look-around |
+| standing | 25 of 26 found within 1 m of her (median 0.11 m) |
+| lying | 21 of 31 within 1 m (median 0.56 m); 3 found in the wrong zone (1.5-3.1 m off) |
+| not found | 1 (gave up after 12 looks) |
+| nobody home | 3 of 3 not "found" (1 nobody home, 2 gave up after 12 looks) |
+| look-arounds in her zone that missed her | 4 of 57 (7%; the update assumes 10%) |
+| contacts, fallbacks | 0, 0 |
+
+With the student walking (live, TabPFN API, ×3): she was found lying in the dining area of a messy flat (3 looks,
+86 decisions, 0.20 m off) and standing in the bedroom (seen on the way, 38 decisions, 0.11 m off), with no
+contacts and no fallbacks.
+
+Open: lying she is 1.6 m long and lies 0.3 m in front of furniture, so a match can be ranged on the furniture
+behind her or on another thing in the zone: 10 of 31 lying finds were more than 1 m off.
+
+What the bench found and what was changed for her (the pillar test is unchanged):
+the lidar look-alike check called her furniture when she stood in front of the bed (tolerance 0.25 -> 0.12 m);
+a dark blue roll of clutter matched her trousers (height check: the nearest thing, floor removed, must reach 0.2
+m); up close her two legs were two matches and each failed the other's margin (margin only against places more
+than 0.8 m to the side); a weak look-alike passed the close-up (it now needs matches of 0.75 or more).
+
 Her signature comes from the app's own scene: `just person-data` renders 3,000 pictures (100 random flats at every
 mess level, her lying or standing at zone spots, the robot 0.5-4 m away; a fifth with nobody home) with her pixels
 labelled by MuJoCo, then `python vision/target_signature.py person-v2 --band --name margarete`. On 20 flats it had
