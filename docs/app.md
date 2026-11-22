@@ -48,7 +48,9 @@ viewing pose and turns to face it → a look → Bayes' update → the next zone
 **Who says where she is: TabPFN.** The belief the search starts from comes from TabPFN
 (`homes/tabpfn_belief.py`, `--belief tabpfn`, the default): `fit()` on 2,000 synthetic check-ins, then
 `predict_proba` for the row that describes now (time, her stated routines, her journal as shares per zone, where
-and how long ago she was last heard). It uses TabPFN 3.5 when the API key is there (`TABPFN_TOKEN`, or the repo's
+and how long ago she was last heard, and the counting posterior of those). The panel says it twice: the pipeline
+strip (TabPFN orchestrates the Bayesian search) and, under the floor plan, "Search pattern: TabPFN 3.5" beside
+"Robot control: TabPFN a→b". It uses TabPFN 3.5 when the API key is there (`TABPFN_TOKEN`, or the repo's
 gitignored `.env`, as for `nav/dagger`), else the v2 weights. Her routines and journal are features of that row,
 not examples, so changing them changes the belief without a new `fit()`. After each look the belief is updated
 with Bayes' rule. At night, or with `--belief counting`, the counting model of `homes/search.py` is used; its
@@ -75,6 +77,9 @@ one in the box and on the clipboard:
 `today` or `yesterday`, and weekdays count back from the check-in time); either can be left out. Plain lines such
 as `Mon 08:10 kitchen` work for a journal, with "Add lines" to append. The same through the API:
 `GET /api/apartment/inputs.json`, `POST /api/apartment/inputs`.
+
+**Random example** (in the Belief card): new random routines (a new kind of resident), a new two-week journal
+drawn from her routine, or both, to see how the belief and the search change. The flat stays.
 
 **Reset** (in the status strip after a search) forgets the search, takes Margarete out of the room and puts the
 robot back on its dock; the flat and the journal stay. "New flat" starts over with another layout and resident.

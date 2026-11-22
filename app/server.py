@@ -43,6 +43,7 @@ The apartment (app/apartment.py): the flat's zones and obstacles, the journal, t
                                         one record per line (day, time, zone); see apartment.parse_journal
     GET  /api/apartment/journal.txt     the journal as text in that format (to copy, edit and paste back)
     GET  /api/apartment/inputs.json     both inputs of the belief as one object: {"routines": {...}, "journal": [...]}
+    POST /api/apartment/random          {"what": "routines" | "journal" | "both"}  a new random example
     POST /api/apartment/inputs          {"text": "<that JSON, edited>"}  routines replace her stated habits, a
                                         journal replaces her journal; the belief follows at once
     POST /api/apartment/clock           {"weekday": 0-6?, "time": "10:35"?}  the check-in time; {} = the real time
@@ -104,7 +105,7 @@ POST_ROUTES = {"/api/command": "command", "/api/chat": "chat", "/api/call/start"
                "/api/transcribe": "transcribe", "/api/speak": "speak", "/api/knock/call": "knock",
                "/api/knock/find": "knock", "/api/knock/stop": None, "/api/knock/choice": "knock",
                "/api/apartment/journal": "apartment", "/api/apartment/journal/remove": "apartment",
-               "/api/apartment/journal/import": "apartment", "/api/apartment/inputs": "apartment",
+               "/api/apartment/journal/import": "apartment", "/api/apartment/inputs": "apartment", "/api/apartment/random": "apartment",
                "/api/apartment/clock": "apartment", "/api/apartment/search": "apartment",
                "/api/apartment/stop": None, "/api/apartment/reset": "apartment", "/api/apartment/clear": "apartment"}
 
@@ -356,6 +357,8 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "journal/import":
                 self.send_json(200, dict(APARTMENT.import_journal(body.get("text", ""), bool(body.get("replace", True))),
                                          ok=True))
+            elif action == "random":
+                self.send_json(200, {"ok": True, "inputs": APARTMENT.randomize(str(body.get("what", "both")))})
             elif action == "inputs":
                 self.send_json(200, dict(APARTMENT.set_inputs(body.get("text", body)), ok=True))
             elif action == "journal/remove":

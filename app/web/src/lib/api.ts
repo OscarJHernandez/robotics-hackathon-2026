@@ -274,6 +274,8 @@ export async function apartmentImportJournal(text: string, replace: boolean): Pr
     return { ok: false, error: e instanceof Error ? e.message : "network error" };
   }
 }
+/** A new random example: routines (a new resident's habits), a journal drawn from her routine, or both. */
+export const apartmentRandom = (what: "routines" | "journal" | "both") => apartmentPost("random", { what });
 /** Both inputs of the belief as pretty JSON: {"routines": {...}, "journal": [...]}. */
 export async function apartmentInputsJson(): Promise<string | null> {
   try {

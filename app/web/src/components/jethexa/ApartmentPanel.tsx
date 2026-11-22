@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BrainCircuit, Check, ChevronRight, ClipboardPaste, Clock, Copy, RotateCcw, Dices, Eye, EyeOff, Footprints, Plus, ScanEye, Search, Square, Trash2, X } from "lucide-react";
 import {
-  apartmentAddEntry, apartmentClear, apartmentClock, apartmentImportJournal, apartmentInputsJson, apartmentSetInputs, apartmentRemoveEntry, apartmentReset,
+  apartmentAddEntry, apartmentClear, apartmentClock, apartmentRandom, apartmentImportJournal, apartmentInputsJson, apartmentSetInputs, apartmentRemoveEntry, apartmentReset,
   apartmentSearch, apartmentStop,
   ZONE_CLASSES, ZONE_COLOR, ZONE_LABEL,
   type ApartmentState, type Belief, type Stage, type ZoneClass, type ZoneName,
@@ -122,7 +122,7 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
         {/* The flat */}
         <section className="apt-card">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="apt-title">Floor plan</h3>
+            <h3 className="apt-title">Floor plan {a.model?.name === "tabpfn" && <span className="ml-1 font-normal normal-case tracking-normal text-primary">· search by TabPFN</span>}</h3>
             <div className="flex items-center gap-1">
               <button className="apt-link flex items-center gap-1" onClick={() => setShowHer((s) => !s)}
                 title="Show where she really is (the simulation knows; the robot does not)">
@@ -137,10 +137,19 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
           <Plan a={a} belief={belief} showHer={showHer || found} />
           <Legend />
           <Looks a={a} />
-          <p className="mt-2.5 text-[11px] leading-snug text-video/45">
-            {a.driver === "tabpfn" ? "The TabPFN a-to-b controller walks each leg of the route."
-              : a.driver === "marker" ? "No robot in this scene: a marker walks in straight lines." : `The ${a.driver} walks each leg of the route.`}
-          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className={`apt-role ${a.model?.name === "tabpfn" ? "apt-role-on" : ""}`}>
+              <span className="apt-role-k">Search pattern</span>
+              <span className="apt-role-v">{a.model?.name === "tabpfn" ? a.model.label : "Counting model"}</span>
+              <span className="apt-role-d">{a.model?.name === "tabpfn" ? "picks the order of the zones: most likely first" : "orders the zones, most likely first"}</span>
+            </div>
+            <div className={`apt-role ${a.driver === "tabpfn" ? "apt-role-on" : ""}`}>
+              <span className="apt-role-k">Robot control</span>
+              <span className="apt-role-v">{a.driver === "tabpfn" ? "TabPFN a→b" : a.driver === "marker" ? "Marker" : a.driver}</span>
+              <span className="apt-role-d">{a.driver === "tabpfn" ? "stride and turn every step, along a route around the furniture"
+                : a.driver === "marker" ? "no robot in this scene" : "walks each leg of the route"}</span>
+            </div>
+          </div>
         </section>
 
         {/* The belief */}
@@ -175,6 +184,7 @@ export function ApartmentPanel({ apartment: a, onClose, onError, onChanged }: {
             ))}
           </div>
           <Habits a={a} />
+          <RandomInputs a={a} run={run} />
         </section>
 
         <Journal a={a} run={run} onError={onError} onChanged={onChanged} />
@@ -383,6 +393,26 @@ export function Looks({ a }: { a: ApartmentState }) {
         </li>
       )}
     </ol>
+  );
+}
+
+/** New random examples, to see how the belief changes: routines, a journal drawn from her routine, or both. */
+function RandomInputs({ a, run }: { a: ApartmentState; run: (p: Promise<{ ok: boolean; error?: string }>) => Promise<void> }) {
+  const off = a.search.running;
+  const items: { what: "routines" | "journal" | "both"; label: string; hint: string }[] = [
+    { what: "routines", label: "Routines", hint: "New stated habits and outings (a new kind of resident); the journal stays" },
+    { what: "journal", label: "Journal", hint: "Two new weeks of journal, drawn from her routine" },
+    { what: "both", label: "Both", hint: "A new resident: new routines and a journal drawn from them" },
+  ];
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-xl border border-dashed border-video/15 px-2.5 py-2">
+      <Dices className="h-4 w-4 shrink-0 text-video/55" aria-hidden />
+      <span className="mr-auto text-[11.5px] text-video/60">Random example</span>
+      {items.map((i) => (
+        <button key={i.what} type="button" disabled={off} title={i.hint} onClick={() => void run(apartmentRandom(i.what))}
+          className="apt-chip">{i.label}</button>
+      ))}
+    </div>
   );
 }
 

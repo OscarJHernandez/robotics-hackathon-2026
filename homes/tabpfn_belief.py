@@ -10,6 +10,9 @@ the pretrained weights never change. What makes it work is what goes into `fit()
   (there is one per part of the day), which is why TabPFN lost to the "last heard" rule in homes/check.py.
 - **The same inputs as the counting belief** (search.beliefs): the time, her stated habits, her own journal (as
   shares per zone for this part of the day), and where and how long ago she was last heard.
+- **The counting belief itself as six more features** (prior_*): Bayes' rule on those inputs. With only the raw
+  journal shares TabPFN did not pick up a strong journal (ten dining-area afternoons lowered "dining area");
+  with the counting posterior beside them it refines a sensible prior instead of rediscovering it.
 
 The examples come from synthetic residents (generate.build) with journals of 1, 2 and 4 weeks, so the model has
 seen short and long journals. A resident's own journal is not among the examples; it reaches the model through
@@ -34,7 +37,53 @@ NEVER = 2880.0  # minutes since last heard when there is no record, and the cap
 HIST_ALPHA = 0.1  # as generate.HIST_ALPHA
 FEATURES = (["hour", "weekday", "is_weekend", "slot", "min_since_heard", "same_part"]
             + ["last_" + c for c in CLASSES] + ["hist_" + c for c in CLASSES] + ["hist_n"]
-            + ["habit_" + z for z in ZONE_NAMES] + ["outing"])
+            + ["habit_" + z for z in ZONE_NAMES] + ["outing"] + ["prior_" + c for c in CLASSES])
+PRIOR_FILE = Path(__file__).resolve().parent / "data" / "cold_prior.json"
+_POPULATION = None
+
+
+def population():
+    """P(class | weekday type, part of the day) of the synthetic population (data/cold_prior.json, train
+    residents only), as search.population_shares gives it; even shares if the file is missing."""
+    global _POPULATION
+    if _POPULATION is None:
+        try:
+            import json
+            data = json.loads(PRIOR_FILE.read_text())
+            counts = np.array(data["pooled"], dtype=float) + 0.5
+            _POPULATION = counts / counts.sum(axis=2, keepdims=True) if list(data["classes"]) == list(CLASSES) else None
+        except (OSError, ValueError, KeyError):
+            _POPULATION = None
+        if _POPULATION is None:
+            _POPULATION = np.full((2, 3, len(CLASSES)), 1.0 / len(CLASSES))
+    return _POPULATION
+
+
+def counting_prior(weekday, slot, hist, hist_n, habit_zone, outing, last_zone, recent):
+    """The counting belief of search.beliefs from the same inputs: population, + stated habit and outing,
+    + her journal (counts recovered from the smoothed shares), + last heard when it is from this part of today
+    (a record lands in another zone 10% of the time; spread evenly here, as the flat is not known)."""
+    from search import MISPLACED, WEIGHTS
+
+    code = {c: i for i, c in enumerate(CLASSES)}
+    counts = WEIGHTS["population"] * population()[int(weekday >= 5), slot]
+    counts = counts.copy()
+    counts[code[habit_zone]] += WEIGHTS["habit"]
+    if outing:
+        counts[code["out"]] += WEIGHTS["outing"]
+    for c in CLASSES:  # undo the smoothing of history(): share * (n + alpha * k) - alpha
+        counts[code[c]] += max(0.0, hist.get(c, 0.0) * (hist_n + HIST_ALPHA * len(CLASSES)) - HIST_ALPHA)
+    p = counts / counts.sum()
+    if recent and last_zone is not None:
+        like = np.zeros(len(CLASSES))
+        if last_zone == "out":
+            like[code["out"]] = 1.0
+        else:
+            like[:len(ZONE_NAMES)] = MISPLACED / (len(ZONE_NAMES) - 1)
+            like[code[last_zone]] = 1.0 - MISPLACED
+        p = p * like
+        p = p / p.sum() if p.sum() > 0 else counts / counts.sum()
+    return p
 
 
 def same_part(hour, min_since):
@@ -54,6 +103,9 @@ def row(hour, weekday, last_zone, min_since, hist, hist_n, habit_zone, outing):
     out += [float(last_zone == c) for c in CLASSES]
     out += [float(hist.get(c, 0.0)) for c in CLASSES] + [float(hist_n)]
     out += [float(habit_zone == z) for z in ZONE_NAMES] + [float(bool(outing))]
+    slot = slot_of(int(hour * 60))
+    out += [float(v) for v in counting_prior(weekday, 0 if slot is None else slot, hist, hist_n, habit_zone, outing,
+                                             None if never else last_zone, bool(out[5]))]
     return out
 
 
@@ -72,14 +124,13 @@ def history(journal, weekday, slot, before_day=None):
     return {c: (v + HIST_ALPHA) / (n + HIST_ALPHA * len(CLASSES)) for c, v in counts.items()}, n
 
 
-def frame_rows(out, split):
-    """(X, y) for every `checkin` of the residents of a split in a generate.build() result."""
-    checkins = out["checkins"][out["checkins"]["kind"] == "checkin"]
-    habits = {p["resident_id"]: stated_habits(p) for p in out["personas"] if p["resident_split"] == split}
-    X, y = [], []
-    for r in checkins.itertuples():
+def rows_of(frame, habits):
+    """(X, y, resident ids) for the rows of a generate.build() frame (check-ins or diary records) whose resident
+    is in `habits` {resident_id: stated habits}."""
+    X, y, who = [], [], []
+    for r in frame.itertuples():
         h = habits.get(r.resident_id)
-        if h is None:
+        if h is None or int(r.slot) > 2:
             continue
         wk, slot, weekday = "1" if r.weekday >= 5 else "0", int(r.slot), int(r.weekday)
         last = r.last_heard_zone if isinstance(r.last_heard_zone, str) else None
@@ -87,7 +138,39 @@ def frame_rows(out, split):
         X.append(row(r.hour, weekday, last, r.min_since_heard, hist, r.hist_n, h["usual"][wk][slot],
                      (weekday, slot) in set(map(tuple, h["outings"]))))
         y.append(r.zone)
-    return np.array(X, dtype=np.float32), np.array(y, dtype=object)
+        who.append(r.resident_id)
+    return np.array(X, dtype=np.float32).reshape(-1, len(FEATURES)), np.array(y, dtype=object), np.array(who)
+
+
+def frame_rows(out, split):
+    """(X, y) for every `checkin` of the residents of a split in a generate.build() result."""
+    checkins = out["checkins"][out["checkins"]["kind"] == "checkin"]
+    habits = {p["resident_id"]: stated_habits(p) for p in out["personas"] if p["resident_split"] == split}
+    X, y, _ = rows_of(checkins, habits)
+    return X, y
+
+
+def own_examples(records, habits):
+    """Her own journal as examples for fit(): one row per record, as the check-in it would have been at that
+    moment (what was known just before it), labelled with the zone she was in.
+    records: (day, weekday, minute of the day, zone), oldest first; `day` is anything that orders the days."""
+    X, y = [], []
+    for i, (day, weekday, minute, zone) in enumerate(records):
+        slot = slot_of(int(minute))
+        if slot is None:
+            continue
+        earlier = [(w, slot_of(int(m)), z) for d, w, m, z in records[:i] if d < day and slot_of(int(m)) is not None]
+        hist, n = history(earlier, weekday, slot)
+        last = None
+        if i:
+            pd_, _, pm, pz = records[i - 1]
+            days = (day - pd_).days if hasattr(day - pd_, "days") else int(day - pd_)
+            last = (pz, days * 1440 + minute - pm)
+        usual = habits["usual"]["1" if weekday >= 5 else "0"][slot]
+        outing = (weekday, slot) in set(map(tuple, habits["outings"]))
+        X.append(row(minute / 60.0, weekday, last[0] if last else None, last[1] if last else None, hist, n, usual, outing))
+        y.append(zone)
+    return np.array(X, dtype=np.float32).reshape(-1, len(FEATURES)), np.array(y, dtype=object)
 
 
 def make_context(rows=CONTEXT_ROWS, seed=1):

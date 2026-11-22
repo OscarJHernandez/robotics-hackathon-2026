@@ -43,6 +43,11 @@ in the same pull request as the work.
 
 ## Code and tooling
 
+- 2026-11-22 (Oscar's agent): TabPFN ignored a strong journal when it only had the 13 raw journal-share columns
+  (ten dining-area afternoons lowered "dining area"), although the examples hold the pattern. Adding the counting
+  posterior as six features (`prior_*` in `homes/tabpfn_belief.py`) fixed it; `homes/test_tabpfn_belief.py` checks
+  that and nine other "does it make sense" behaviours. Fitting TabPFN again per resident with her own records as
+  examples was too slow to measure fully (30 residents did not finish in 10 minutes on the laptop).
 - 2026-11-22 (Oscar's agent): TabPFN's "where is she" belief went from 33% to 71% right (level with the counting
   model) by changing what goes into `fit()`, not the model: the examples are now synthetic **check-ins** instead of
   diary records, and the row has the same inputs as the counting belief (`homes/tabpfn_belief.py`). Diary records,

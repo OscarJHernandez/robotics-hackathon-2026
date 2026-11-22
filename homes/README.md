@@ -219,30 +219,38 @@ P(zone | weekday type, slot), counted from the train residents' diary. `probs(fl
 
 ### The belief from TabPFN (`tabpfn_belief.py`)
 
-`TabPFNBelief` gives P(zone) and P(out) with `fit()` and `predict_proba()` only. Two things made it work where
+`TabPFNBelief` gives P(zone) and P(out) with `fit()` and `predict_proba()` only. Three things made it work where
 `check.py` did not:
 
 - **The examples are synthetic check-ins, not diary records.** A check-in can come minutes after a record in the
   same part of the day, when "last heard" is nearly always right; diary records (one per part of the day) never
   show that case.
 - **The same inputs as the counting belief**: time, stated habits, her journal as shares per zone for this part of
-  the day, and where and how long ago she was last heard (25 features).
+  the day, and where and how long ago she was last heard.
+- **The counting posterior as six more features** (`prior_*`). With only the raw journal shares, ten dining-area
+  afternoons in her journal lowered TabPFN's "dining area" (28% to 24%); with the posterior beside them it follows
+  the journal (31 features in all).
 
 2,000 examples from residents with 1, 2 and 4 weeks of journal are in `data/tabpfn_context.npz`. Her own journal is
 not an example: it reaches the model through the features of the row to predict.
 
-`search_demo.py --tabpfn` on the 120 test residents (TabPFN 3.5; v2 is within 0.03 zones of it):
+`search_demo.py --tabpfn` on the 120 test residents (TabPFN 3.5):
 
 | Belief | Zones checked | Belief top | Log loss |
 |---|---|---|---|
 | Counting (`search.beliefs`) | 1.54 | 72% | 0.77 |
-| **TabPFN** | 1.61 | 71% | 0.81 |
+| **TabPFN** | 1.58 | 72% | 0.79 |
 | Last heard first, then nearest | 2.12 | | |
 | Nearest zone first | 3.30 | | |
 
-With the 20%-miss look, the loop that starts from TabPFN's belief finds her in 98.4% of searches (counting: 98.9%).
-So TabPFN is level with the counting model on this data and well ahead of the simple rules. It reacts less sharply
-than counting to a short, one-sided journal; adding her own records as examples to `fit()` is the next thing to try.
+With the 20%-miss look, the loop that starts from TabPFN's belief finds her in 98.5% of searches (counting: 98.9%).
+TabPFN is level with the counting model on this data and well ahead of the simple rules.
+
+**Does it make sense?** `test_tabpfn_belief.py` (12 tests, about 30 s) checks behaviour anyone would expect: heard
+10 minutes ago in a zone puts that zone first; an old record counts less; with nothing recent, her stated habit
+leads; a stated outing makes "out" likely; her journal moves the belief; it beats the population alone on people it
+never saw; the search goes most likely first; an empty look lowers that zone and raises the others by the same
+factor; the loop finds her wherever she is; and with nobody home "out" rises with every empty look.
 
 ### TabPFN smoke test (`check.py`)
 

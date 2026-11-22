@@ -5,6 +5,7 @@ to check what the search tells a real one (app/robot.py) to do.
 """
 
 import datetime
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -148,6 +149,28 @@ class ApartmentTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 a.set_inputs(bad)
         self.assertEqual(a.state()["habits"]["usual"]["0"], ["hallway", "kitchen", "bedroom"])  # bad input changed nothing
+
+    def test_random_examples_change_routines_and_journal(self):
+        a = make()
+        flat = a.flat["flat_id"]
+        journal = a.inputs()["journal"]
+        seen = set()
+        for _ in range(8):
+            data = a.randomize("routines")
+            seen.add(json.dumps(data["routines"], sort_keys=True))
+            self.assertEqual(data["journal"], journal)  # routines only: the journal stays
+        self.assertGreater(len(seen), 1)
+        data = a.randomize("journal")
+        self.assertNotEqual(data["journal"], journal)
+        self.assertGreaterEqual(len(data["journal"]), apartment.JOURNAL_DAYS * 3)
+        last = data["journal"][-1]
+        self.assertLessEqual((last["day"], last["time"]), ("2026-11-17", "10:35"))  # nothing after the check-in
+        data = a.randomize("both")
+        self.assertEqual(a.flat["flat_id"], flat)  # the flat stays
+        s = a.state()
+        self.assertAlmostEqual(sum(s["belief"].values()), 1.0)
+        with self.assertRaises(ValueError):
+            a.randomize("garage")
 
     def test_the_check_in_time_can_be_set_and_entries_after_it_do_not_count(self):
         a = make()

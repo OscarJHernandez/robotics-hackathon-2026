@@ -350,6 +350,36 @@ class Apartment:
                 self._paint()
             return result
 
+    def randomize(self, what="both"):
+        """A new random example: "routines" (a new resident's routine, so new stated habits), "journal" (2 weeks
+        drawn from her routine) or "both". The flat stays. Returns the new inputs (as inputs())."""
+        if what not in ("routines", "journal", "both"):
+            raise ValueError("what must be routines, journal or both")
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                raise ValueError("wait for the search to end before changing the inputs")
+            rng = np.random.default_rng()
+            if what in ("routines", "both"):
+                self.persona = R.sample_persona(rng, 0, self.flat)
+                self.habits = R.stated_habits(dict(self.persona, resident_id=int(rng.integers(1 << 30))))
+                self._habits_version += 1
+            if what in ("journal", "both"):
+                day, _, minute = self.when()
+                self.journal = []
+                for back in range(JOURNAL_DAYS, -1, -1):
+                    date = day - datetime.timedelta(days=back)
+                    codes = self._draw(date.weekday(), rng)
+                    for slot, (lo, hi) in enumerate(R.SLOT_WINDOWS):
+                        at = int(rng.uniform(lo, hi))
+                        if back == 0 and at >= minute:
+                            break  # nothing after the check-in time
+                        self._add(date, at, F.CLASSES[codes[slot]], "robot")
+            kind = {"routines": "routines", "journal": "journal", "both": "routines and journal"}[what]
+            self._say("Random {} ({} type){}".format(kind, self.persona["archetype"].replace("_", " "),
+                                                     ", journal drawn from it" if what == "both" else ""), "journal")
+            self._paint()
+            return self.inputs()
+
     def journal_text(self):
         """Her journal as text that import_journal reads back: one record per line, oldest first."""
         with self._lock:

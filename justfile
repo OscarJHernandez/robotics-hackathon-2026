@@ -118,6 +118,6 @@ search-demo *args:
 search-sim *args:
     cd homes && uv run --group ml python sim_bridge.py {{ args }}
 
-# Run the tests for homes/ (Knock data, arena flats, Bayesian search)
+# Run the tests for homes/ (Knock data, arena flats, Bayesian search, does TabPFN's belief make sense)
 test-homes:
-    cd homes && uv run --group ml python -m unittest test_homes.py -v
+    cd homes && uv run --group ml python -m unittest test_homes.py test_tabpfn_belief.py -v
