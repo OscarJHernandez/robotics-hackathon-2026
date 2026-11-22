@@ -1,0 +1,9 @@
+id: v16-lidar-history
+hypothesis: a short memory (summaries and odometry of the last 2 steps) helps turn decisively and avoid what just left the view
+parent: v11-lidar
+change: history 2 (camera sector distances, goal bearing and odometry of the previous 2 steps; never the previous command)
+kill_criterion: goal rate on screen-100 not above v11-lidar's (paired)
+student: {kind: tabpfn}
+features: {patches: false, summary: "7", history: 2, band_depth: 15, band_pca: 4, band_sectors: 15, lidar: true}
+context: {sources: [round0], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert]

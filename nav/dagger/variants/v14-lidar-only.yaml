@@ -1,0 +1,9 @@
+id: v14-lidar-only
+hypothesis: the 360 degree lidar plus the goal is enough; the camera adds little for obstacle avoidance
+parent: v11-lidar
+change: no camera features (no band depth, no DINO PCA)
+kill_criterion: goal rate on screen-100 more than 5 points below v11-lidar's
+student: {kind: tabpfn}
+features: {patches: false, summary: none, lidar: true}
+context: {sources: [round0], max_rows: 8000, quotas: uniform, seed: 0}
+offline: [offline_expert]
